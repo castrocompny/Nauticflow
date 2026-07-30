@@ -1,5 +1,5 @@
 # NauticFlow
-
+# Alguma Coisa 
 Base do MVP de gestão para turismo náutico. Next.js (App Router) + Supabase + Tailwind, no visual do dashboard da marca, sobre o schema v2 com o modelo de `departures`.
 
 ## O que já está pronto
