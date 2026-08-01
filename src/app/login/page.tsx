@@ -21,7 +21,7 @@ function Submit({ label }: { label: string }) {
 export default function LoginPage() {
   const [mode, setMode] = useState<"in" | "up">("in");
   const action = mode === "in" ? signIn : signUp;
-  const [state, formAction] = useFormState(action, { error: "" } as { error: string });
+  const [state, formAction] = useFormState(action, { error: "" } as { error: string; info?: string });
 
   return (
     <div className="grid min-h-screen place-items-center bg-page p-6">
@@ -38,6 +38,11 @@ export default function LoginPage() {
         {state?.error && (
           <div className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
             <AlertCircle size={14} /> {state.error}
+          </div>
+        )}
+        {state?.info && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            <AlertCircle size={14} /> {state.info}
           </div>
         )}
 

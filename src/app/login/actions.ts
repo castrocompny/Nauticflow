@@ -19,16 +19,19 @@ export async function signUp(_prev: unknown, formData: FormData) {
   const password = String(formData.get("password"));
   const supabase = createClient();
 
-  const { error: signErr } = await supabase.auth.signUp({ email, password });
+  // empresa, perfil e assinatura são criados por um gatilho no banco (on_auth_user_created),
+  // disparado na própria inserção em auth.users — não depende de uma chamada autenticada
+  // subsequente, então funciona mesmo com confirmação de e-mail ativa.
+  const { data, error: signErr } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { name, company } },
+  });
   if (signErr) return { error: signErr.message };
 
-  // bootstrap_company roda como SECURITY DEFINER e cria company, profile e assinatura
-  const { error: rpcErr } = await supabase.rpc("bootstrap_company", {
-    company_name: company,
-    plan_code: "start",
-    user_name: name,
-  });
-  if (rpcErr) return { error: "Conta criada, mas falhou ao montar a empresa: " + rpcErr.message };
+  if (!data.session) {
+    return { error: "", info: "Conta criada! Confirme seu e-mail e depois entre normalmente." };
+  }
 
   redirect("/dashboard");
 }
