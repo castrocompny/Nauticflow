@@ -1,6 +1,6 @@
 # NauticFlow — Documentação do Sistema
 
-Documento de referência sobre o que o sistema é, como está construído e o que falta. Complementa o [README.md](README.md).
+Ddddddocumento de referência sobre o que o sistema é, como está construído e o que falta. Complementa o [README.md](README.md).
 
 **Atenção**: este arquivo não está no controle de versão (não é rastreado pelo git) e já se perdeu uma vez nesta sessão. Vale commitar ele no repositório pra não perder de novo.
 
