@@ -3,11 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
+import { requireActiveSubscription } from "@/lib/subscription";
 
 export async function createDeparture(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
   if (!profile?.company_id) return { error: "Sessão inválida." };
   const company_id = profile.company_id;
+
+  const subscriptionBlocked = await requireActiveSubscription(company_id);
+  if (subscriptionBlocked) return { error: subscriptionBlocked };
+
   const supabase = createClient();
 
   const vessel_id = String(formData.get("vessel_id"));

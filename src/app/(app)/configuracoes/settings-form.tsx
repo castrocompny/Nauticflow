@@ -49,8 +49,8 @@ export function SettingsForm({
             <input name="company_name" required defaultValue={companyName} className="mt-1" />
           </div>
           <div>
-            <label>CNPJ</label>
-            <input name="cnpj" defaultValue={cnpj} className="mt-1" />
+            <label>CNPJ ou CPF</label>
+            <input name="cnpj" defaultValue={cnpj} className="mt-1" placeholder="00.000.000/0000-00" />
           </div>
           <div>
             <label>Cidade</label>

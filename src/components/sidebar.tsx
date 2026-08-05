@@ -15,6 +15,7 @@ import {
   Anchor,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
+import { fmtDate } from "@/lib/format";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -36,6 +37,8 @@ export function Sidebar({
   reservasUso,
   vesselsUso,
   vesselsLimite,
+  paidUntil,
+  overdue,
 }: {
   company: string;
   city: string | null;
@@ -43,6 +46,8 @@ export function Sidebar({
   reservasUso: number;
   vesselsUso: number;
   vesselsLimite: number | null;
+  paidUntil: string | null;
+  overdue: boolean;
 }) {
   const path = usePathname();
   const initial = (company || "?").trim().charAt(0).toUpperCase();
@@ -87,9 +92,14 @@ export function Sidebar({
             {vesselsLimite != null ? ` / ${vesselsLimite}` : ""}
           </p>
           <p>Reservas no mês: {reservasUso}</p>
+          {paidUntil && (
+            <p className={overdue ? "font-medium text-danger" : ""}>
+              {overdue ? "Vencida desde" : "Renova em"} {fmtDate(paidUntil)}
+            </p>
+          )}
         </div>
         <Link
-          href="/configuracoes"
+          href="/planos"
           className="mt-3 block rounded-md bg-brand px-3 py-1.5 text-center text-xs font-medium text-white transition hover:bg-brand-dark"
         >
           Gerenciar plano

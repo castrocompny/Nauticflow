@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 
 export async function signIn(_prev: unknown, formData: FormData) {
@@ -15,17 +16,24 @@ export async function signIn(_prev: unknown, formData: FormData) {
 export async function signUp(_prev: unknown, formData: FormData) {
   const name = String(formData.get("name"));
   const company = String(formData.get("company"));
+  const city = String(formData.get("city"));
+  const cnpj = String(formData.get("cnpj") || "");
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
+  const termsAccepted = formData.get("terms_accepted") === "on";
+  if (!termsAccepted) {
+    return { error: "É preciso aceitar os Termos de Uso e a Política de Privacidade para criar a conta." };
+  }
   const supabase = createClient();
 
   // empresa, perfil e assinatura são criados por um gatilho no banco (on_auth_user_created),
   // disparado na própria inserção em auth.users — não depende de uma chamada autenticada
-  // subsequente, então funciona mesmo com confirmação de e-mail ativa.
+  // subsequente, então funciona mesmo com confirmação de e-mail ativa. O aceite dos termos
+  // também é registrado por esse gatilho (profiles.terms_accepted_at).
   const { data, error: signErr } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { name, company } },
+    options: { data: { name, company, city, cnpj, terms_accepted: true } },
   });
   if (signErr) return { error: signErr.message };
 
@@ -34,6 +42,19 @@ export async function signUp(_prev: unknown, formData: FormData) {
   }
 
   redirect("/dashboard");
+}
+
+export async function forgotPassword(_prev: unknown, formData: FormData) {
+  const email = String(formData.get("email"));
+  const supabase = createClient();
+  const origin = headers().get("origin") ?? "http://localhost:3000";
+
+  // sempre retorna a mesma mensagem, exista ou nao o e-mail, pra nao revelar quais
+  // contas estao cadastradas no sistema
+  await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=/redefinir-senha`,
+  });
+  return { error: "", info: "Se esse e-mail estiver cadastrado, enviamos um link pra redefinir a senha." };
 }
 
 export async function signOut() {

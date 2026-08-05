@@ -118,6 +118,43 @@ export function EmptyState({
   );
 }
 
+export function Pager({
+  page,
+  totalPages,
+  basePath,
+}: {
+  page: number;
+  totalPages: number;
+  basePath: string;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="mt-3 flex items-center justify-between text-sm">
+      <Link
+        href={`${basePath}?page=${page - 1}`}
+        aria-disabled={page <= 1}
+        className={`rounded-lg border border-slate-200 px-3 py-1.5 ${
+          page <= 1 ? "pointer-events-none text-slate-300" : "text-slate-600 hover:bg-slate-50"
+        }`}
+      >
+        Anterior
+      </Link>
+      <span className="text-xs text-slate-500">
+        Página {page} de {totalPages}
+      </span>
+      <Link
+        href={`${basePath}?page=${page + 1}`}
+        aria-disabled={page >= totalPages}
+        className={`rounded-lg border border-slate-200 px-3 py-1.5 ${
+          page >= totalPages ? "pointer-events-none text-slate-300" : "text-slate-600 hover:bg-slate-50"
+        }`}
+      >
+        Próxima
+      </Link>
+    </div>
+  );
+}
+
 export function PrimaryLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <Link

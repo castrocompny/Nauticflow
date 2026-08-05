@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { AlertCircle } from "lucide-react";
-import { signIn, signUp } from "./actions";
+import { signIn, signUp, forgotPassword } from "./actions";
 import { Logo } from "@/components/logo";
 
 function Submit({ label }: { label: string }) {
@@ -18,10 +18,19 @@ function Submit({ label }: { label: string }) {
   );
 }
 
+const titles: Record<string, string> = {
+  in: "Acesse sua conta",
+  up: "Crie sua empresa",
+  forgot: "Recupere sua senha",
+};
+
 export default function LoginPage() {
-  const [mode, setMode] = useState<"in" | "up">("in");
-  const action = mode === "in" ? signIn : signUp;
-  const [state, formAction] = useFormState(action, { error: "" } as { error: string; info?: string });
+  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
+  const action = (mode === "in" ? signIn : mode === "up" ? signUp : forgotPassword) as (
+    prevState: { error: string; info?: string },
+    formData: FormData
+  ) => Promise<{ error: string; info?: string }>;
+  const [state, formAction] = useFormState(action, { error: "" });
 
   return (
     <div className="grid min-h-screen place-items-center bg-page p-6">
@@ -30,9 +39,7 @@ export default function LoginPage() {
           <div className="rounded-xl bg-navy px-3 py-2">
             <Logo />
           </div>
-          <p className="text-sm text-slate-500">
-            {mode === "in" ? "Acesse sua conta" : "Crie sua empresa"}
-          </p>
+          <p className="text-sm text-slate-500">{titles[mode]}</p>
         </div>
 
         {state?.error && (
@@ -57,25 +64,66 @@ export default function LoginPage() {
                 <label>Nome da empresa</label>
                 <input name="company" required className="mt-1" />
               </div>
+              <div>
+                <label>Cidade</label>
+                <input name="city" required className="mt-1" placeholder="Arraial do Cabo" />
+              </div>
+              <div>
+                <label>CNPJ ou CPF (opcional)</label>
+                <input name="cnpj" className="mt-1" placeholder="00.000.000/0000-00" />
+              </div>
             </>
           )}
           <div>
             <label>Email</label>
             <input name="email" type="email" required className="mt-1" placeholder="voce@empresa.com" />
           </div>
-          <div>
-            <label>Senha</label>
-            <input name="password" type="password" required className="mt-1" placeholder="••••••••" />
-          </div>
-          <Submit label={mode === "in" ? "Entrar" : "Criar conta"} />
+          {mode !== "forgot" && (
+            <div>
+              <label>Senha</label>
+              <input name="password" type="password" required className="mt-1" placeholder="••••••••" />
+            </div>
+          )}
+          {mode === "in" && (
+            <button
+              type="button"
+              onClick={() => setMode("forgot")}
+              className="block text-xs text-brand"
+            >
+              Esqueci minha senha
+            </button>
+          )}
+          {mode === "up" && (
+            <label className="flex items-start gap-2 text-xs text-slate-500">
+              <input type="checkbox" name="terms_accepted" required className="mt-0.5" />
+              <span>
+                Li e aceito os{" "}
+                <a href="/termos" target="_blank" rel="noreferrer" className="text-brand">
+                  Termos de Uso
+                </a>{" "}
+                e a{" "}
+                <a href="/privacidade" target="_blank" rel="noreferrer" className="text-brand">
+                  Política de Privacidade
+                </a>
+                .
+              </span>
+            </label>
+          )}
+          <Submit label={mode === "in" ? "Entrar" : mode === "up" ? "Criar conta" : "Enviar link de redefinição"} />
         </form>
 
-        <button
-          onClick={() => setMode(mode === "in" ? "up" : "in")}
-          className="mt-4 w-full text-center text-sm text-brand"
-        >
-          {mode === "in" ? "Criar conta" : "Já tenho conta, entrar"}
-        </button>
+        {mode === "forgot" ? (
+          <button onClick={() => setMode("in")} className="mt-4 w-full text-center text-sm text-brand">
+            Voltar ao login
+          </button>
+        ) : (
+          <button
+            onClick={() => setMode(mode === "in" ? "up" : "in")}
+            className="mt-4 w-full text-center text-sm text-brand"
+          >
+            {mode === "in" ? "Criar conta" : "Já tenho conta, entrar"}
+          </button>
+        )}
       </div>
     </div>
   );

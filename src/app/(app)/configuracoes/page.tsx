@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { Card, PageHeader } from "@/components/ui";
+import { Card, PageHeader, Badge } from "@/components/ui";
+import { fmtDate } from "@/lib/format";
 import { SettingsForm } from "./settings-form";
 
 export default async function ConfiguracoesPage() {
@@ -20,7 +21,7 @@ export default async function ConfiguracoesPage() {
   const [subRes, vesselsCount, monthRes] = await Promise.all([
     supabase
       .from("subscriptions")
-      .select("status, plans(name, max_vessels, max_users)")
+      .select("status, paid_until, plans(name, max_vessels, max_users)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -33,6 +34,8 @@ export default async function ConfiguracoesPage() {
 
   const sub = subRes.data as any;
   const plan = sub?.plans ?? {};
+  const paidUntil = sub?.paid_until ? new Date(sub.paid_until as string) : null;
+  const overdue = paidUntil ? paidUntil < new Date() : false;
 
   return (
     <>
@@ -54,15 +57,26 @@ export default async function ConfiguracoesPage() {
         <Card className="h-fit">
           <h2 className="mb-3 font-display font-semibold text-navy">Plano contratado</h2>
           <p className="font-display text-2xl font-semibold text-brand">{plan.name ?? "Sem plano"}</p>
-          <p className="mb-4 text-xs text-slate-500">Situação: {sub?.status ?? "indefinida"}</p>
+          <div className="mb-4 mt-1">
+            {!paidUntil ? (
+              <Badge tone="slate">sem assinatura</Badge>
+            ) : overdue ? (
+              <Badge tone="red">vencida desde {fmtDate(paidUntil.toISOString())}</Badge>
+            ) : (
+              <Badge tone="green">ativa até {fmtDate(paidUntil.toISOString())}</Badge>
+            )}
+          </div>
           <div className="space-y-2 text-sm">
             <Row label="Embarcações" value={`${vesselsCount.count ?? 0}${plan.max_vessels != null ? ` / ${plan.max_vessels}` : " / ilimitado"}`} />
             <Row label="Usuários" value={plan.max_users != null ? String(plan.max_users) : "ilimitado"} />
             <Row label="Reservas no mês" value={String(monthRes.count ?? 0)} />
           </div>
-          <p className="mt-4 text-xs text-slate-400">
-            Gestão de pagamento e troca de plano entram em uma etapa futura.
-          </p>
+          {overdue && (
+            <p className="mt-4 text-xs text-slate-400">
+              As opções de pagamento aparecem na faixa amarela no topo das telas enquanto a assinatura estiver
+              vencida.
+            </p>
+          )}
         </Card>
       </div>
     </>

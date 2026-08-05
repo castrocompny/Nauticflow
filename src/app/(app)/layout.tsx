@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { startEndOfToday } from "@/lib/format";
+import { OverdueBanner } from "./overdue-banner";
 import type { Notif } from "@/components/notifications-bell";
 
 const roleLabel: Record<string, string> = {
@@ -28,7 +29,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const companyName = p?.companies?.name ?? "Minha empresa";
   const companyCity = p?.companies?.city ?? null;
   const firstName = (p?.name ?? "").split(" ")[0] || "operador";
-  const role = roleLabel[p?.role] ?? "Usuário";
+  const rawRole = p?.role as string | undefined;
+  const role = roleLabel[rawRole ?? ""] ?? "Usuário";
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -38,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [subRes, vesselsCount, reservasMes, todayDeps, novasRes] = await Promise.all([
     supabase
       .from("subscriptions")
-      .select("plans(name, max_vessels)")
+      .select("status, paid_until, plans(name, max_vessels)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -54,6 +56,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const planName = (subRes.data as any)?.plans?.name ?? "Sem plano";
   const vesselsLimite = (subRes.data as any)?.plans?.max_vessels ?? null;
+  const paidUntil = (subRes.data as any)?.paid_until as string | null;
+  const isOverdue = rawRole !== "super_admin" && paidUntil != null && new Date(paidUntil) < new Date();
 
   const deps = (todayDeps.data ?? []) as any[];
   const lotadas = deps.filter((d) => {
@@ -80,9 +84,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         reservasUso={reservasMes.count ?? 0}
         vesselsUso={vesselsCount.count ?? 0}
         vesselsLimite={vesselsLimite}
+        paidUntil={paidUntil}
+        overdue={isOverdue}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar name={firstName} role={role} notifications={notifications} />
+        {isOverdue && <OverdueBanner companyName={companyName} />}
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
     </div>

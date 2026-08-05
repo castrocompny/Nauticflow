@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireActiveSubscription } from "@/lib/subscription";
 
 async function companyId() {
   const supabase = createClient();
@@ -16,6 +17,10 @@ async function companyId() {
 export async function createPartner(_prev: unknown, formData: FormData) {
   const { supabase, id } = await companyId();
   if (!id) return { error: "Sessão inválida ou usuário sem empresa." };
+
+  const subscriptionBlocked = await requireActiveSubscription(id);
+  if (subscriptionBlocked) return { error: subscriptionBlocked };
+
   const { error } = await supabase.from("partners").insert({
     company_id: id,
     name: String(formData.get("name")),

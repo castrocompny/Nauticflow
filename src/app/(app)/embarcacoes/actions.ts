@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireActiveSubscription } from "@/lib/subscription";
 
 export async function createVessel(_prev: unknown, formData: FormData) {
   const supabase = createClient();
@@ -29,7 +30,32 @@ export async function createVessel(_prev: unknown, formData: FormData) {
     };
   }
 
-  // 3) insere a embarcacao com o company_id do usuario logado
+  const subscriptionBlocked = await requireActiveSubscription(profile.company_id);
+  if (subscriptionBlocked) return { error: subscriptionBlocked };
+
+  // 3) confere o limite de embarcacoes do plano contratado antes de inserir
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("plans(max_vessels)")
+    .eq("company_id", profile.company_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const maxVessels = (sub as any)?.plans?.max_vessels as number | null | undefined;
+
+  if (maxVessels != null) {
+    const { count } = await supabase
+      .from("vessels")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", profile.company_id);
+    if ((count ?? 0) >= maxVessels) {
+      return {
+        error: `Seu plano permite até ${maxVessels} embarcação(ões) cadastrada(s). Faça upgrade do plano para cadastrar mais.`,
+      };
+    }
+  }
+
+  // 4) insere a embarcacao com o company_id do usuario logado
   // a capacidade comercial e preenchida automaticamente pelo trigger no banco
   const { error } = await supabase.from("vessels").insert({
     company_id: profile.company_id,
