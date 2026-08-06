@@ -6,6 +6,12 @@ import { startEndOfToday } from "@/lib/format";
 import { OverdueBanner } from "./overdue-banner";
 import type { Notif } from "@/components/notifications-bell";
 
+// forca toda a area logada a buscar dado fresco do banco a cada requisicao — sem isso,
+// o Next.js pode reaproveitar uma resposta antiga em cache (ex: plano/assinatura logo
+// depois de uma renovacao feita em outra tela) e mostrar informacao desatualizada.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const roleLabel: Record<string, string> = {
   company_admin: "Administrador",
   staff: "Operador",
@@ -76,7 +82,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     notifications.push({ id: "saidas-lotadas", title: `${lotadas} saídas lotadas hoje`, desc: "capacidade máxima atingida" });
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar
         company={companyName}
         city={companyCity}
@@ -87,7 +93,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         paidUntil={paidUntil}
         overdue={isOverdue}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar name={firstName} role={role} notifications={notifications} />
         {isOverdue && <OverdueBanner companyName={companyName} />}
         <main className="flex-1 overflow-auto p-6">{children}</main>

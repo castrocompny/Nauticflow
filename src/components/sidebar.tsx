@@ -13,6 +13,7 @@ import {
   BarChart3,
   Settings,
   Anchor,
+  UserCog,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { fmtDate } from "@/lib/format";
@@ -27,6 +28,7 @@ const nav = [
   { href: "/financeiro", label: "Financeiro", icon: Wallet },
   { href: "/parceiros", label: "Parceiros", icon: Handshake },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/equipe", label: "Equipe", icon: UserCog },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

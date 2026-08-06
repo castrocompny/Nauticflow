@@ -54,12 +54,28 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
-- **Convidar colaborador / múltiplos usuários por empresa**: os planos mostram limite de usuários (1/5/ilimitado), mas **isso não existe de verdade** — não há tela nem Server Action pra convidar/criar um segundo login pra mesma empresa. Cada empresa só tem o usuário que se cadastrou. Construir quando o usuário pedir.
+- **Modo escuro (dark mode)**: o app hoje só tem tema claro. Adicionar um alternador claro/escuro é uma tarefa pendente — construir quando o usuário pedir.
 - **Testar o webhook do Asaas com domínio real** (ou via ngrok) — hoje só validado localmente com uma chamada simulada.
 - **Upgrade do Supabase pro plano Pro** — evita pausa automática do projeto por inatividade e ativa backup. Ainda não feito (decisão do dono do produto, envolve custo).
-- Itens já resolvidos nesta sessão que valem só relembrar: índices de performance (`departs_at`, `created_at`, `status`), sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry.
+- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8).
 
-## 7. Convenções
+## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
+
+Já aconteceu mais de uma vez nesta sessão: o VS Code reabre/mantém um terminal com `npm run dev` rodando por conta própria, competindo com o servidor iniciado via Claude Code. Quando isso acontece, o Next.js sobe uma segunda instância na porta **3001** (ou seguinte), e o navegador pode acabar apontando pra porta errada, gerando 404 estranho.
+
+Se isso acontecer de novo: `netstat -ano | grep -E ":300[0-9] " | grep LISTENING` pra ver quais portas estão ocupadas, matar o processo extra, e garantir que só sobra uma instância (a que o Claude Code está gerenciando) na porta 3000.
+
+## 8. Equipe (convidar colaboradores)
+
+Construído nesta sessão. Fluxo:
+- Tela `/equipe` lista quem tem acesso à empresa e (se for `company_admin`/`super_admin`) mostra um formulário de convite por e-mail.
+- Convite usa `supabase.auth.admin.inviteUserByEmail` (precisa de `SUPABASE_SERVICE_ROLE_KEY`, client em `src/lib/supabase/admin.ts` — nunca usar esse client fora do servidor).
+- O gatilho `handle_new_user` foi ajustado pra reconhecer `invited_to_company_id` nos metadados do convite e vincular o novo usuário à empresa que convidou, em vez de criar uma empresa nova (esse é o mesmo gatilho do cadastro normal — ver seção 3).
+- Convidado aceita o convite e cai na tela `/redefinir-senha` (reaproveitada) pra definir a senha.
+- Limite de usuários do plano é aplicado de verdade (mesmo padrão do limite de embarcações).
+- Regras: só `company_admin`/`super_admin` convida; ninguém remove a si mesmo; não dá pra remover outro administrador (só "Operador"). Remover de fato deleta a conta (`auth.admin.deleteUser`, cascade apaga o profile).
+
+## 9. Convenções
 
 - Migrations em `supabase/migrations/` **não rodam sozinhas** — cada uma precisa ser colada manualmente no SQL Editor do Supabase, na ordem numérica.
 - `npx tsc --noEmit` antes de considerar qualquer mudança de código pronta.

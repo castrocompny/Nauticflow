@@ -7,11 +7,14 @@ import {
   Ship,
   Plus,
   TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { brl, fmtTime, startEndOfToday } from "@/lib/format";
 import { getProfile } from "@/lib/profile";
 import { Card, Badge } from "@/components/ui";
+import { BarsChart } from "./bars-chart";
 
 export default async function Dashboard() {
   const supabase = createClient();
@@ -20,9 +23,10 @@ export default async function Dashboard() {
   const now = new Date();
   const { start: todayStart, end: todayEnd } = startEndOfToday();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const d30 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
 
-  const [todayRes, recentRes, depsRes, clientsRes, lastResRes] = await Promise.all([
+  const [todayRes, recentRes, depsRes, clientsRes, lastResRes, prevMonthRes] = await Promise.all([
     supabase
       .from("departures")
       .select("id, departs_at, capacity, status, vessels(name), tours(name), reservations(people_count, status)")
@@ -40,6 +44,11 @@ export default async function Dashboard() {
       .select("id, people_count, total_cents, status, created_at, clients(name), departures(departs_at, vessels(name))")
       .order("created_at", { ascending: false })
       .limit(6),
+    supabase
+      .from("reservations")
+      .select("total_cents, status, created_at")
+      .gte("created_at", prevMonthStart.toISOString())
+      .lt("created_at", monthStart.toISOString()),
   ]);
 
   const todayDeps = (todayRes.data ?? []) as any[];
@@ -62,11 +71,18 @@ export default async function Dashboard() {
   const clientesAtivos = clientsRes.count ?? 0;
   const ultimasReservas = (lastResRes.data ?? []) as any[];
 
+  const receitaMesAnterior = ((prevMonthRes.data ?? []) as any[])
+    .filter((x) => x.status === "confirmada")
+    .reduce((s, x) => s + x.total_cents, 0);
+  const receitaTrendPct = receitaMesAnterior > 0 ? Math.round(((receitaMes - receitaMesAnterior) / receitaMesAnterior) * 100) : null;
+
   // series de 30 dias
   const dayKeys: string[] = [];
+  const dayDates: Date[] = [];
   for (let i = 29; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
     dayKeys.push(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+    dayDates.push(d);
   }
   const keyOf = (iso: string) => {
     const d = new Date(iso);
@@ -96,6 +112,10 @@ export default async function Dashboard() {
     }
   });
   const occSeries = dayKeys.map((k) => (occAgg[k].n ? Math.round(occAgg[k].sum / occAgg[k].n) : 0));
+  const occMedia30 = occSeries.length ? Math.round(occSeries.reduce((s, v) => s + v, 0) / occSeries.length) : 0;
+  const ocupacaoTrendPts = occMedia30 > 0 ? ocupacaoHoje - occMedia30 : null;
+
+  const dayLabel = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 
   const hour = now.getHours();
   const greet = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
@@ -120,12 +140,24 @@ export default async function Dashboard() {
       </div>
 
       {/* Cards principais */}
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Metric icon={<CalendarCheck size={20} />} tone="bg-brand" label="Reservas de hoje" value={String(reservasHoje)} />
-        <Metric icon={<DollarSign size={20} />} tone="bg-ok" label="Receita do mês" value={brl(receitaMes)} />
-        <Metric icon={<Gauge size={20} />} tone="bg-amberflow" label="Taxa de ocupação" value={`${ocupacaoHoje}%`} />
-        <Metric icon={<Users size={20} />} tone="bg-purpleflow" label="Clientes ativos" value={String(clientesAtivos)} />
-        <Metric icon={<Ship size={20} />} tone="bg-navy" label="Passageiros de hoje" value={String(passageirosHoje)} />
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <Metric icon={<CalendarCheck size={20} />} tone="bg-brand" label="Reservas hoje" value={String(reservasHoje)} />
+        <Metric
+          icon={<DollarSign size={20} />}
+          tone="bg-ok"
+          label="Receita do mês"
+          value={brl(receitaMes)}
+          trend={receitaTrendPct != null ? { pct: receitaTrendPct, suffix: "vs mês passado" } : null}
+        />
+        <Metric
+          icon={<Gauge size={20} />}
+          tone="bg-amberflow"
+          label="Ocupação hoje"
+          value={`${ocupacaoHoje}%`}
+          trend={ocupacaoTrendPts != null ? { pct: ocupacaoTrendPts, suffix: "vs média 30d", isPoints: true } : null}
+        />
+        <Metric icon={<Users size={20} />} tone="bg-purpleflow" label="Clientes" value={String(clientesAtivos)} />
+        <Metric icon={<Ship size={20} />} tone="bg-navy" label="Passageiros hoje" value={String(passageirosHoje)} />
       </div>
 
       {/* Proximas saidas */}
@@ -170,17 +202,37 @@ export default async function Dashboard() {
           {Array.from({ length: 10 }, (_, i) => 8 + i).map((h) => {
             const here = todayDeps.filter((r) => new Date(r.departs_at).getHours() === h);
             return (
-              <div key={h} className="flex items-start gap-3 border-b border-slate-50 py-1.5 last:border-0">
-                <span className="w-12 shrink-0 text-xs text-slate-400">{String(h).padStart(2, "0")}:00</span>
-                <div className="flex flex-1 flex-wrap gap-2">
+              <div
+                key={h}
+                className="group flex items-center gap-3 rounded-lg border-b border-slate-50 px-2 py-2 transition hover:bg-slate-50 last:border-0"
+              >
+                <span className="w-12 shrink-0 text-sm font-medium text-navy">{String(h).padStart(2, "0")}:00</span>
+                <div className="flex flex-1 flex-wrap items-center gap-2">
                   {here.length === 0 ? (
-                    <span className="text-xs text-slate-300">livre</span>
+                    <Link
+                      href="/saidas"
+                      className="inline-flex items-center gap-1.5 text-xs text-slate-400 transition group-hover:text-brand"
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-ok/50 transition group-hover:bg-ok" />
+                      livre
+                      <Plus size={12} className="opacity-0 transition group-hover:opacity-100" />
+                    </Link>
                   ) : (
-                    here.map((r) => (
-                      <span key={r.id} className="rounded-md bg-blue-50 px-2 py-1 text-xs text-brand-dark">
-                        {r.vessels?.name} · {booked(r)}/{r.capacity}
-                      </span>
-                    ))
+                    here.map((r) => {
+                      const b = booked(r);
+                      const full = b >= r.capacity;
+                      return (
+                        <Link
+                          key={r.id}
+                          href={`/saidas/${r.id}`}
+                          className={`rounded-md px-2 py-1 text-xs font-medium transition hover:opacity-80 ${
+                            full ? "bg-red-50 text-danger" : "bg-blue-50 text-brand-dark"
+                          }`}
+                        >
+                          {r.vessels?.name} · {b}/{r.capacity}
+                        </Link>
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -200,17 +252,23 @@ export default async function Dashboard() {
             <TrendingUp size={18} className="text-ok" />
           </div>
           <p className="mb-3 text-sm text-slate-500">Total: {brl(revSeries.reduce((s, v) => s + v, 0) * 100)}</p>
-          <Bars series={revSeries} color="#2563EB" />
+          <BarsChart
+            points={revSeries.map((v, i) => ({ label: dayLabel(dayDates[i]), value: v }))}
+            color="#2563EB"
+            formatType="brl"
+          />
         </Card>
         <Card>
           <div className="mb-1 flex items-center justify-between">
             <h2 className="font-display text-base font-semibold text-navy">Taxa de ocupação dos últimos 30 dias</h2>
             <Gauge size={18} className="text-amberflow" />
           </div>
-          <p className="mb-3 text-sm text-slate-500">
-            Média: {occSeries.length ? Math.round(occSeries.reduce((s, v) => s + v, 0) / occSeries.length) : 0}%
-          </p>
-          <Bars series={occSeries} color="#F59E0B" />
+          <p className="mb-3 text-sm text-slate-500">Média: {occMedia30}%</p>
+          <BarsChart
+            points={occSeries.map((v, i) => ({ label: dayLabel(dayDates[i]), value: v }))}
+            color="#F59E0B"
+            formatType="percent"
+          />
         </Card>
       </div>
 
@@ -263,35 +321,36 @@ function Metric({
   tone,
   label,
   value,
+  trend,
 }: {
   icon: React.ReactNode;
   tone: string;
   label: string;
   value: string;
+  trend?: { pct: number; suffix: string; isPoints?: boolean } | null;
 }) {
   return (
     <Card className="flex items-center gap-3">
       <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white ${tone}`}>{icon}</span>
       <div className="min-w-0">
-        <p className="truncate text-xs text-slate-500">{label}</p>
+        <p className="text-xs leading-tight text-slate-500">{label}</p>
         <p className="font-display text-xl font-semibold text-navy">{value}</p>
+        {trend && <TrendBadge {...trend} />}
       </div>
     </Card>
   );
 }
 
-function Bars({ series, color }: { series: number[]; color: string }) {
-  const max = Math.max(...series, 1);
-  const hasData = series.some((v) => v > 0);
-  if (!hasData) {
-    return <div className="py-8 text-center text-sm text-slate-400">Sem dados ainda.</div>;
-  }
+function TrendBadge({ pct, suffix, isPoints }: { pct: number; suffix: string; isPoints?: boolean }) {
+  const up = pct > 0;
+  const flat = pct === 0;
+  const Icon = flat ? Minus : up ? TrendingUp : TrendingDown;
+  const color = flat ? "text-slate-400" : up ? "text-ok" : "text-danger";
+  const amount = isPoints ? `${up ? "+" : ""}${pct}pp` : `${up ? "+" : ""}${pct}%`;
   return (
-    <svg viewBox={`0 0 ${series.length * 4} 40`} preserveAspectRatio="none" className="h-24 w-full">
-      {series.map((v, i) => {
-        const h = max ? (v / max) * 36 : 0;
-        return <rect key={i} x={i * 4 + 0.6} y={40 - h} width={2.8} height={h} rx={1} fill={color} />;
-      })}
-    </svg>
+    <p className={`mt-0.5 flex items-center gap-1 text-[11px] font-medium ${color}`}>
+      <Icon size={12} /> {amount} <span className="font-normal text-slate-400">{suffix}</span>
+    </p>
   );
 }
+
