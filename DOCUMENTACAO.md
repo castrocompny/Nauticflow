@@ -56,10 +56,9 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
 - **Timezone: parsing ingênuo de data/hora de saída** — `saidas/actions.ts` monta `departs_at` com `new Date(`${date}T${time}`).toISOString()`, que interpreta a string usando o fuso horário do processo Node, não necessariamente `America/Sao_Paulo`. Hoje isso funciona porque o `next dev` roda na máquina do desenvolvedor (fuso de Brasília). **Se o app for hospedado num serviço que roda em UTC por padrão (Vercel, por exemplo), toda essa lógica de horário — inclusive a trava de 08:00–19:00 e o "não pode ser no passado" — vai calcular errado por 3 horas.** Precisa ser corrigido (fixar o offset `-03:00` na escrita, e/ou passar `timeZone: "America/Sao_Paulo"` explícito nas formatações de leitura) antes de publicar em produção num host fora do Brasil/fora desse fuso.
-- **Modo escuro (dark mode)**: o app hoje só tem tema claro. Adicionar um alternador claro/escuro é uma tarefa pendente — construir quando o usuário pedir.
 - **Testar o webhook do Asaas com domínio real** (ou via ngrok) — hoje só validado localmente com uma chamada simulada.
 - **Upgrade do Supabase pro plano Pro** — evita pausa automática do projeto por inatividade e ativa backup. Ainda não feito (decisão do dono do produto, envolve custo).
-- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco).
+- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11).
 
 ## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
 
@@ -114,3 +113,25 @@ Pedido explícito do dono do produto. Aplicada em duas camadas:
 ### Consistência de cache
 
 `createReservation`, `updateReservation`, `deleteReservation`, `updateReservationStatus`, `createDeparture`, `updateDeparture` e as mudanças de status de saída não invalidavam `/agenda` (só `/reservas`, `/saidas`, `/dashboard`). Adicionado `revalidatePath("/agenda")` em todas.
+
+## 11. Modo escuro, Financeiro e Planos (sessão de 2026-08-10)
+
+### Modo escuro
+
+App inteiro ganhou tema claro/escuro via classe `.dark` no `<html>` (Tailwind `darkMode: "class"`).
+
+- **Tokens de cor** (`tailwind.config.ts` + `src/app/globals.css`): em vez de cores fixas (`bg-white`, `text-slate-900` etc.), os componentes usam tokens semânticos — `bg-app`, `bg-surface`, `bg-surfaceHover`, `text-heading`, `text-body`, `text-muted`, `border-line`. Cada token é uma CSS custom property com um valor em `:root` (claro) e outro em `.dark` (escuro). `bg-surfaceHover` precisou de um formato especial (`rgb(var(--bg-surface-hover-rgb) / <alpha-value>)`, com a variável guardando um triplet RGB tipo `30 33 40`) porque o Tailwind não consegue aplicar modificador de opacidade (`/60` etc.) direto em cima de um `var()` comum.
+- **Sem "flash" de tela clara antes de escurecer**: um script inline em `src/app/layout.tsx` (via `next/script`, `strategy="beforeInteractive"`) lê `localStorage.theme` (ou a preferência do sistema operacional, se nunca escolheu) e aplica a classe `.dark` **antes** da página pintar.
+- **Alternador**: `src/components/theme-toggle.tsx`, um botão (ícone sol/lua) na topbar que troca a classe e salva a escolha em `localStorage`.
+- **Elementos com cor sempre fixa (não seguem o tema)**: o fundo branco atrás do ícone do barco na logo (`src/components/logo.tsx`) e o mesmo ícone repetido no cabeçalho do voucher (`src/app/voucher/[id]/page.tsx`) continuam `bg-white` fixo em qualquer tema — o barco tem casco escuro e fica invisível num fundo escuro.
+- Vários links que pareciam texto solto (Voucher/Passageiros em `reservas/reservation-row.tsx`, Manifesto em `saidas/departure-row.tsx` e `saidas/[id]/page.tsx`) ganharam aparência de botão (borda + fundo no hover) pra ficar claro que são clicáveis, em ambos os temas.
+
+### Financeiro (`src/app/(app)/financeiro/page.tsx`)
+
+Adicionados dois gráficos, reaproveitando o componente `BarsChart` já criado pro dashboard:
+- **Receita ao longo do tempo**: por dia (visão "mês") ou por mês (visão "ano"), conforme o filtro `?p=` já existente na página.
+- **Receita por embarcação**: ranking horizontal (barras de progresso) das embarcações que mais faturaram no período, mesmo padrão visual usado em `/relatorios`.
+
+### Planos (`src/app/(app)/planos/page.tsx`)
+
+O card do plano atual só mostra o botão "Renovar plano" quando faltam **7 dias ou menos** pra vencer (`DIAS_PARA_AVISAR_VENCIMENTO`) ou quando já venceu; fora essa janela, mostra só "Ativo até [data]" — antes disso, o botão de renovar aparecia sempre, mesmo logo depois de um pagamento confirmado, confundindo o cliente.
