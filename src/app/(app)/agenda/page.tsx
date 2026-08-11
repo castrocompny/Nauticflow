@@ -108,13 +108,20 @@ export default async function AgendaPage({ searchParams }: { searchParams: { f?:
         <div className="space-y-4">
           {dayList.map((day) => {
             const ofDay = deps.filter((d) => sameDay(d.departs_at, day));
+            const hours = new Set<number>();
+            for (let h = 8; h <= 19; h++) hours.add(h);
+            ofDay.forEach((d) => {
+              const h = new Date(d.departs_at).getHours();
+              if (h <= 19) hours.add(h);
+            });
+            const hourList = Array.from(hours).sort((a, b) => a - b);
             return (
               <Card key={day.toISOString()}>
                 <h2 className="mb-3 font-display text-sm font-semibold capitalize text-heading">
                   {day.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
                 </h2>
                 <div className="space-y-1">
-                  {Array.from({ length: 11 }, (_, i) => 8 + i).map((h) => {
+                  {hourList.map((h) => {
                     const here = ofDay.filter((r) => new Date(r.departs_at).getHours() === h);
                     return (
                       <div key={h} className="flex items-start gap-3 border-b border-line py-1.5 last:border-0">

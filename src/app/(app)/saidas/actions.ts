@@ -19,6 +19,8 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   const date = String(formData.get("date"));
   const time = String(formData.get("time"));
   if (!vessel_id || !date || !time) return { error: "Preencha embarcação, data e hora." };
+  if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
+  if (new Date(`${date}T${time}`) < new Date()) return { error: "Não é possível criar uma saída em um horário que já passou." };
 
   // resolve o passeio: existente ou novo
   let tour_id = String(formData.get("tour_id") || "");
@@ -55,6 +57,7 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   }
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { error: "" };
 }
 
@@ -78,6 +81,7 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
   const date = String(formData.get("date"));
   const time = String(formData.get("time"));
   if (!vessel_id || !tour_id || !date || !time) return { error: "Preencha embarcação, passeio, data e hora." };
+  if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
 
   const departs_at = new Date(`${date}T${time}`).toISOString();
   const capRaw = formData.get("capacity");
@@ -101,6 +105,7 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
   revalidatePath("/saidas");
   revalidatePath(`/saidas/${id}`);
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { error: "" };
 }
 
@@ -117,6 +122,7 @@ async function setDepartureStatus(id: string, status: "em_andamento" | "cancelad
   revalidatePath(`/saidas/${id}`);
   revalidatePath("/reservas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { ok: true, message: "Saída atualizada." };
 }
 
@@ -170,5 +176,6 @@ export async function deleteDeparture(formData: FormData) {
   if (error) return { error: "Não é possível excluir porque existem registros vinculados." };
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { error: "" };
 }

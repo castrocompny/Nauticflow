@@ -86,7 +86,7 @@ export function NewDepartureForm({ vessels, tours }: { vessels: Vessel[]; tours:
           </div>
           <div>
             <label>Hora</label>
-            <input name="time" type="time" required className="mt-1" />
+            <input name="time" type="time" required min="08:00" max="19:00" className="mt-1" />
           </div>
         </div>
         <div className="flex gap-2">

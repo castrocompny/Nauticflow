@@ -14,12 +14,21 @@ export async function createReservation(_prev: unknown, formData: FormData) {
 
   const supabase = createClient();
   const valueReais = Number(String(formData.get("value") || "0").replace(",", "."));
+  const departure_id = String(formData.get("departure_id"));
+
+  const { data: departure } = await supabase.from("departures").select("departs_at").eq("id", departure_id).single();
+  if (departure) {
+    const d = new Date(departure.departs_at);
+    const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    if (hhmm < "08:00" || hhmm > "19:00")
+      return { error: "Esta saída está fora do horário permitido para reservas (08:00–19:00)." };
+  }
 
   const { data: inserted, error } = await supabase
     .from("reservations")
     .insert({
       company_id: profile.company_id,
-      departure_id: String(formData.get("departure_id")),
+      departure_id,
       client_id: String(formData.get("client_id")),
       people_count: Number(formData.get("people_count")),
       total_cents: Math.round(valueReais * 100),
@@ -52,6 +61,7 @@ export async function createReservation(_prev: unknown, formData: FormData) {
   revalidatePath("/reservas");
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { error: "", info };
 }
 
@@ -97,6 +107,7 @@ export async function updateReservationStatus(id: string, status: "confirmada" |
   revalidatePath("/reservas");
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { ok: true, message: "Status atualizado." };
 }
 
@@ -129,6 +140,7 @@ export async function updateReservation(_prev: unknown, formData: FormData) {
   revalidatePath("/reservas");
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { error: "" };
 }
 
@@ -156,5 +168,6 @@ export async function deleteReservation(formData: FormData) {
   revalidatePath("/reservas");
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
   return { error: "" };
 }

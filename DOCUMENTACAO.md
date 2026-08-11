@@ -2,7 +2,7 @@
 
 Documento de referência sobre o que o sistema é, como está construído e o que falta. Complementa o [README.md](README.md).
 
-**Atenção**: estes arquivo não está no controle de versão (não é rastreado pelo git) e já se perdeu uma vez nesta sessão. Vale commitar ele no repositório pra não perder de novo.
+Este arquivo é versionado (`git ls-files` confirma) — pode editar e commitar normalmente.
 
 ---
 
@@ -49,15 +49,17 @@ Gatilhos de negócio no Postgres (não só na UI):
 - Capacidade da saída não pode exceder a capacidade comercial, nem cair abaixo do já confirmado numa edição.
 - Reserva confirmada trava a linha da saída (`FOR UPDATE`) antes de checar vagas — evita overselling em reservas simultâneas.
 - Passageiro não pode passar do `people_count` da reserva.
+- **Saída não pode ser criada no passado nem fora de 08:00–19:00 (horário de Brasília)** — `trg_departure_schedule` / `check_departure_schedule()`, migration `0014_horario_saida_no_banco.sql` (aplicada no Supabase). Só na criação (`before insert`); edições de saídas antigas continuam livres, de propósito. Ver seção 10 para o porquê dessa trava existir também no banco (e não só no app).
 
 Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT em nível de coluna) — evita que um usuário troque o próprio `company_id`/`role` via API direta e acesse dados de outra empresa.
 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
+- **Timezone: parsing ingênuo de data/hora de saída** — `saidas/actions.ts` monta `departs_at` com `new Date(`${date}T${time}`).toISOString()`, que interpreta a string usando o fuso horário do processo Node, não necessariamente `America/Sao_Paulo`. Hoje isso funciona porque o `next dev` roda na máquina do desenvolvedor (fuso de Brasília). **Se o app for hospedado num serviço que roda em UTC por padrão (Vercel, por exemplo), toda essa lógica de horário — inclusive a trava de 08:00–19:00 e o "não pode ser no passado" — vai calcular errado por 3 horas.** Precisa ser corrigido (fixar o offset `-03:00` na escrita, e/ou passar `timeZone: "America/Sao_Paulo"` explícito nas formatações de leitura) antes de publicar em produção num host fora do Brasil/fora desse fuso.
 - **Modo escuro (dark mode)**: o app hoje só tem tema claro. Adicionar um alternador claro/escuro é uma tarefa pendente — construir quando o usuário pedir.
 - **Testar o webhook do Asaas com domínio real** (ou via ngrok) — hoje só validado localmente com uma chamada simulada.
 - **Upgrade do Supabase pro plano Pro** — evita pausa automática do projeto por inatividade e ativa backup. Ainda não feito (decisão do dono do produto, envolve custo).
-- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8).
+- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco).
 
 ## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
 
@@ -80,3 +82,35 @@ Construído nesta sessão. Fluxo:
 - Migrations em `supabase/migrations/` **não rodam sozinhas** — cada uma precisa ser colada manualmente no SQL Editor do Supabase, na ordem numérica.
 - `npx tsc --noEmit` antes de considerar qualquer mudança de código pronta.
 - Servidor de dev: `npm run dev`, porta 3000.
+
+## 10. Dashboard, Agenda e regras de horário (sessão de 2026-08-10)
+
+Reformulação do dashboard e correções de sincronização entre Saídas → Reservas → Agenda.
+
+### Dashboard (`src/app/(app)/dashboard/`)
+
+- **Novas seções**, usando dados que já existiam no banco mas não apareciam em lugar nenhum (`vessels`, `tours`, `partners`):
+  - Ranking por embarcação (receita + ocupação média do período).
+  - Ranking de passeios mais vendidos.
+  - Origem das reservas (parceiro vs. venda direta).
+  - Ticket médio, taxa de cancelamento/pendência, novos vs. clientes recorrentes.
+  - Alerta de saídas dos próximos 7 dias com ocupação abaixo de 50%.
+  - Filtro de período (7d/30d/90d/mês atual) controlando gráficos e rankings, no padrão já usado em `/relatorios` e `/financeiro` (`?p=`).
+  - Linha de média no `BarsChart` (`bars-chart.tsx`).
+- **Reorganização de layout**: seção "Desempenho do período" subiu pra logo depois dos KPIs do dia; "Próximas saídas" e "Agenda de hoje" (que mostravam a mesma informação de formas diferentes) viraram só "Agenda de hoje", já que ela cobre tudo que a outra mostrava.
+- KPIs fixos do topo (Reservas hoje, Receita do mês, Ocupação hoje, Clientes, Passageiros hoje) **não foram tocados** — continuam com a mesma lógica de antes.
+
+### Bug: Agenda escondendo saídas fora de 08:00–18:00
+
+`/agenda` e o card "Agenda de hoje" desenhavam só as horas de 08:00 às 18:00 (faixa fixa no código). Uma saída fora dessa janela existia no banco e tinha reservas, mas nunca aparecia — dava a impressão de "reserva sumiu". Corrigido calculando a faixa de horas dinamicamente a partir dos dados reais, depois travada em 08:00–19:00 (ver regra de negócio abaixo).
+
+### Regra de negócio: saída só entre 08:00–19:00, nunca no passado
+
+Pedido explícito do dono do produto. Aplicada em duas camadas:
+
+1. **App** (`saidas/actions.ts`, `reservas/actions.ts`): `createDeparture`/`updateDeparture` recusam horário fora de 08:00–19:00 e (só na criação) recusam `departs_at` no passado. `reservas/page.tsx` filtra o dropdown de "Saída" ao criar reserva pra só listar saídas dentro da janela; `createReservation` confere de novo no servidor. Edição de reservas/saídas já existentes continua sem essa trava, pra não travar correção de dados antigos.
+2. **Banco** (`supabase/migrations/0014_horario_saida_no_banco.sql`, **aplicada no Supabase**): mesma regra via gatilho Postgres (`trg_departure_schedule`), só em `insert`. Existe porque a checagem do app usa o relógio da máquina que roda o Next.js — em dev local isso é o computador de quem testa (dá pra burlar mudando a hora do sistema operacional); em produção seria a máquina da hospedagem, fora do alcance do usuário, mas o gatilho no banco fecha a brecha por completo, inclusive contra chamadas diretas à API do Supabase.
+
+### Consistência de cache
+
+`createReservation`, `updateReservation`, `deleteReservation`, `updateReservationStatus`, `createDeparture`, `updateDeparture` e as mudanças de status de saída não invalidavam `/agenda` (só `/reservas`, `/saidas`, `/dashboard`). Adicionado `revalidatePath("/agenda")` em todas.

@@ -24,6 +24,8 @@ export function BarsChart({
 
   const format = (v: number) => (formatType === "brl" ? brl(Math.round(v * 100)) : `${v}%`);
   const hovered = hover != null ? points[hover] : null;
+  const avg = points.reduce((s, p) => s + p.value, 0) / points.length;
+  const avgH = max ? Math.min((avg / max) * 36, 36) : 0;
 
   return (
     <div className="relative">
@@ -36,12 +38,25 @@ export function BarsChart({
           <p className="text-[10px] text-muted">{hovered.label}</p>
         </div>
       )}
+      <div className="mb-1 flex items-center justify-end gap-1.5 text-[11px] text-muted">
+        <span className="h-px w-3 border-t border-dashed border-muted" /> média: {format(avg)}
+      </div>
       <svg
         viewBox={`0 0 ${points.length * 4} 40`}
         preserveAspectRatio="none"
         className="h-24 w-full cursor-crosshair"
         onMouseLeave={() => setHover(null)}
       >
+        <line
+          x1={0}
+          x2={points.length * 4}
+          y1={40 - avgH}
+          y2={40 - avgH}
+          className="stroke-muted"
+          strokeWidth={0.5}
+          strokeDasharray="2 1.5"
+          vectorEffect="non-scaling-stroke"
+        />
         {points.map((p, i) => {
           const h = max ? (p.value / max) * 36 : 0;
           const dim = hover !== null && hover !== i;

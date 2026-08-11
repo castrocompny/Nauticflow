@@ -54,13 +54,23 @@ export default async function ReservationsPage() {
       available: d.capacity - booked,
     };
   });
+  // novas reservas só podem ser feitas em saidas dentro do horario comercial (08:00-19:00);
+  // reservas ja existentes ligadas a saidas fora disso continuam editaveis normalmente
+  const hhmm = (iso: string) => {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  const createDepOptions = depOptions.filter((d, i) => {
+    const h = hhmm(depRows[i].departs_at);
+    return h >= "08:00" && h <= "19:00";
+  });
 
   const reservations = (res ?? []) as unknown as ResRow[];
 
   return (
     <>
       <PageHeader title="Reservas" />
-      <NewReservationForm departures={depOptions} clients={(clients ?? []) as { id: string; name: string }[]} />
+      <NewReservationForm departures={createDepOptions} clients={(clients ?? []) as { id: string; name: string }[]} />
 
       {reservations.length === 0 ? (
         <EmptyState
