@@ -25,7 +25,7 @@ export function FinalizeButton({ id, status }: { id: string; status: string }) {
       <button
         onClick={onClick}
         disabled={disabled || pending}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-medium text-navy transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-heading transition hover:bg-surfaceHover disabled:cursor-not-allowed disabled:opacity-50"
       >
         <FlagTriangleRight size={16} /> {disabled ? "Passeio finalizado" : "Finalizar passeio"}
       </button>

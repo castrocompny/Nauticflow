@@ -18,7 +18,7 @@ export function NotificationsBell({ items }: { items: Notif[] }) {
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50"
+        className="relative grid h-9 w-9 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover"
         aria-label="Notificações"
       >
         <Bell size={18} />
@@ -31,26 +31,26 @@ export function NotificationsBell({ items }: { items: Notif[] }) {
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-40 mt-2 w-72 rounded-card border border-slate-200 bg-white p-2 shadow-lg">
-            <p className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <div className="absolute right-0 z-40 mt-2 w-72 rounded-card border border-line bg-surface p-2 shadow-lg">
+            <p className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
               Notificações
             </p>
             {visible.length === 0 ? (
-              <p className="px-2 py-4 text-center text-sm text-slate-500">
+              <p className="px-2 py-4 text-center text-sm text-muted">
                 Nenhuma notificação no momento.
               </p>
             ) : (
               <ul className="space-y-1">
                 {visible.map((n) => (
-                  <li key={n.id} className="flex items-start gap-2 rounded-lg px-2 py-2 hover:bg-slate-50">
+                  <li key={n.id} className="flex items-start gap-2 rounded-lg px-2 py-2 hover:bg-surfaceHover">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-navy">{n.title}</p>
-                      {n.desc && <p className="text-xs text-slate-500">{n.desc}</p>}
+                      <p className="text-sm font-medium text-heading">{n.title}</p>
+                      {n.desc && <p className="text-xs text-muted">{n.desc}</p>}
                     </div>
                     <button
                       onClick={() => dismiss(n.id)}
                       title="Dispensar"
-                      className="grid h-5 w-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-navy"
+                      className="grid h-5 w-5 shrink-0 place-items-center rounded text-muted hover:bg-surfaceHover hover:text-heading"
                     >
                       <X size={13} />
                     </button>

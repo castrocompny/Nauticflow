@@ -10,7 +10,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-card border border-slate-200 bg-white p-5 ${className}`}
+      className={`rounded-card border border-line bg-surface p-5 ${className}`}
     >
       {children}
     </div>
@@ -29,8 +29,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex items-end justify-between gap-4">
       <div>
-        <h1 className="font-display text-xl font-semibold text-navy">{title}</h1>
-        {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
+        <h1 className="font-display text-xl font-semibold text-heading">{title}</h1>
+        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -57,18 +57,18 @@ export function StatCard({
     <Card className="flex items-center gap-3">
       <span className={`grid h-11 w-11 place-items-center rounded-xl ${tones[tone]}`} />
       <div>
-        <p className="text-xs text-slate-500">{label}</p>
-        <p className="font-display text-2xl font-semibold text-navy">{value}</p>
+        <p className="text-xs text-muted">{label}</p>
+        <p className="font-display text-2xl font-semibold text-heading">{value}</p>
       </div>
     </Card>
   );
 }
 
 const badgeTones: Record<string, string> = {
-  green: "bg-green-50 text-green-700",
-  amber: "bg-amber-50 text-amber-700",
-  red: "bg-red-50 text-red-700",
-  slate: "bg-slate-100 text-slate-600",
+  green: "bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-400",
+  amber: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
+  red: "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-400",
+  slate: "bg-surfaceHover text-body",
 };
 
 export function Badge({
@@ -92,10 +92,10 @@ export function OccupancyBar({ booked, capacity }: { booked: number; capacity: n
   const color = pct >= 100 ? "bg-danger" : pct >= 80 ? "bg-amberflow" : "bg-brand";
   return (
     <div className="flex items-center gap-2">
-      <div className="h-2 flex-1 rounded-full bg-slate-100">
+      <div className="h-2 flex-1 rounded-full bg-surfaceHover">
         <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} />
       </div>
-      <span className="w-10 text-right text-xs text-slate-500">{pct}%</span>
+      <span className="w-10 text-right text-xs text-muted">{pct}%</span>
     </div>
   );
 }
@@ -111,8 +111,8 @@ export function EmptyState({
 }) {
   return (
     <Card className="flex flex-col items-center gap-3 py-12 text-center">
-      <p className="font-medium text-navy">{title}</p>
-      {hint && <p className="max-w-sm text-sm text-slate-500">{hint}</p>}
+      <p className="font-medium text-heading">{title}</p>
+      {hint && <p className="max-w-sm text-sm text-muted">{hint}</p>}
       {action}
     </Card>
   );
@@ -133,20 +133,20 @@ export function Pager({
       <Link
         href={`${basePath}?page=${page - 1}`}
         aria-disabled={page <= 1}
-        className={`rounded-lg border border-slate-200 px-3 py-1.5 ${
-          page <= 1 ? "pointer-events-none text-slate-300" : "text-slate-600 hover:bg-slate-50"
+        className={`rounded-lg border border-line px-3 py-1.5 ${
+          page <= 1 ? "pointer-events-none text-muted" : "text-body hover:bg-surfaceHover"
         }`}
       >
         Anterior
       </Link>
-      <span className="text-xs text-slate-500">
+      <span className="text-xs text-muted">
         Página {page} de {totalPages}
       </span>
       <Link
         href={`${basePath}?page=${page + 1}`}
         aria-disabled={page >= totalPages}
-        className={`rounded-lg border border-slate-200 px-3 py-1.5 ${
-          page >= totalPages ? "pointer-events-none text-slate-300" : "text-slate-600 hover:bg-slate-50"
+        className={`rounded-lg border border-line px-3 py-1.5 ${
+          page >= totalPages ? "pointer-events-none text-muted" : "text-body hover:bg-surfaceHover"
         }`}
       >
         Próxima

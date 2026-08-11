@@ -55,7 +55,7 @@ export default async function ConfiguracoesPage() {
         </div>
 
         <Card className="h-fit">
-          <h2 className="mb-3 font-display font-semibold text-navy">Plano contratado</h2>
+          <h2 className="mb-3 font-display font-semibold text-heading">Plano contratado</h2>
           <p className="font-display text-2xl font-semibold text-brand">{plan.name ?? "Sem plano"}</p>
           <div className="mb-4 mt-1">
             {!paidUntil ? (
@@ -72,7 +72,7 @@ export default async function ConfiguracoesPage() {
             <Row label="Reservas no mês" value={String(monthRes.count ?? 0)} />
           </div>
           {overdue && (
-            <p className="mt-4 text-xs text-slate-400">
+            <p className="mt-4 text-xs text-muted">
               As opções de pagamento aparecem na faixa amarela no topo das telas enquanto a assinatura estiver
               vencida.
             </p>
@@ -85,9 +85,9 @@ export default async function ConfiguracoesPage() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between border-b border-slate-100 py-1.5 last:border-0">
-      <span className="text-slate-500">{label}</span>
-      <span className="font-medium text-navy">{value}</span>
+    <div className="flex justify-between border-b border-line py-1.5 last:border-0">
+      <span className="text-muted">{label}</span>
+      <span className="font-medium text-heading">{value}</span>
     </div>
   );
 }

@@ -57,9 +57,9 @@ export function ReservationRow({
 
   return (
     <>
-      <tr className="border-b border-slate-50 last:border-0">
-        <td className="px-4 py-3 font-medium text-navy">{r.clients?.name}</td>
-        <td className="px-4 py-3 text-slate-600">
+      <tr className="border-b border-line last:border-0">
+        <td className="px-4 py-3 font-medium text-heading">{r.clients?.name}</td>
+        <td className="px-4 py-3 text-body">
           {r.departures?.vessels?.name}
           {r.departures && ` · ${fmtTime(r.departures.departs_at)}`}
         </td>
@@ -70,16 +70,24 @@ export function ReservationRow({
         </td>
         <td className="px-4 py-3 text-right">
           <div className="flex items-center justify-end gap-2">
-            <a href={`/voucher/${r.id}`} target="_blank" rel="noreferrer" className="text-sm text-brand">
-              voucher
+            <a
+              href={`/voucher/${r.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-brand transition hover:bg-surfaceHover"
+            >
+              Voucher
             </a>
-            <Link href={`/reservas/${r.id}`} className="text-sm text-brand">
-              passageiros
+            <Link
+              href={`/reservas/${r.id}`}
+              className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-brand transition hover:bg-surfaceHover"
+            >
+              Passageiros
             </Link>
             <Link
               href={`/clientes/${r.client_id}`}
               title="Histórico do cliente"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <History size={16} />
             </Link>
@@ -87,7 +95,7 @@ export function ReservationRow({
               type="button"
               onClick={() => setEditing((v) => !v)}
               title="Editar reserva"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <Pencil size={16} />
             </button>
@@ -96,7 +104,7 @@ export function ReservationRow({
         </td>
       </tr>
       {editing && (
-        <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0">
+        <tr className="border-b border-line bg-surfaceHover/60 last:border-0">
           <td colSpan={6} className="px-4 py-4">
             {state.error && (
               <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
@@ -142,7 +150,7 @@ export function ReservationRow({
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600"
+                  className="rounded-lg border border-line px-3 py-1.5 text-xs text-body"
                 >
                   Cancelar
                 </button>

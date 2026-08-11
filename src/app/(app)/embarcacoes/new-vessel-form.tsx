@@ -43,8 +43,8 @@ export function NewVesselForm() {
   }
 
   return (
-    <div className="rounded-card border border-slate-200 bg-white p-5">
-      <h3 className="mb-3 font-display font-semibold text-navy">Nova embarcação</h3>
+    <div className="rounded-card border border-line bg-surface p-5">
+      <h3 className="mb-3 font-display font-semibold text-heading">Nova embarcação</h3>
       {state.error && (
         <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
       )}
@@ -100,7 +100,7 @@ export function NewVesselForm() {
         </div>
         <div className="flex gap-2">
           <Save />
-          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">
+          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-line px-4 py-2 text-sm text-body">
             Cancelar
           </button>
         </div>

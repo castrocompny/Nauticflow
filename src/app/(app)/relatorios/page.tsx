@@ -77,7 +77,7 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: {
             key={pp.key}
             href={`/relatorios?p=${pp.key}`}
             className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-              p === pp.key ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              p === pp.key ? "border-brand bg-brand text-white" : "border-line bg-surface text-body hover:bg-surfaceHover"
             }`}
           >
             {pp.label}
@@ -100,20 +100,20 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: {
           </div>
 
           <Card>
-            <h2 className="mb-3 font-display text-base font-semibold text-navy">Embarcações mais usadas</h2>
+            <h2 className="mb-3 font-display text-base font-semibold text-heading">Embarcações mais usadas</h2>
             {topVessels.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-400">Sem saídas no período.</p>
+              <p className="py-4 text-center text-sm text-muted">Sem saídas no período.</p>
             ) : (
               <div className="space-y-2">
                 {topVessels.map(([name, count]) => {
                   const max = topVessels[0][1] || 1;
                   return (
                     <div key={name} className="flex items-center gap-3">
-                      <span className="w-40 truncate text-sm text-navy">{name}</span>
-                      <div className="h-2 flex-1 rounded-full bg-slate-100">
+                      <span className="w-40 truncate text-sm text-heading">{name}</span>
+                      <div className="h-2 flex-1 rounded-full bg-surfaceHover">
                         <div className="h-2 rounded-full bg-brand" style={{ width: `${(count / max) * 100}%` }} />
                       </div>
-                      <span className="w-10 text-right text-xs text-slate-500">{count}</span>
+                      <span className="w-10 text-right text-xs text-muted">{count}</span>
                     </div>
                   );
                 })}
@@ -129,8 +129,8 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <Card>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 font-display text-2xl font-semibold text-navy">{value}</p>
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-1 font-display text-2xl font-semibold text-heading">{value}</p>
     </Card>
   );
 }

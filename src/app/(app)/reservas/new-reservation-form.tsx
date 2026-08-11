@@ -68,8 +68,8 @@ export function NewReservationForm({
   }
 
   return (
-    <div className="mb-4 rounded-card border border-slate-200 bg-white p-5">
-      <h3 className="mb-3 font-display font-semibold text-navy">Nova reserva</h3>
+    <div className="mb-4 rounded-card border border-line bg-surface p-5">
+      <h3 className="mb-3 font-display font-semibold text-heading">Nova reserva</h3>
 
       {dep && (
         <div className="mb-3 flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-sm text-brand-dark">
@@ -119,7 +119,7 @@ export function NewReservationForm({
         </div>
         <div className="flex gap-2">
           <Save />
-          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">
+          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-line px-4 py-2 text-sm text-body">
             Cancelar
           </button>
         </div>

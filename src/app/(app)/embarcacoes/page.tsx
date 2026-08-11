@@ -14,7 +14,7 @@ export default async function VesselsPage() {
       <PageHeader title="Embarcações" action={<NewVesselForm />} />
       {vessels.length === 0 ? (
         <Card>
-          <div className="py-10 text-center text-sm text-slate-500">
+          <div className="py-10 text-center text-sm text-muted">
             Nenhuma embarcação cadastrada. Cadastre a primeira para poder criar saídas.
           </div>
         </Card>
@@ -22,7 +22,7 @@ export default async function VesselsPage() {
         <Card className="p-0">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+              <tr className="border-b border-line text-left text-xs text-muted">
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3 text-center">Oficial</th>

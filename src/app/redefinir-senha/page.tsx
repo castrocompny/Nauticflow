@@ -21,13 +21,13 @@ export default function RedefinirSenhaPage() {
   const [state, formAction] = useFormState(updatePassword, { error: "" });
 
   return (
-    <div className="grid min-h-screen place-items-center bg-page p-6">
-      <div className="w-full max-w-sm rounded-card border border-slate-200 bg-white p-6">
+    <div className="grid min-h-screen place-items-center bg-app p-6">
+      <div className="w-full max-w-sm rounded-card border border-line bg-surface p-6">
         <div className="mb-5 flex flex-col items-center gap-2">
           <div className="rounded-xl bg-navy px-3 py-2">
             <Logo />
           </div>
-          <p className="text-sm text-slate-500">Defina sua nova senha</p>
+          <p className="text-sm text-muted">Defina sua nova senha</p>
         </div>
 
         {state?.error && (

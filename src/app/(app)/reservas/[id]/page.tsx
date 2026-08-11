@@ -47,17 +47,17 @@ export default async function ReservationDetail({ params }: { params: { id: stri
 
   return (
     <>
-      <Link href="/reservas" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-navy">
+      <Link href="/reservas" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-heading">
         <ArrowLeft size={16} /> Reservas
       </Link>
 
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-xl font-semibold text-navy">
+          <h1 className="font-display text-xl font-semibold text-heading">
             Passageiros · {r.clients?.name}
           </h1>
           {r.departures && (
-            <p className="mt-0.5 text-sm text-slate-500">
+            <p className="mt-0.5 text-sm text-muted">
               {r.departures.vessels?.name} · {fmtDate(r.departures.departs_at)}{" "}
               {fmtTime(r.departures.departs_at)}
             </p>
@@ -68,8 +68,8 @@ export default async function ReservationDetail({ params }: { params: { id: stri
         </Badge>
       </div>
 
-      <div className="mb-5 rounded-card border border-slate-200 bg-white p-4">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Voucher do cliente</p>
+      <div className="mb-5 rounded-card border border-line bg-surface p-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Voucher do cliente</p>
         <VoucherActions reservationId={r.id} resend={resendVoucher} />
       </div>
 
@@ -77,8 +77,8 @@ export default async function ReservationDetail({ params }: { params: { id: stri
         {r.passengers.map((p) => (
           <Card key={p.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-navy">{p.name}</p>
-              <p className="text-xs text-slate-500">
+              <p className="text-sm font-medium text-heading">{p.name}</p>
+              <p className="text-xs text-muted">
                 {p.document ?? "sem documento"}
                 {p.nationality ? ` · ${p.nationality}` : ""}
               </p>
@@ -90,7 +90,7 @@ export default async function ReservationDetail({ params }: { params: { id: stri
               <input type="hidden" name="status" value={p.status === "embarcado" ? "confirmado" : "embarcado"} />
               <button
                 title="Marcar embarcado"
-                className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-green-600 hover:bg-green-50"
+                className="grid h-8 w-8 place-items-center rounded-lg border border-line text-green-600 hover:bg-green-50"
               >
                 <Check size={16} />
               </button>
@@ -101,7 +101,7 @@ export default async function ReservationDetail({ params }: { params: { id: stri
               <input type="hidden" name="status" value="ausente" />
               <button
                 title="Marcar ausente"
-                className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-red-600 hover:bg-red-50"
+                className="grid h-8 w-8 place-items-center rounded-lg border border-line text-red-600 hover:bg-red-50"
               >
                 <X size={16} />
               </button>
@@ -109,7 +109,7 @@ export default async function ReservationDetail({ params }: { params: { id: stri
             <form action={removePassenger}>
               <input type="hidden" name="id" value={p.id} />
               <input type="hidden" name="reservation_id" value={r.id} />
-              <button className="text-xs text-slate-400 hover:text-danger">remover</button>
+              <button className="text-xs text-muted hover:text-danger">remover</button>
             </form>
           </Card>
         ))}

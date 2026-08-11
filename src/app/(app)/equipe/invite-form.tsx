@@ -40,8 +40,8 @@ export function InviteForm() {
   }
 
   return (
-    <div className="mb-4 rounded-card border border-slate-200 bg-white p-5">
-      <h3 className="mb-3 font-display font-semibold text-navy">Convidar colaborador</h3>
+    <div className="mb-4 rounded-card border border-line bg-surface p-5">
+      <h3 className="mb-3 font-display font-semibold text-heading">Convidar colaborador</h3>
 
       {state.error && (
         <div className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -67,7 +67,7 @@ export function InviteForm() {
         </div>
         <div className="flex gap-2">
           <Submit />
-          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">
+          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-line px-4 py-2 text-sm text-body">
             Cancelar
           </button>
         </div>

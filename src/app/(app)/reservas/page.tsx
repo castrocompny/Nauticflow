@@ -71,7 +71,7 @@ export default async function ReservationsPage() {
         <Card className="p-0">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+              <tr className="border-b border-line text-left text-xs text-muted">
                 <th className="px-4 py-3">Cliente</th>
                 <th className="px-4 py-3">Saída</th>
                 <th className="px-4 py-3 text-center">Pessoas</th>

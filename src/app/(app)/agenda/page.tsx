@@ -86,7 +86,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: { f?:
             key={ff.key}
             href={`/agenda?f=${ff.key}`}
             className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-              f === ff.key ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              f === ff.key ? "border-brand bg-brand text-white" : "border-line bg-surface text-body hover:bg-surfaceHover"
             }`}
           >
             {ff.label}
@@ -110,18 +110,18 @@ export default async function AgendaPage({ searchParams }: { searchParams: { f?:
             const ofDay = deps.filter((d) => sameDay(d.departs_at, day));
             return (
               <Card key={day.toISOString()}>
-                <h2 className="mb-3 font-display text-sm font-semibold capitalize text-navy">
+                <h2 className="mb-3 font-display text-sm font-semibold capitalize text-heading">
                   {day.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
                 </h2>
                 <div className="space-y-1">
                   {Array.from({ length: 11 }, (_, i) => 8 + i).map((h) => {
                     const here = ofDay.filter((r) => new Date(r.departs_at).getHours() === h);
                     return (
-                      <div key={h} className="flex items-start gap-3 border-b border-slate-50 py-1.5 last:border-0">
-                        <span className="w-12 shrink-0 text-xs text-slate-400">{String(h).padStart(2, "0")}:00</span>
+                      <div key={h} className="flex items-start gap-3 border-b border-line py-1.5 last:border-0">
+                        <span className="w-12 shrink-0 text-xs text-muted">{String(h).padStart(2, "0")}:00</span>
                         <div className="flex flex-1 flex-wrap gap-2">
                           {here.length === 0 ? (
-                            <span className="text-xs text-slate-300">livre</span>
+                            <span className="text-xs text-muted">livre</span>
                           ) : (
                             here.map((r) => {
                               const b = booked(r);
@@ -143,7 +143,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: { f?:
                       </div>
                     );
                   })}
-                  {ofDay.length === 0 && <p className="pt-2 text-center text-xs text-slate-400">Sem saídas neste dia.</p>}
+                  {ofDay.length === 0 && <p className="pt-2 text-center text-xs text-muted">Sem saídas neste dia.</p>}
                 </div>
               </Card>
             );

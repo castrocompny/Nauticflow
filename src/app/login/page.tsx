@@ -33,13 +33,13 @@ export default function LoginPage() {
   const [state, formAction] = useFormState(action, { error: "" });
 
   return (
-    <div className="grid min-h-screen place-items-center bg-page p-6">
-      <div className="w-full max-w-sm rounded-card border border-slate-200 bg-white p-6">
+    <div className="grid min-h-screen place-items-center bg-app p-6">
+      <div className="w-full max-w-sm rounded-card border border-line bg-surface p-6">
         <div className="mb-5 flex flex-col items-center gap-2">
           <div className="rounded-xl bg-navy px-3 py-2">
             <Logo />
           </div>
-          <p className="text-sm text-slate-500">{titles[mode]}</p>
+          <p className="text-sm text-muted">{titles[mode]}</p>
         </div>
 
         {state?.error && (
@@ -94,7 +94,7 @@ export default function LoginPage() {
             </button>
           )}
           {mode === "up" && (
-            <label className="flex items-start gap-2 text-xs text-slate-500">
+            <label className="flex items-start gap-2 text-xs text-muted">
               <input type="checkbox" name="terms_accepted" required className="mt-0.5" />
               <span>
                 Li e aceito os{" "}

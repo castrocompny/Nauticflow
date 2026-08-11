@@ -42,18 +42,18 @@ export default async function VesselDetail({ params }: { params: { id: string } 
 
   return (
     <>
-      <Link href="/embarcacoes" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-navy">
+      <Link href="/embarcacoes" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-heading">
         <ArrowLeft size={16} /> Embarcações
       </Link>
 
       <div className="mb-6">
-        <h1 className="font-display text-xl font-semibold text-navy">{v.name}</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <h1 className="font-display text-xl font-semibold text-heading">{v.name}</h1>
+        <p className="mt-0.5 text-sm text-muted">
           {typeLabel[v.type]} · capacidade oficial {v.official_capacity} · capacidade comercial {v.commercial_capacity}
         </p>
       </div>
 
-      <h2 className="mb-3 font-display text-base font-semibold text-navy">Histórico de saídas</h2>
+      <h2 className="mb-3 font-display text-base font-semibold text-heading">Histórico de saídas</h2>
 
       {rows.length === 0 ? (
         <EmptyState title="Nenhuma saída registrada para esta embarcação" />
@@ -64,8 +64,8 @@ export default async function VesselDetail({ params }: { params: { id: string } 
             return (
               <Card key={r.id} className="flex items-center gap-4">
                 <div className="w-24">
-                  <p className="font-display font-semibold text-navy">{fmtTime(r.departs_at)}</p>
-                  <p className="text-xs text-slate-500">{fmtDate(r.departs_at)}</p>
+                  <p className="font-display font-semibold text-heading">{fmtTime(r.departs_at)}</p>
+                  <p className="text-xs text-muted">{fmtDate(r.departs_at)}</p>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{r.tours?.name}</p>

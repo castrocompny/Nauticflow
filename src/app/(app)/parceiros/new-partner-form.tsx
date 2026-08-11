@@ -39,8 +39,8 @@ export function NewPartnerForm() {
   }
 
   return (
-    <div className="mb-4 rounded-card border border-slate-200 bg-white p-5">
-      <h3 className="mb-3 font-display font-semibold text-navy">Novo parceiro</h3>
+    <div className="mb-4 rounded-card border border-line bg-surface p-5">
+      <h3 className="mb-3 font-display font-semibold text-heading">Novo parceiro</h3>
       {state.error && <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>}
       <form action={action} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
@@ -68,7 +68,7 @@ export function NewPartnerForm() {
         </div>
         <div className="flex gap-2">
           <Save />
-          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">
+          <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-line px-4 py-2 text-sm text-body">
             Cancelar
           </button>
         </div>

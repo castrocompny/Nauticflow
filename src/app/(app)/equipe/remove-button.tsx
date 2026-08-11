@@ -25,7 +25,7 @@ export function RemoveButton({ memberId, memberName }: { memberId: string; membe
         onClick={onClick}
         disabled={pending}
         title="Remover colaborador"
-        className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-danger disabled:opacity-50"
+        className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:border-red-200 hover:bg-red-50 hover:text-danger disabled:opacity-50"
       >
         <X size={16} />
       </button>

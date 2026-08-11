@@ -45,9 +45,9 @@ export function VesselRow({ v }: { v: Vessel }) {
 
   return (
     <>
-      <tr className="border-b border-slate-50 last:border-0">
-        <td className="px-4 py-3 font-medium text-navy">{v.name}</td>
-        <td className="px-4 py-3 text-slate-600">{typeLabel[v.type]}</td>
+      <tr className="border-b border-line last:border-0">
+        <td className="px-4 py-3 font-medium text-heading">{v.name}</td>
+        <td className="px-4 py-3 text-body">{typeLabel[v.type]}</td>
         <td className="px-4 py-3 text-center">{v.official_capacity}</td>
         <td className="px-4 py-3 text-center font-medium">{v.commercial_capacity}</td>
         <td className="px-4 py-3 text-right">
@@ -58,7 +58,7 @@ export function VesselRow({ v }: { v: Vessel }) {
             <Link
               href={`/embarcacoes/${v.id}`}
               title="Histórico da embarcação"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <History size={16} />
             </Link>
@@ -66,7 +66,7 @@ export function VesselRow({ v }: { v: Vessel }) {
               type="button"
               onClick={() => setEditing((v) => !v)}
               title="Editar embarcação"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <Pencil size={16} />
             </button>
@@ -75,7 +75,7 @@ export function VesselRow({ v }: { v: Vessel }) {
         </td>
       </tr>
       {editing && (
-        <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0">
+        <tr className="border-b border-line bg-surfaceHover/60 last:border-0">
           <td colSpan={6} className="px-4 py-4">
             {state.error && (
               <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
@@ -136,7 +136,7 @@ export function VesselRow({ v }: { v: Vessel }) {
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600"
+                  className="rounded-lg border border-line px-3 py-1.5 text-xs text-body"
                 >
                   Cancelar
                 </button>

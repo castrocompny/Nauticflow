@@ -24,13 +24,13 @@ export default async function AdminPage() {
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
   if (profile?.role !== "super_admin") {
     return (
-      <div className="grid min-h-screen place-items-center bg-page p-6">
-        <div className="w-full max-w-sm rounded-card border border-slate-200 bg-white p-8 text-center">
+      <div className="grid min-h-screen place-items-center bg-app p-6">
+        <div className="w-full max-w-sm rounded-card border border-line bg-surface p-8 text-center">
           <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full bg-red-50 text-danger">
             <ShieldAlert size={24} />
           </div>
-          <h1 className="font-display text-lg font-semibold text-navy">Acesso restrito</h1>
-          <p className="mt-2 text-sm text-slate-500">Esta área é só para administração do NauticFlow.</p>
+          <h1 className="font-display text-lg font-semibold text-heading">Acesso restrito</h1>
+          <p className="mt-2 text-sm text-muted">Esta área é só para administração do NauticFlow.</p>
         </div>
       </div>
     );
@@ -50,14 +50,14 @@ export default async function AdminPage() {
   const now = new Date();
 
   return (
-    <div className="min-h-screen bg-page p-6">
+    <div className="min-h-screen bg-app p-6">
       <div className="mx-auto max-w-5xl">
         <PageHeader title="Administração NauticFlow" subtitle="Empresas cadastradas e status de pagamento." />
 
         <Card className="p-0">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+              <tr className="border-b border-line text-left text-xs text-muted">
                 <th className="px-4 py-3">Empresa</th>
                 <th className="px-4 py-3">Cidade</th>
                 <th className="px-4 py-3">Plano</th>
@@ -74,14 +74,14 @@ export default async function AdminPage() {
                 const paidUntil = sub?.paid_until ? new Date(sub.paid_until) : null;
                 const overdue = paidUntil ? paidUntil < now : false;
                 return (
-                  <tr key={c.id} className="border-b border-slate-50 last:border-0">
-                    <td className="px-4 py-3 font-medium text-navy">
+                  <tr key={c.id} className="border-b border-line last:border-0">
+                    <td className="px-4 py-3 font-medium text-heading">
                       {c.name}
-                      <div className="text-xs font-normal text-slate-400">{c.cnpj || "CNPJ não informado"}</div>
+                      <div className="text-xs font-normal text-muted">{c.cnpj || "CNPJ não informado"}</div>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{c.city ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-600">{sub?.plans?.name ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-500">{fmtDate(c.created_at)}</td>
+                    <td className="px-4 py-3 text-body">{c.city ?? "-"}</td>
+                    <td className="px-4 py-3 text-body">{sub?.plans?.name ?? "-"}</td>
+                    <td className="px-4 py-3 text-muted">{fmtDate(c.created_at)}</td>
                     <td className="px-4 py-3">
                       {!paidUntil ? (
                         <Badge tone="slate">sem assinatura</Badge>

@@ -32,7 +32,7 @@ export function ReservationStatusSelect({
   }
 
   if (current !== "confirmada" && current !== "pendente") {
-    return <span className="text-xs text-slate-500">{current}</span>;
+    return <span className="text-xs text-muted">{current}</span>;
   }
 
   return (

@@ -54,21 +54,21 @@ export default async function PartnerDetail({ params }: { params: { id: string }
 
   return (
     <>
-      <Link href="/parceiros" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-navy">
+      <Link href="/parceiros" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-heading">
         <ArrowLeft size={16} /> Parceiros
       </Link>
 
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-xl font-semibold text-navy">{p.name}</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <h1 className="font-display text-xl font-semibold text-heading">{p.name}</h1>
+          <p className="mt-0.5 text-sm text-muted">
             {typeLabel[p.type] ?? p.type} · {p.contact ?? "sem contato"} · comissão {Number(p.commission_rate)}%
           </p>
         </div>
         <Badge tone={p.active ? "green" : "slate"}>{p.active ? "ativo" : "inativo"}</Badge>
       </div>
 
-      <h2 className="mb-3 font-display text-base font-semibold text-navy">Histórico de reservas</h2>
+      <h2 className="mb-3 font-display text-base font-semibold text-heading">Histórico de reservas</h2>
 
       {reservations.length === 0 ? (
         <EmptyState title="Nenhuma reserva vinculada a este parceiro ainda" />
@@ -76,7 +76,7 @@ export default async function PartnerDetail({ params }: { params: { id: string }
         <Card className="p-0">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+              <tr className="border-b border-line text-left text-xs text-muted">
                 <th className="px-4 py-3">Data</th>
                 <th className="px-4 py-3">Cliente</th>
                 <th className="px-4 py-3">Saída</th>
@@ -86,10 +86,10 @@ export default async function PartnerDetail({ params }: { params: { id: string }
             </thead>
             <tbody>
               {reservations.map((r) => (
-                <tr key={r.id} className="border-b border-slate-50 last:border-0">
-                  <td className="px-4 py-3 text-slate-500">{fmtDate(r.created_at)}</td>
-                  <td className="px-4 py-3 font-medium text-navy">{r.clients?.name ?? "-"}</td>
-                  <td className="px-4 py-3 text-slate-600">
+                <tr key={r.id} className="border-b border-line last:border-0">
+                  <td className="px-4 py-3 text-muted">{fmtDate(r.created_at)}</td>
+                  <td className="px-4 py-3 font-medium text-heading">{r.clients?.name ?? "-"}</td>
+                  <td className="px-4 py-3 text-body">
                     {r.departures?.vessels?.name}
                     {r.departures && ` · ${fmtDate(r.departures.departs_at)} ${fmtTime(r.departures.departs_at)}`}
                   </td>

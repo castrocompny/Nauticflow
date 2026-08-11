@@ -4,12 +4,33 @@
 
 :root {
   color-scheme: light;
+  --bg-app: #f4f6fa;
+  --bg-surface: #ffffff;
+  /* rgb "r g b" (sem virgula): permite o modificador de opacidade do Tailwind, ex: bg-surfaceHover/60 */
+  --bg-surface-hover-rgb: 248 250 252;
+  --text-heading: #0d1b3e;
+  --text-body: #475569;
+  --text-muted: #64748b;
+  --border-line: #e2e8f0;
+}
+
+.dark {
+  color-scheme: dark;
+  /* cinza neutro (sem tingir de azul) — o menu lateral ja e azul-marinho, entao a area
+     central precisa de um tom bem distinto pra nao "grudar" visualmente nele. */
+  --bg-app: #0b0c0f;
+  --bg-surface: #16181d;
+  --bg-surface-hover-rgb: 30 33 40;
+  --text-heading: #f5f6f7;
+  --text-body: #c7cbd1;
+  --text-muted: #8a8f99;
+  --border-line: #262a33;
 }
 
 html,
 body {
-  background: #f4f6fa;
-  color: #0d1b3e;
+  background: var(--bg-app);
+  color: var(--text-heading);
 }
 
 * {
@@ -19,15 +40,19 @@ body {
 input,
 select,
 textarea {
-  @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition;
+  @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-heading outline-none transition;
 }
 input:focus,
 select:focus,
 textarea:focus {
   @apply border-brand ring-2 ring-brand/20;
 }
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
 label {
-  @apply text-xs font-medium text-slate-500;
+  @apply text-xs font-medium text-muted;
 }
 
 @media print {
@@ -37,5 +62,6 @@ label {
   html,
   body {
     background: #fff;
+    color: #0d1b3e;
   }
 }

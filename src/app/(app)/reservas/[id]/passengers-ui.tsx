@@ -35,7 +35,7 @@ export function AddPassengerForm({
 
   if (remaining <= 0) {
     return (
-      <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-center text-sm text-slate-400">
+      <p className="rounded-lg border border-dashed border-line px-3 py-2.5 text-center text-sm text-muted">
         Lista completa. A reserva não comporta mais passageiros.
       </p>
     );
@@ -45,7 +45,7 @@ export function AddPassengerForm({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-brand transition hover:bg-blue-50"
+        className="w-full rounded-lg border border-dashed border-line px-3 py-2.5 text-sm text-brand transition hover:bg-blue-50"
       >
         + Adicionar passageiro ({remaining} {remaining === 1 ? "vaga restante" : "vagas restantes"})
       </button>
@@ -53,7 +53,7 @@ export function AddPassengerForm({
   }
 
   return (
-    <div className="rounded-card border border-slate-200 bg-white p-4">
+    <div className="rounded-card border border-line bg-surface p-4">
       {state.error && (
         <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
       )}
@@ -86,7 +86,7 @@ export function AddPassengerForm({
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600"
+            className="rounded-lg border border-line px-4 py-2 text-sm text-body"
           >
             Cancelar
           </button>

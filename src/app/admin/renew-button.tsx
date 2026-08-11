@@ -28,7 +28,7 @@ export function RenewButton({ companyId, plans }: { companyId: string; plans: Pl
         <select
           value={planCode}
           onChange={(e) => setPlanCode(e.target.value)}
-          className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+          className="rounded-lg border border-line px-2 py-1.5 text-xs"
         >
           {plans.map((p) => (
             <option key={p.code} value={p.code}>
@@ -44,7 +44,7 @@ export function RenewButton({ companyId, plans }: { companyId: string; plans: Pl
           {pending ? "Renovando..." : "Renovar +30 dias"}
         </button>
       </div>
-      {msg && <span className="text-[11px] text-slate-500">{msg}</span>}
+      {msg && <span className="text-[11px] text-muted">{msg}</span>}
     </div>
   );
 }

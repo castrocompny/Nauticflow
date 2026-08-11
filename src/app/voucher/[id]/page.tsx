@@ -36,7 +36,7 @@ export default async function VoucherPage({
   if (!data) {
     return (
       <div className="mx-auto max-w-2xl p-8">
-        <Link href="/reservas" className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+        <Link href="/reservas" className="inline-flex items-center gap-1.5 text-sm text-muted">
           <ArrowLeft size={16} /> Voltar
         </Link>
         <p className="mt-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -53,32 +53,35 @@ export default async function VoucherPage({
   return (
     <div className="mx-auto max-w-2xl p-8 print:p-0">
       <div className="no-print mb-6 flex items-center justify-between">
-        <Link href="/reservas" className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+        <Link href="/reservas" className="inline-flex items-center gap-1.5 text-sm text-muted">
           <ArrowLeft size={16} /> Voltar
         </Link>
         <VoucherPrintButton auto={searchParams.print === "1"} />
       </div>
 
-      <div className="overflow-hidden rounded-card border border-slate-200 bg-white print:border-0">
+      <div className="overflow-hidden rounded-card border border-line bg-surface print:border-0">
         {/* Cabecalho */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-8 py-5">
+        <div className="flex items-center justify-between border-b border-line px-8 py-5">
           <div className="flex items-center gap-2.5">
-            <img src="/nauticflow-icon.png" alt="NauticFlow" className="h-7 w-auto" />
+            {/* fundo sempre branco (fixo) pro barco de casco escuro ficar visivel */}
+            <span className="inline-flex shrink-0 items-center rounded-lg bg-white p-1">
+              <img src="/nauticflow-icon.png" alt="NauticFlow" className="h-5 w-auto" />
+            </span>
             <span className="font-display text-lg font-semibold tracking-tight">
-              <span className="text-navy">Nautic</span>
+              <span className="text-heading">Nautic</span>
               <span className="text-brand">Flow</span>
             </span>
           </div>
           <div className="text-right">
-            <p className="text-sm font-medium text-navy">{v.companies?.name}</p>
-            <p className="text-xs text-slate-500">Voucher de reserva</p>
+            <p className="text-sm font-medium text-heading">{v.companies?.name}</p>
+            <p className="text-xs text-muted">Voucher de reserva</p>
           </div>
         </div>
 
         {/* Codigo e status */}
         <div className="flex items-center justify-between bg-navy px-8 py-4 text-white print:bg-navy">
           <div>
-            <p className="text-xs text-slate-300">Código da reserva</p>
+            <p className="text-xs text-muted">Código da reserva</p>
             <p className="font-display text-xl font-semibold tracking-wider">{code}</p>
           </div>
           <span
@@ -100,8 +103,8 @@ export default async function VoucherPage({
           <Field label="Valor" value={v.total_cents > 0 ? brl(v.total_cents) : "-"} />
         </div>
 
-        <div className="border-t border-slate-100 px-8 py-6">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Cliente</p>
+        <div className="border-t border-line px-8 py-6">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Cliente</p>
           <div className="grid grid-cols-2 gap-x-8 gap-y-4">
             <Field label="Nome" value={v.clients?.name ?? "-"} />
             <Field label="Telefone" value={v.clients?.phone ?? "-"} />
@@ -110,8 +113,8 @@ export default async function VoucherPage({
           </div>
           {v.notes && (
             <div className="mt-4">
-              <p className="text-xs text-slate-500">Observações</p>
-              <p className="text-sm text-navy">{v.notes}</p>
+              <p className="text-xs text-muted">Observações</p>
+              <p className="text-sm text-heading">{v.notes}</p>
             </div>
           )}
         </div>
@@ -120,7 +123,7 @@ export default async function VoucherPage({
           Apresente este voucher no embarque.
         </div>
 
-        <div className="border-t border-slate-100 px-8 py-4 text-center text-[11px] text-slate-400">
+        <div className="border-t border-line px-8 py-4 text-center text-[11px] text-muted">
           Emitido em {fmtDate(v.created_at)} {fmtTime(v.created_at)}. Voucher gerado automaticamente pelo NauticFlow.
         </div>
       </div>
@@ -131,8 +134,8 @@ export default async function VoucherPage({
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="text-sm font-medium text-navy">{value}</p>
+      <p className="text-xs text-muted">{label}</p>
+      <p className="text-sm font-medium text-heading">{value}</p>
     </div>
   );
 }

@@ -41,8 +41,8 @@ export function SettingsForm({
       )}
       {state.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}
 
-      <div className="rounded-card border border-slate-200 bg-white p-5">
-        <h2 className="mb-4 font-display font-semibold text-navy">Dados da empresa</h2>
+      <div className="rounded-card border border-line bg-surface p-5">
+        <h2 className="mb-4 font-display font-semibold text-heading">Dados da empresa</h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label>Nome da empresa</label>
@@ -67,8 +67,8 @@ export function SettingsForm({
         </div>
       </div>
 
-      <div className="rounded-card border border-slate-200 bg-white p-5">
-        <h2 className="mb-4 font-display font-semibold text-navy">Administrador</h2>
+      <div className="rounded-card border border-line bg-surface p-5">
+        <h2 className="mb-4 font-display font-semibold text-heading">Administrador</h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label>Nome do administrador</label>
@@ -76,10 +76,10 @@ export function SettingsForm({
           </div>
           <div>
             <label>E-mail (login)</label>
-            <input defaultValue={adminEmail} disabled className="mt-1 bg-slate-50 text-slate-400" />
+            <input defaultValue={adminEmail} disabled className="mt-1 bg-surfaceHover text-muted" />
           </div>
         </div>
-        <p className="mt-2 text-xs text-slate-400">O e-mail de login não é alterado aqui para não afetar o acesso.</p>
+        <p className="mt-2 text-xs text-muted">O e-mail de login não é alterado aqui para não afetar o acesso.</p>
       </div>
 
       <Save />

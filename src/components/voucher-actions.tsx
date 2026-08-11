@@ -28,7 +28,7 @@ export function VoucherActions({
         href={`/voucher/${reservationId}`}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-navy transition hover:bg-slate-50"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-heading transition hover:bg-surfaceHover"
       >
         <FileText size={15} /> Ver voucher
       </a>
@@ -36,7 +36,7 @@ export function VoucherActions({
         href={`/voucher/${reservationId}?print=1`}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-navy transition hover:bg-slate-50"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-heading transition hover:bg-surfaceHover"
       >
         <Printer size={15} /> Imprimir
       </a>

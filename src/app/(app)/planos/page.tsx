@@ -1,8 +1,10 @@
 import { Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Card } from "@/components/ui";
-import { brl } from "@/lib/format";
+import { brl, fmtDate } from "@/lib/format";
 import { PayPlanButton } from "../pay-plan-button";
+
+const DIAS_PARA_AVISAR_VENCIMENTO = 7;
 
 const commonFeatures = [
   "Dashboard com indicadores do dia",
@@ -26,11 +28,19 @@ export default async function PlanosPage() {
 
   const [{ data: plansData }, { data: subData }] = await Promise.all([
     supabase.from("plans").select("code, name, price_cents, max_vessels, max_users").order("price_cents"),
-    supabase.from("subscriptions").select("plans(code)").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase
+      .from("subscriptions")
+      .select("paid_until, plans(code)")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const plans = (plansData ?? []) as Plan[];
   const currentPlanCode = (subData as any)?.plans?.code as string | undefined;
+  const paidUntil = (subData as any)?.paid_until ? new Date((subData as any).paid_until) : null;
+  const daysLeft = paidUntil ? Math.ceil((paidUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+  const precisaRenovarLogo = daysLeft == null || daysLeft <= DIAS_PARA_AVISAR_VENCIMENTO;
 
   return (
     <>
@@ -42,13 +52,13 @@ export default async function PlanosPage() {
           return (
             <Card key={p.code} className={isCurrent ? "border-brand" : ""}>
               {isCurrent && <p className="mb-1 text-xs font-semibold text-brand">SEU PLANO ATUAL</p>}
-              <p className="font-display text-lg font-semibold text-navy">{p.name}</p>
+              <p className="font-display text-lg font-semibold text-heading">{p.name}</p>
               <p className="mt-1 font-display text-3xl font-semibold text-brand">
                 {brl(p.price_cents)}
-                <span className="text-sm font-normal text-slate-400">/mês</span>
+                <span className="text-sm font-normal text-muted">/mês</span>
               </p>
 
-              <ul className="mt-4 space-y-2 text-sm text-slate-600">
+              <ul className="mt-4 space-y-2 text-sm text-body">
                 <li className="flex items-center gap-2">
                   <Check size={16} className="shrink-0 text-ok" />
                   {p.max_vessels != null ? `até ${p.max_vessels} embarcação(ões)` : "embarcações ilimitadas"}
@@ -71,7 +81,16 @@ export default async function PlanosPage() {
                 ))}
               </ul>
 
-              <PayPlanButton planCode={p.code} label={isCurrent ? "Renovar plano" : undefined} />
+              {isCurrent && !precisaRenovarLogo ? (
+                <p className="mt-3 text-center text-xs text-muted">
+                  Ativo até <span className="font-medium text-heading">{fmtDate(paidUntil!.toISOString())}</span>
+                </p>
+              ) : (
+                <PayPlanButton
+                  planCode={p.code}
+                  label={isCurrent ? "Renovar plano" : undefined}
+                />
+              )}
             </Card>
           );
         })}

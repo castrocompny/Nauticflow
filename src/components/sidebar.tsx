@@ -65,7 +65,7 @@ export function Sidebar({
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-white">{company}</p>
-          <p className="truncate text-xs text-slate-400">{city || "Operação náutica"}</p>
+          <p className="truncate text-xs text-muted">{city || "Operação náutica"}</p>
         </div>
       </div>
 
@@ -77,7 +77,7 @@ export function Sidebar({
               key={href}
               href={href}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-                on ? "bg-brand text-white" : "text-slate-300 hover:bg-navy-700"
+                on ? "bg-brand text-white" : "text-muted hover:bg-navy-700"
               }`}
             >
               <Icon size={18} /> {label}
@@ -88,7 +88,7 @@ export function Sidebar({
 
       <div className="m-3 rounded-lg bg-navy-700 p-3 text-sm">
         <p className="font-medium text-white">{planName}</p>
-        <div className="mt-2 space-y-1 text-xs text-slate-400">
+        <div className="mt-2 space-y-1 text-xs text-muted">
           <p>
             Embarcações: {vesselsUso}
             {vesselsLimite != null ? ` / ${vesselsLimite}` : ""}

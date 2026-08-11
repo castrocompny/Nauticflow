@@ -5,7 +5,7 @@ export const metadata = { title: "Política de Privacidade — NauticFlow" };
 
 export default function PrivacidadePage() {
   return (
-    <div className="min-h-screen bg-page py-10">
+    <div className="min-h-screen bg-app py-10">
       <div className="mx-auto max-w-3xl px-6">
         <div className="mb-6 flex items-center justify-between">
           <div className="rounded-xl bg-navy px-3 py-2">
@@ -16,9 +16,9 @@ export default function PrivacidadePage() {
           </Link>
         </div>
 
-        <div className="rounded-card border border-slate-200 bg-white p-8 text-sm leading-relaxed text-slate-700">
-          <h1 className="mb-1 font-display text-2xl font-semibold text-navy">Política de Privacidade</h1>
-          <p className="mb-6 text-xs text-slate-400">Última atualização: 01 de agosto de 2026.</p>
+        <div className="rounded-card border border-line bg-surface p-8 text-sm leading-relaxed text-body">
+          <h1 className="mb-1 font-display text-2xl font-semibold text-heading">Política de Privacidade</h1>
+          <p className="mb-6 text-xs text-muted">Última atualização: 01 de agosto de 2026.</p>
 
           <Section title="1. Quem trata os seus dados">
             O NauticFlow atua como operador do sistema utilizado pela empresa de turismo náutico
@@ -98,7 +98,7 @@ export default function PrivacidadePage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
-      <h2 className="mb-1.5 font-display text-sm font-semibold text-navy">{title}</h2>
+      <h2 className="mb-1.5 font-display text-sm font-semibold text-heading">{title}</h2>
       <p>{children}</p>
     </div>
   );

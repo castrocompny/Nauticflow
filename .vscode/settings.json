@@ -1,0 +1,4 @@
+{
+  "terminal.integrated.enablePersistentSessions": false,
+  "task.allowAutomaticTasks": "off"
+}

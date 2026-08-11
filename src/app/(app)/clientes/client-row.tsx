@@ -33,17 +33,17 @@ export function ClientRow({ c }: { c: Client }) {
 
   return (
     <>
-      <tr className="border-b border-slate-50 last:border-0">
-        <td className="px-4 py-3 font-medium text-navy">{c.name}</td>
-        <td className="px-4 py-3 text-slate-600">{c.cpf ?? "-"}</td>
-        <td className="px-4 py-3 text-slate-600">{c.phone ?? "-"}</td>
-        <td className="px-4 py-3 text-slate-600">{c.city ?? "-"}</td>
+      <tr className="border-b border-line last:border-0">
+        <td className="px-4 py-3 font-medium text-heading">{c.name}</td>
+        <td className="px-4 py-3 text-body">{c.cpf ?? "-"}</td>
+        <td className="px-4 py-3 text-body">{c.phone ?? "-"}</td>
+        <td className="px-4 py-3 text-body">{c.city ?? "-"}</td>
         <td className="px-4 py-3 text-right">
           <div className="flex items-center justify-end gap-2">
             <Link
               href={`/clientes/${c.id}`}
               title="Histórico do cliente"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <History size={16} />
             </Link>
@@ -51,7 +51,7 @@ export function ClientRow({ c }: { c: Client }) {
               type="button"
               onClick={() => setEditing((v) => !v)}
               title="Editar cliente"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <Pencil size={16} />
             </button>
@@ -60,7 +60,7 @@ export function ClientRow({ c }: { c: Client }) {
         </td>
       </tr>
       {editing && (
-        <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0">
+        <tr className="border-b border-line bg-surfaceHover/60 last:border-0">
           <td colSpan={5} className="px-4 py-4">
             {state.error && (
               <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
@@ -94,7 +94,7 @@ export function ClientRow({ c }: { c: Client }) {
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600"
+                  className="rounded-lg border border-line px-3 py-1.5 text-xs text-body"
                 >
                   Cancelar
                 </button>

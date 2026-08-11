@@ -19,7 +19,7 @@ export function BarsChart({
   const hasData = points.some((p) => p.value > 0);
 
   if (!hasData) {
-    return <div className="py-8 text-center text-sm text-slate-400">Sem dados ainda.</div>;
+    return <div className="py-8 text-center text-sm text-muted">Sem dados ainda.</div>;
   }
 
   const format = (v: number) => (formatType === "brl" ? brl(Math.round(v * 100)) : `${v}%`);
@@ -33,7 +33,7 @@ export function BarsChart({
           style={{ left: `${((hover! + 0.5) / points.length) * 100}%` }}
         >
           <p className="font-semibold">{format(hovered.value)}</p>
-          <p className="text-[10px] text-slate-300">{hovered.label}</p>
+          <p className="text-[10px] text-muted">{hovered.label}</p>
         </div>
       )}
       <svg

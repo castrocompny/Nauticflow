@@ -43,16 +43,16 @@ export default async function DepartureDetail({ params }: { params: { id: string
 
   return (
     <>
-      <Link href="/saidas" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-navy">
+      <Link href="/saidas" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-heading">
         <ArrowLeft size={16} /> Saídas
       </Link>
 
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-xl font-semibold text-navy">
+          <h1 className="font-display text-xl font-semibold text-heading">
             {d.vessels?.name} · {d.tours?.name}
           </h1>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="mt-0.5 text-sm text-muted">
             {fmtDate(d.departs_at)} às {fmtTime(d.departs_at)} · lotação oficial{" "}
             {d.vessels?.official_capacity} ({d.vessels?.default_crew} tripulação)
           </p>
@@ -70,7 +70,7 @@ export default async function DepartureDetail({ params }: { params: { id: string
 
       <Card className="mb-4">
         <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="text-slate-500">Ocupação comercial</span>
+          <span className="text-muted">Ocupação comercial</span>
           <span className="font-medium">
             {booked}/{d.capacity} · {pax} passageiros cadastrados
           </span>
@@ -81,7 +81,7 @@ export default async function DepartureDetail({ params }: { params: { id: string
       <Card className="p-0">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+            <tr className="border-b border-line text-left text-xs text-muted">
               <th className="px-4 py-3">Cliente</th>
               <th className="px-4 py-3 text-center">Pessoas</th>
               <th className="px-4 py-3 text-center">Passageiros</th>
@@ -91,8 +91,8 @@ export default async function DepartureDetail({ params }: { params: { id: string
           </thead>
           <tbody>
             {d.reservations.map((r) => (
-              <tr key={r.id} className="border-b border-slate-50 last:border-0">
-                <td className="px-4 py-3 font-medium text-navy">{r.clients?.name}</td>
+              <tr key={r.id} className="border-b border-line last:border-0">
+                <td className="px-4 py-3 font-medium text-heading">{r.clients?.name}</td>
                 <td className="px-4 py-3 text-center">{r.people_count}</td>
                 <td className="px-4 py-3 text-center">
                   {r.passengers.length}/{r.people_count}
@@ -102,13 +102,16 @@ export default async function DepartureDetail({ params }: { params: { id: string
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-2">
-                    <Link href={`/reservas/${r.id}`} className="text-sm text-brand">
-                      abrir
+                    <Link
+                      href={`/reservas/${r.id}`}
+                      className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-brand transition hover:bg-surfaceHover"
+                    >
+                      Abrir
                     </Link>
                     <Link
                       href={`/clientes/${r.client_id}`}
                       title="Histórico do cliente"
-                      className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+                      className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
                     >
                       <History size={16} />
                     </Link>

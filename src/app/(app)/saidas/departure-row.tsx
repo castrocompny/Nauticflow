@@ -77,8 +77,8 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
       <Card className="flex items-center gap-4">
         <Link href={`/saidas/${r.id}`} className="flex min-w-0 flex-1 items-center gap-4">
           <div className="w-20">
-            <p className="font-display font-semibold text-navy">{fmtTime(r.departs_at)}</p>
-            <p className="text-xs text-slate-500">{fmtDate(r.departs_at)}</p>
+            <p className="font-display font-semibold text-heading">{fmtTime(r.departs_at)}</p>
+            <p className="text-xs text-muted">{fmtDate(r.departs_at)}</p>
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm">
@@ -96,8 +96,11 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
           </p>
           <Badge tone={full ? "red" : "slate"}>{full ? "lotada" : `${r.capacity - booked} vagas`}</Badge>
         </div>
-        <Link href={`/manifesto/${r.id}`} className="whitespace-nowrap text-xs text-brand">
-          manifesto
+        <Link
+          href={`/manifesto/${r.id}`}
+          className="whitespace-nowrap rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-brand transition hover:bg-surfaceHover"
+        >
+          Manifesto
         </Link>
         {r.status === "agendada" && (
           <button
@@ -105,7 +108,7 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
             disabled={pending}
             onClick={() => run(confirmDeparture)}
             title="Confirmar saída"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-green-600 transition hover:bg-green-50 disabled:opacity-50"
+            className="grid h-8 w-8 place-items-center rounded-lg border border-line text-green-600 transition hover:bg-green-50 disabled:opacity-50"
           >
             <Check size={16} />
           </button>
@@ -118,7 +121,7 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
               if (window.confirm("Cancelar esta saída?")) run(cancelDeparture);
             }}
             title="Cancelar saída"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-danger transition hover:bg-red-50 disabled:opacity-50"
+            className="grid h-8 w-8 place-items-center rounded-lg border border-line text-danger transition hover:bg-red-50 disabled:opacity-50"
           >
             <Ban size={16} />
           </button>
@@ -127,7 +130,7 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
           type="button"
           onClick={() => setEditing((v) => !v)}
           title="Editar saída"
-          className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+          className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
         >
           <Pencil size={16} />
         </button>
@@ -180,7 +183,7 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
               <button
                 type="button"
                 onClick={() => setEditing(false)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600"
+                className="rounded-lg border border-line px-3 py-1.5 text-xs text-body"
               >
                 Cancelar
               </button>

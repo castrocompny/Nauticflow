@@ -126,10 +126,10 @@ export default async function Dashboard() {
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-navy">
+          <h1 className="font-display text-2xl font-semibold text-heading">
             {greet}, {firstName}!
           </h1>
-          <p className="mt-0.5 text-sm text-slate-500">Aqui está o resumo do seu negócio hoje.</p>
+          <p className="mt-0.5 text-sm text-muted">Aqui está o resumo do seu negócio hoje.</p>
         </div>
         <Link
           href="/reservas"
@@ -163,13 +163,13 @@ export default async function Dashboard() {
       {/* Proximas saidas */}
       <Card className="mb-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-base font-semibold text-navy">Próximas saídas</h2>
+          <h2 className="font-display text-base font-semibold text-heading">Próximas saídas</h2>
           <Link href="/saidas" className="text-sm text-brand">
             Ver todas
           </Link>
         </div>
         {todayDeps.length === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-500">Nenhuma saída para hoje.</div>
+          <div className="py-8 text-center text-sm text-muted">Nenhuma saída para hoje.</div>
         ) : (
           <div className="space-y-2">
             {todayDeps.slice(0, 6).map((r) => {
@@ -178,13 +178,13 @@ export default async function Dashboard() {
               const tone = full ? "red" : b > 0 ? "slate" : "green";
               const label = full ? "Lotado" : b > 0 ? "Confirmado" : "Disponível";
               return (
-                <div key={r.id} className="flex items-center gap-4 rounded-lg border border-slate-100 px-3 py-2.5">
+                <div key={r.id} className="flex items-center gap-4 rounded-lg border border-line px-3 py-2.5">
                   <span className="w-12 text-sm font-medium">{fmtTime(r.departs_at)}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-navy">{r.vessels?.name}</p>
-                    <p className="truncate text-xs text-slate-500">{r.tours?.name}</p>
+                    <p className="truncate text-sm font-medium text-heading">{r.vessels?.name}</p>
+                    <p className="truncate text-xs text-muted">{r.tours?.name}</p>
                   </div>
-                  <span className="w-16 text-right text-xs text-slate-500">
+                  <span className="w-16 text-right text-xs text-muted">
                     {b}/{r.capacity}
                   </span>
                   <Badge tone={tone as any}>{label}</Badge>
@@ -197,21 +197,21 @@ export default async function Dashboard() {
 
       {/* Agenda de hoje */}
       <Card className="mb-5">
-        <h2 className="mb-4 font-display text-base font-semibold text-navy">Agenda de hoje</h2>
+        <h2 className="mb-4 font-display text-base font-semibold text-heading">Agenda de hoje</h2>
         <div className="space-y-1">
           {Array.from({ length: 10 }, (_, i) => 8 + i).map((h) => {
             const here = todayDeps.filter((r) => new Date(r.departs_at).getHours() === h);
             return (
               <div
                 key={h}
-                className="group flex items-center gap-3 rounded-lg border-b border-slate-50 px-2 py-2 transition hover:bg-slate-50 last:border-0"
+                className="group flex items-center gap-3 rounded-lg border-b border-line px-2 py-2 transition hover:bg-surfaceHover last:border-0"
               >
-                <span className="w-12 shrink-0 text-sm font-medium text-navy">{String(h).padStart(2, "0")}:00</span>
+                <span className="w-12 shrink-0 text-sm font-medium text-heading">{String(h).padStart(2, "0")}:00</span>
                 <div className="flex flex-1 flex-wrap items-center gap-2">
                   {here.length === 0 ? (
                     <Link
                       href="/saidas"
-                      className="inline-flex items-center gap-1.5 text-xs text-slate-400 transition group-hover:text-brand"
+                      className="inline-flex items-center gap-1.5 text-xs text-muted transition group-hover:text-brand"
                     >
                       <span className="h-1.5 w-1.5 rounded-full bg-ok/50 transition group-hover:bg-ok" />
                       livre
@@ -239,7 +239,7 @@ export default async function Dashboard() {
             );
           })}
           {todayDeps.length === 0 && (
-            <p className="pt-3 text-center text-sm text-slate-400">Nenhuma saída agendada para hoje.</p>
+            <p className="pt-3 text-center text-sm text-muted">Nenhuma saída agendada para hoje.</p>
           )}
         </div>
       </Card>
@@ -248,10 +248,10 @@ export default async function Dashboard() {
       <div className="mb-5 grid gap-4 lg:grid-cols-2">
         <Card>
           <div className="mb-1 flex items-center justify-between">
-            <h2 className="font-display text-base font-semibold text-navy">Receita dos últimos 30 dias</h2>
+            <h2 className="font-display text-base font-semibold text-heading">Receita dos últimos 30 dias</h2>
             <TrendingUp size={18} className="text-ok" />
           </div>
-          <p className="mb-3 text-sm text-slate-500">Total: {brl(revSeries.reduce((s, v) => s + v, 0) * 100)}</p>
+          <p className="mb-3 text-sm text-muted">Total: {brl(revSeries.reduce((s, v) => s + v, 0) * 100)}</p>
           <BarsChart
             points={revSeries.map((v, i) => ({ label: dayLabel(dayDates[i]), value: v }))}
             color="#2563EB"
@@ -260,10 +260,10 @@ export default async function Dashboard() {
         </Card>
         <Card>
           <div className="mb-1 flex items-center justify-between">
-            <h2 className="font-display text-base font-semibold text-navy">Taxa de ocupação dos últimos 30 dias</h2>
+            <h2 className="font-display text-base font-semibold text-heading">Taxa de ocupação dos últimos 30 dias</h2>
             <Gauge size={18} className="text-amberflow" />
           </div>
-          <p className="mb-3 text-sm text-slate-500">Média: {occMedia30}%</p>
+          <p className="mb-3 text-sm text-muted">Média: {occMedia30}%</p>
           <BarsChart
             points={occSeries.map((v, i) => ({ label: dayLabel(dayDates[i]), value: v }))}
             color="#F59E0B"
@@ -275,17 +275,17 @@ export default async function Dashboard() {
       {/* Reservas recentes */}
       <Card className="p-0">
         <div className="flex items-center justify-between px-5 py-4">
-          <h2 className="font-display text-base font-semibold text-navy">Reservas recentes</h2>
+          <h2 className="font-display text-base font-semibold text-heading">Reservas recentes</h2>
           <Link href="/reservas" className="text-sm text-brand">
             Ver todas
           </Link>
         </div>
         {ultimasReservas.length === 0 ? (
-          <p className="px-5 pb-6 text-center text-sm text-slate-400">Nenhuma reserva ainda.</p>
+          <p className="px-5 pb-6 text-center text-sm text-muted">Nenhuma reserva ainda.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-y border-slate-100 text-left text-xs text-slate-500">
+              <tr className="border-y border-line text-left text-xs text-muted">
                 <th className="px-5 py-2.5">Cliente</th>
                 <th className="px-4 py-2.5">Saída</th>
                 <th className="px-4 py-2.5 text-center">Passageiros</th>
@@ -295,9 +295,9 @@ export default async function Dashboard() {
             </thead>
             <tbody>
               {ultimasReservas.map((r) => (
-                <tr key={r.id} className="border-b border-slate-50 last:border-0">
-                  <td className="px-5 py-3 font-medium text-navy">{r.clients?.name ?? "-"}</td>
-                  <td className="px-4 py-3 text-slate-600">
+                <tr key={r.id} className="border-b border-line last:border-0">
+                  <td className="px-5 py-3 font-medium text-heading">{r.clients?.name ?? "-"}</td>
+                  <td className="px-4 py-3 text-body">
                     {r.departures?.vessels?.name ?? "-"}
                     {r.departures ? ` · ${fmtTime(r.departures.departs_at)}` : ""}
                   </td>
@@ -333,8 +333,8 @@ function Metric({
     <Card className="flex items-center gap-3">
       <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white ${tone}`}>{icon}</span>
       <div className="min-w-0">
-        <p className="text-xs leading-tight text-slate-500">{label}</p>
-        <p className="font-display text-xl font-semibold text-navy">{value}</p>
+        <p className="text-xs leading-tight text-muted">{label}</p>
+        <p className="font-display text-xl font-semibold text-heading">{value}</p>
         {trend && <TrendBadge {...trend} />}
       </div>
     </Card>
@@ -345,11 +345,11 @@ function TrendBadge({ pct, suffix, isPoints }: { pct: number; suffix: string; is
   const up = pct > 0;
   const flat = pct === 0;
   const Icon = flat ? Minus : up ? TrendingUp : TrendingDown;
-  const color = flat ? "text-slate-400" : up ? "text-ok" : "text-danger";
+  const color = flat ? "text-muted" : up ? "text-ok" : "text-danger";
   const amount = isPoints ? `${up ? "+" : ""}${pct}pp` : `${up ? "+" : ""}${pct}%`;
   return (
     <p className={`mt-0.5 flex items-center gap-1 text-[11px] font-medium ${color}`}>
-      <Icon size={12} /> {amount} <span className="font-normal text-slate-400">{suffix}</span>
+      <Icon size={12} /> {amount} <span className="font-normal text-muted">{suffix}</span>
     </p>
   );
 }

@@ -62,10 +62,10 @@ export function PartnerRow({ p }: { p: Partner }) {
 
   return (
     <>
-      <tr className="border-b border-slate-50 last:border-0">
-        <td className="px-4 py-3 font-medium text-navy">{p.name}</td>
-        <td className="px-4 py-3 text-slate-600">{typeLabel[p.type] ?? p.type}</td>
-        <td className="px-4 py-3 text-slate-600">{p.contact ?? "-"}</td>
+      <tr className="border-b border-line last:border-0">
+        <td className="px-4 py-3 font-medium text-heading">{p.name}</td>
+        <td className="px-4 py-3 text-body">{typeLabel[p.type] ?? p.type}</td>
+        <td className="px-4 py-3 text-body">{p.contact ?? "-"}</td>
         <td className="px-4 py-3 text-center">{Number(p.commission_rate)}%</td>
         <td className="px-4 py-3 text-center">
           <Badge tone={p.active ? "green" : "slate"}>{p.active ? "ativo" : "inativo"}</Badge>
@@ -75,7 +75,7 @@ export function PartnerRow({ p }: { p: Partner }) {
             <Link
               href={`/parceiros/${p.id}`}
               title="Histórico do parceiro"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <History size={16} />
             </Link>
@@ -83,7 +83,7 @@ export function PartnerRow({ p }: { p: Partner }) {
               type="button"
               onClick={() => setEditing((v) => !v)}
               title="Editar parceiro"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
             >
               <Pencil size={16} />
             </button>
@@ -92,7 +92,7 @@ export function PartnerRow({ p }: { p: Partner }) {
                 type="button"
                 disabled={pending}
                 onClick={() => run(cancelPartnership, "Cancelar esta parceria?")}
-                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-danger transition hover:bg-red-50 disabled:opacity-50"
+                className="rounded-lg border border-line px-2.5 py-1.5 text-xs text-danger transition hover:bg-red-50 disabled:opacity-50"
               >
                 Cancelar parceria
               </button>
@@ -101,7 +101,7 @@ export function PartnerRow({ p }: { p: Partner }) {
                 type="button"
                 disabled={pending}
                 onClick={() => run(reactivatePartner)}
-                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-ok transition hover:bg-green-50 disabled:opacity-50"
+                className="rounded-lg border border-line px-2.5 py-1.5 text-xs text-ok transition hover:bg-green-50 disabled:opacity-50"
               >
                 Reativar
               </button>
@@ -118,7 +118,7 @@ export function PartnerRow({ p }: { p: Partner }) {
         </tr>
       )}
       {editing && (
-        <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0">
+        <tr className="border-b border-line bg-surfaceHover/60 last:border-0">
           <td colSpan={6} className="px-4 py-4">
             {state.error && (
               <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
@@ -153,7 +153,7 @@ export function PartnerRow({ p }: { p: Partner }) {
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600"
+                  className="rounded-lg border border-line px-3 py-1.5 text-xs text-body"
                 >
                   Cancelar
                 </button>

@@ -30,7 +30,7 @@ export function PayPlanButton({
         disabled={pending}
         className={
           compact
-            ? "rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+            ? "rounded-lg border border-amber-300 bg-surface px-2.5 py-1.5 text-xs font-medium text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
             : "mt-3 w-full rounded-lg bg-brand py-1.5 text-xs font-medium text-white transition hover:bg-brand-dark disabled:opacity-60"
         }
       >
