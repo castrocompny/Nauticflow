@@ -58,7 +58,12 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 - **Timezone: parsing ingênuo de data/hora de saída** — `saidas/actions.ts` monta `departs_at` com `new Date(`${date}T${time}`).toISOString()`, que interpreta a string usando o fuso horário do processo Node, não necessariamente `America/Sao_Paulo`. Hoje isso funciona porque o `next dev` roda na máquina do desenvolvedor (fuso de Brasília). **Se o app for hospedado num serviço que roda em UTC por padrão (Vercel, por exemplo), toda essa lógica de horário — inclusive a trava de 08:00–19:00 e o "não pode ser no passado" — vai calcular errado por 3 horas.** Precisa ser corrigido (fixar o offset `-03:00` na escrita, e/ou passar `timeZone: "America/Sao_Paulo"` explícito nas formatações de leitura) antes de publicar em produção num host fora do Brasil/fora desse fuso.
 - **Testar o webhook do Asaas com domínio real** (ou via ngrok) — hoje só validado localmente com uma chamada simulada.
 - **Upgrade do Supabase pro plano Pro** — evita pausa automática do projeto por inatividade e ativa backup. Ainda não feito (decisão do dono do produto, envolve custo).
-- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11).
+- **`headers().get("origin")` usado pra montar link de e-mail** (reset de senha em `login/actions.ts`, convite em `equipe/actions.ts`) — hoje protegido pela validação nativa de Origin/Host das Server Actions do Next.js, mas é uma dependência frágil de comportamento de framework pra algo sensível (link de reset de senha). Recomendado trocar por uma `NEXT_PUBLIC_SITE_URL` fixa quando o domínio de produção estiver definido.
+- **2 advisories HIGH residuais no `npm audit`** (SSRF em rewrites com host controlado por env var interna, DoS em Server Components) só têm correção disponível na branch major do Next (15/16) — não fazem sentido pra esse app hoje (sem custom server, sem i18n, sem `images.remotePatterns`, sem WebSocket), mas vale reavaliar numa futura migração de major version do Next.js.
+- **Linhas de tabela client-side demais** (`saidas/departure-row.tsx`, `reservas/reservation-row.tsx`, `parceiros/partner-row.tsx`, `embarcacoes/vessel-row.tsx`, `clientes/client-row.tsx`): cada linha é seu próprio Client Component com o formulário de edição inteiro embutido (mesmo escondido), instanciado uma vez por linha — até 25-50 por página. Contribui pro tempo de hidratação logo após abrir uma lista (o "atraso" pode aparecer como clique sem resposta nos primeiros instantes da página). Não mexido ainda porque exige reestruturar a UI (separar linha estática de um "island" de edição sob demanda) e eu não tenho como testar visualmente sem login no app.
+- **2FA pro super_admin** — sugerido na auditoria de segurança (seção 13), reconfirmado na melhoria do `/admin` (seção 15). Ainda não implementado, de propósito (feature grande demais pra fazer sem testar ao vivo).
+- **Emissão de nota fiscal ainda é manual** (seção 16) — não há certificado digital nem provedor de NFS-e configurado. O registro em `/admin/[id]` é só controle, não gera nota nenhuma de verdade.
+- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11), **deduplicação de `auth.getUser()` e queries repetidas** (ver seção 12), **auditoria de segurança — IDOR entre empresas e dependências vulneráveis** (ver seção 13), **migration `0015` aplicada** (trava de IDOR também no banco), **Supabase CLI instalado no projeto** (ver seção 14), **painel /admin melhorado** (ver seção 15, migration `0016` aplicada), **controle manual de notas fiscais** (ver seção 16, migration `0017` aplicada), **gráficos/funil/onboarding travado/filtro por plano no /admin** (ver seção 17).
 
 ## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
 
@@ -78,7 +83,7 @@ Construído nesta sessão. Fluxo:
 
 ## 9. Convenções
 
-- Migrations em `supabase/migrations/` **não rodam sozinhas** — cada uma precisa ser colada manualmente no SQL Editor do Supabase, na ordem numérica.
+- Migrations em `supabase/migrations/` **não rodam sozinhas** — cada uma precisa ser colada manualmente no SQL Editor do Supabase, na ordem numérica. Isso muda assim que o CLI estiver logado/linkado (ver seção 14) — depois disso dá pra usar `npx supabase db push`.
 - `npx tsc --noEmit` antes de considerar qualquer mudança de código pronta.
 - Servidor de dev: `npm run dev`, porta 3000.
 
@@ -135,3 +140,122 @@ Adicionados dois gráficos, reaproveitando o componente `BarsChart` já criado p
 ### Planos (`src/app/(app)/planos/page.tsx`)
 
 O card do plano atual só mostra o botão "Renovar plano" quando faltam **7 dias ou menos** pra vencer (`DIAS_PARA_AVISAR_VENCIMENTO`) ou quando já venceu; fora essa janela, mostra só "Ativo até [data]" — antes disso, o botão de renovar aparecia sempre, mesmo logo depois de um pagamento confirmado, confundindo o cliente.
+
+## 12. Otimização de performance — atraso ao clicar em botões (sessão de 2026-08-10)
+
+Causa raiz principal: `supabase.auth.getUser()` **não é um check local** — é uma chamada de rede real pra API de Auth do Supabase, pra validar o token direto no servidor deles (é o jeito certo/seguro de fazer, `getSession()` sozinho não valida). O problema era a quantidade de vezes que isso rodava **na mesma requisição**:
+
+1. `src/lib/supabase/middleware.ts` chama uma vez, em toda navegação e toda Server Action (não dá pra tirar essa, é a validação de sessão de verdade).
+2. `src/app/(app)/layout.tsx` chamava de novo, com sua própria query em `profiles`.
+3. Cada `page.tsx` que usa `getProfile()` (`src/lib/profile.ts`) chamava uma terceira vez.
+
+Resultado: até 3 idas e voltas até o Supabase Auth, mais 2 queries repetidas em `profiles`, só pra saber quem tá logado — em toda navegação e em vários cliques.
+
+**Corrigido:**
+- `src/lib/profile.ts`: `getProfile()` agora usa `cache()` do React (memoização por requisição, o padrão recomendado do Next.js App Router pra isso). Chamadas repetidas de `getProfile()` na mesma requisição (layout + page, por exemplo) reaproveitam o mesmo resultado em vez de bater no banco de novo. De quebra, o select passou a trazer `companies(name, city)` junto.
+- `src/app/(app)/layout.tsx`: trocou sua checagem de auth + query de profile própria por `getProfile()` — elimina 1 chamada de auth e 1 query por navegação.
+- `src/app/(app)/configuracoes/page.tsx`: mesma troca (usava `auth.getUser()` direto).
+- `src/lib/subscription.ts`: nova função `getSubscriptionStatus()` busca `paid_until` **e** os limites do plano (`max_vessels`, `max_users`) numa única query — `requireActiveSubscription()` continua existindo (agora só chama essa por baixo) pra não quebrar quem só precisa do bloqueio simples.
+- `src/app/(app)/embarcacoes/actions.ts` (`createVessel`) e `src/app/(app)/equipe/actions.ts` (`inviteTeamMember`): paravam de fazer duas queries seguidas em `subscriptions` (uma pra checar vencimento, outra pra pegar o limite do plano) — agora é uma só, via `getSubscriptionStatus()`.
+- `src/app/(app)/billing-actions.ts` (`startAsaasCheckout`): a busca da empresa e a busca do plano eram sequenciais mas independentes — viraram `Promise.all`.
+
+### Causa principal do atraso especificamente no menu lateral
+
+`src/app/(app)/layout.tsx` tinha `export const dynamic = "force-dynamic"` e `export const revalidate = 0`. Isso não só forçava renderização por requisição (isso já acontecia de qualquer forma, por causa do `cookies()` usado no `createClient()`/`getProfile()`) — **também desligava o cache de navegação do lado do cliente** que o Next.js usa por padrão (~30s) pra rotas dinâmicas já visitadas. Resultado: **todo clique no menu lateral**, mesmo entre páginas abertas segundos antes, refazia a checagem de auth inteira + as 5 queries do layout (assinatura, contagem de embarcações, reservas do mês, saídas de hoje, notificações) do zero no servidor. Esse era o principal motivo do "menu lateral lento" — mais direto que a duplicação de `auth.getUser()` da seção acima.
+
+Removidas as duas linhas. Pra não reintroduzir o bug que elas existiam pra evitar (sidebar mostrando plano/vencimento desatualizado logo após uma renovação), a invalidação virou cirúrgica: `revalidatePath("/dashboard", "layout")` foi adicionado nos dois únicos lugares que alteram `subscriptions.paid_until` — `src/app/api/webhooks/asaas/route.ts` (confirmação de pagamento) e `src/app/admin/actions.ts` (`renewSubscription`, renovação manual pelo super_admin). Fora desses dois pontos, a navegação agora reaproveita o cache padrão do Next.js.
+
+**Reforço, na sequência (usuário relatou que o menu ainda estava "atrasado" depois da correção acima):**
+- `next.config.mjs`: adicionado `experimental.staleTimes.dynamic = 30` — o Next 14 não reaproveita automaticamente páginas dinâmicas já visitadas no cache do navegador a não ser que isso seja configurado explicitamente; sem essa opção, remover o `force-dynamic` do layout sozinho não gerava cache nenhum de navegação. Agora, clicar de novo numa página vista há menos de 30s é instantâneo (sem ida ao servidor).
+- `src/app/(app)/loading.tsx` (novo): esqueleto genérico que o Next.js mostra **na hora** assim que o link é clicado, enquanto a página de destino ainda busca dados no servidor. Sidebar/Topbar continuam visíveis (fazem parte do layout, não trocam). Isso ataca a sensação de "clique sem resposta" mesmo quando a navegação em si ainda leva uma fração de segundo — sem `loading.tsx`, a tela ficava parada até tudo pronto, o que parece trava mesmo sendo rápido.
+
+**Se ainda estiver lento depois disso**, o próximo suspeito é o ambiente de teste: tudo acima melhora produção (`npm run build && npm run start`) de verdade, mas em **`npm run dev`** o Next.js compila cada rota sob demanda na primeira visita da sessão (alguns segundos, normal, não é bug) — só fica rápido de fato depois de "aquecida". Vale testar com build de produção pra ver o ganho real.
+
+**Não mexido nesta passada** (ver seção 6, pendências): a hidratação pesada dos Client Components de linha de tabela (`departure-row.tsx` e afins). Essa é sobre tempo até a página ficar clicável depois de carregar, não sobre a latência de rede por clique — impacto real, mas escopo maior, fica pra próxima.
+
+## 13. Auditoria de segurança (sessão de 2026-08-10)
+
+Auditoria completa a pedido do dono do produto: reconhecimento, análise estática de todo o código + migrations SQL, `npm audit`, e verificação de cada achado por rastreamento manual de fluxo de dados (sem testes de intrusão ao vivo contra a instância de produção — sem credenciais de teste pra isso).
+
+**Avaliação geral**: a base tem RLS habilitado em toda tabela sensível, `security definer` usado corretamente em `current_company_id()`/`is_super_admin()` (com `set search_path` fixo, evitando hijacking), `profiles` com GRANT restrito por coluna (impede troca de `company_id` via API direta), painel `/admin` com checagem dupla (app + RLS). O achado real foi uma classe de IDOR bem específica, não uma falha estrutural ampla.
+
+### Corrigidas
+
+- **IDOR entre empresas em `reservations` e `passengers` (ALTA)** — `createReservation`, `updateReservation` (`reservas/actions.ts`) e `addPassenger` (`reservas/[id]/passenger-actions.ts`) inseriam/atualizavam `departure_id`, `client_id` e `reservation_id` vindos direto do formulário, sem checar se esses IDs pertenciam à própria empresa do usuário logado. A política de RLS só validava a linha nova (`company_id = current_company_id()`), nunca a empresa dona da referência estrangeira. Um usuário autenticado de qualquer empresa (cadastro é auto-serviço, sem aprovação) que soubesse o UUID de uma saída/reserva de outra empresa — por exemplo, o próprio UUID que aparece na URL do voucher enviado por e-mail ao cliente — podia grudar uma reserva ou um passageiro fantasma nela, corrompendo a contagem de vagas/passageiros da vítima sem aparecer no painel dela (RLS esconde, já que a linha nova tem o `company_id` do atacante). Corrigido em duas camadas: validação explícita no app (compara o `company_id` do registro referenciado antes do insert/update) e um gatilho novo no banco, `supabase/migrations/0015_valida_dono_das_fks.sql` (**aplicada no Supabase**).
+- **Next.js desatualizado, incluindo CVE crítica de bypass de autorização em Middleware (CVE-2025-29927 / GHSA-f82v-jwr5-mffw)** — estava em `14.2.13`, atualizado pra `14.2.35` (última da série 14.2, sem breaking change). O middleware de auth (`src/middleware.ts`) já tinha uma segunda camada independente de verificação em `layout.tsx`/`admin/page.tsx`, então o impacto prático dessa CVE específica já era reduzido — mas não é motivo pra deixar sem corrigir uma CVE crítica com correção de graça disponível. `eslint-config-next` atualizado junto pra manter consistência de versão.
+- **`postcss` desatualizado (XSS/leitura arbitrária de arquivo via sourceMappingURL)** — atualizado de `8.5.19` pra `^8.5.26`. Risco real era baixo (só processa CSS do próprio projeto em build-time, nenhum input de usuário chega nele), mas a correção é de graça.
+- **Comparação não timing-safe do token do webhook Asaas** — `src/app/api/webhooks/asaas/route.ts` usava `!==` pra comparar o token secreto contra o header recebido. Trocado por `crypto.timingSafeEqual`. Risco prático era baixo (exige posição de rede muito precisa pra explorar), mas é uma correção de uma função.
+- **Migration `0015_valida_dono_das_fks.sql` aplicada no Supabase** — o gatilho de banco que reforça a checagem de IDOR (achado acima) já está ativo, não só no app.
+
+### Não corrigidas (documentadas como pendência, ver seção 6)
+
+- **`headers().get("origin")` usado pra montar link de e-mail de reset de senha/convite** — verifiquei e não é explorável hoje (Server Actions do Next.js validam Origin contra Host antes do código rodar), mas é uma dependência frágil de comportamento de framework pra algo sensível. Não troquei por uma URL fixa porque isso precisa de uma `NEXT_PUBLIC_SITE_URL` configurada em produção, e não quis arriscar quebrar o fluxo de e-mail sem confirmar o domínio final com o dono do produto.
+- **2 advisories HIGH residuais no `npm audit`** — só têm correção na branch major 15/16 do Next.js. Confirmei que os cenários que elas descrevem (custom server, i18n, `images.remotePatterns`, WebSocket) não se aplicam a este app hoje.
+
+### O que NÃO foi encontrado (verificado e descartado)
+
+Pra não dar a impressão de que a análise foi rasa: também foram checados e descartados como não-vulneráveis — SQL injection (o projeto usa só o query builder do Supabase-js, nenhuma concatenação de SQL cru), XSS via `dangerouslySetInnerHTML` (nenhum uso no código), secrets vazando pro bundle do cliente (nenhuma env var sensível com prefixo `NEXT_PUBLIC_`), uploads de arquivo (funcionalidade não existe no app), a RPC `link_asaas_subscription` (deriva a empresa via `current_company_id()`, não aceita `company_id` do chamador), e o `client_id` sendo usado como vetor de leitura cross-tenant (RLS na tabela `clients` bloqueia a leitura mesmo que o vínculo exista).
+
+## 14. Supabase CLI instalado (sessão de 2026-08-12)
+
+Instalado a pedido do dono do produto, pra poder aplicar migrations sem depender de colar manualmente no SQL Editor.
+
+- **Como foi instalado**: como devDependency do projeto (`npm install supabase --save-dev`), não como binário solto no sistema — é o jeito oficialmente suportado pra projetos npm (o CLI recusa instalação global via `npm install -g`). Uso: `npx supabase <comando>`.
+- Tentei primeiro baixar o binário standalone direto (`.tar.gz` da release do GitHub) pra deixar disponível globalmente também, mas o download travou/ficou muito lento nesse ambiente — abortado. A via npm funcionou de primeira.
+- `npx supabase init` já foi rodado — criou `supabase/config.toml` e `supabase/.gitignore` (ignora `supabase/.temp` e `.branches`, gerados localmente pelo CLI).
+- **Falta login + link, e isso só quem tem a conta consegue fazer** (não é algo que eu possa fazer por vocês — exige autenticação no navegador com a conta Supabase):
+  1. `npx supabase login` (abre o navegador pra autorizar)
+  2. `npx supabase link --project-ref gggpihphjjxndpfntnvm` (ref extraído de `NEXT_PUBLIC_SUPABASE_URL` no `.env.local`)
+- Depois disso, migrations pendentes (`0015_valida_dono_das_fks.sql` inclusive) podem ser aplicadas com `npx supabase db push`, em vez de colar manualmente no SQL Editor.
+
+## 15. Painel /admin melhorado (sessão de 2026-08-12)
+
+Reformulação completa a pedido do dono do produto — o painel do super admin era só uma tabela com botão de renovar. Migration nova: `supabase/migrations/0016_admin_panel_melhorias.sql` (**aplicada no Supabase**).
+
+### `/admin` (listagem)
+- **Métricas no topo**: total de empresas, MRR (soma do preço do plano das empresas pagando de verdade — trial não conta), quantas pagando, quantas em trial, vencidas, suspensas, e novas no mês.
+- **Busca** por nome/CNPJ (`?q=`) e **paginação** (`?page=`, 20 por página) — antes buscava e listava todas as empresas sem limite.
+- **Ordenação por urgência**: suspensas primeiro, depois vencidas, depois "vence em até 3 dias", só depois o resto por data de cadastro.
+- **Alerta de "vence em breve"**: antes só existia "vencida" ou "paga até X"; agora mostra `Vence em Nd (data)` quando faltam ≤3 dias, badge amarelo.
+- Nota de implementação: a página busca **todas** as empresas e faz filtro/ordenação/paginação em memória (JS), não no banco — decisão deliberada dado que hoje é 1 usuário (você) olhando poucas dezenas de empresas. Se a base crescer bastante, isso precisa virar uma query paginada de verdade no Supabase.
+
+### `/admin/[id]` (novo — detalhe da empresa)
+- Dados da empresa (nome, CNPJ, cidade, telefone, e-mail, cliente Asaas) com formulário de edição de CNPJ/cidade.
+- Uso do plano: embarcações e usuários usados vs. limite do plano (reaproveita o componente `OccupancyBar` que já existia pro app principal).
+- Histórico completo de assinaturas da empresa (toda vez que mudou de plano/renovou), com origem (Asaas vs. trial/manual).
+- Botão de trocar plano **sem** mexer na data de vencimento (`changePlan`), separado do "renovar +30 dias" (`renewSubscription`) que já existia.
+- **Suspensão manual** (`suspendCompany`/`unsuspendCompany`): bloqueia cadastro de coisa nova imediatamente, independente da assinatura estar em dia. Novo campo `companies.suspended_at`/`suspended_reason`. Reaproveita o mesmo mecanismo de bloqueio que já existia pra "assinatura vencida" (`src/lib/subscription.ts`, `getSubscriptionStatus`) e o mesmo banner (`overdue-banner.tsx`, agora com uma variante vermelha "Conta suspensa" em vez de amarela "Assinatura vencida").
+- Log de auditoria da empresa (últimas 30 ações).
+
+### Log de auditoria (`admin_audit_log`, novo)
+Toda ação administrativa sensível (renovar, trocar plano, suspender/reativar, editar dados) grava quem fez, quando, em qual empresa e com quais detalhes — antes disso não existia nenhum rastro de ações do super admin. RLS restringe leitura e escrita a `is_super_admin()`, e a escrita só aceita `admin_id = auth.uid()` (não dá pra forjar um log em nome de outro admin).
+
+### RLS nova pro super admin
+Antes, o super admin só tinha SELECT em `companies`/`subscriptions` (RLS da migration 0007) — não dava pra atualizar empresa (suspender, editar CNPJ) nem ver embarcações/usuários de outra empresa (necessário pra mostrar uso vs. limite). Adicionado: UPDATE em `companies`, SELECT em `vessels` e `profiles`, todos gated por `is_super_admin()`.
+
+### Não implementado nesta passada
+- **2FA pro super_admin** — sugerido na auditoria de segurança (seção 13) e reconfirmado aqui. Não implementei porque é uma feature de segurança grande o suficiente (fluxo de enrollment com QR code, tela de desafio no login, obrigatoriedade pra essa role especificamente) que merece uma passada própria, testada de verdade — não quis fazer isso "de brinde" dentro de uma tarefa maior sem poder validar visualmente.
+
+## 16. Controle de notas fiscais (sessão de 2026-08-12)
+
+**Importante: isto NÃO emite nota fiscal de verdade.** Perguntei antes de implementar (nota fiscal é assunto regulado, não dá pra chutar) e a resposta foi: nota fiscal da **assinatura do SaaS** (não das reservas de cada empresa), e ainda não existe certificado digital nem provedor de NFS-e configurado. Então isto é um **registro de controle manual** — o super admin emite a nota por fora (prefeitura/contador) e anota aqui número, valor, link do PDF e data, só pra não perder o controle de quais meses já foram faturados.
+
+Migration nova: `supabase/migrations/0017_notas_fiscais.sql` (**aplicada no Supabase**). Cria a tabela `invoices` (company_id, number, amount_cents, pdf_url, issued_at, notes, created_by).
+
+- **`/admin/[id]`**: card "Notas fiscais" com formulário de registro (`registerInvoice`) e lista das notas já registradas, com exclusão (`deleteInvoice`) pra corrigir erro de digitação. Toda ação vai pro log de auditoria (seção 15).
+- **`/configuracoes`**: a própria empresa vê (só leitura) o histórico das próprias notas — quem registra é sempre o super admin, a empresa não cria/edita.
+- RLS: `is_super_admin()` pra tudo (criar/editar/excluir), e `company_id = current_company_id()` só-leitura pra empresa ver as próprias.
+- `DeleteButton` (`src/components/delete-button.tsx`) ganhou um prop opcional `extraFields` — precisava mandar `company_id` junto do `id` pra revalidar o cache certo, e o componente só suportava `id` sozinho antes.
+
+**Quando integrar emissão de verdade**: se um dia configurarem um provedor (Asaas tem API de NFS-e vinculada a pagamento, ou serviços dedicados tipo NFe.io/Focus NFe/eNotas), a tabela `invoices` já dá a base — trocaria só o formulário manual por uma chamada de API que preenche os mesmos campos automaticamente.
+
+## 17. Gráficos, funil, distribuição por plano e onboarding travado no /admin (sessão de 2026-08-12)
+
+Sem migration nova — tudo construído em cima do que já existia (a RLS de `vessels` pro super admin já tinha sido criada na migration 0016).
+
+- **`src/app/admin/charts.tsx`** (novo): 3 componentes de gráfico, todos Server Components (zero JS extra no bundle — `/admin` cresceu só 1.5kB com tudo isso). Usam uma única cor (`bg-brand`) em vez de paleta categórica — a identidade de cada barra vem do rótulo de texto ao lado, não da cor, então não precisou validar contraste/CVD pra isso (consultei a skill de dataviz do projeto antes de implementar).
+  - `NewCompaniesChart`: empresas novas por mês, últimos 12 meses, barras verticais com valor direto acima (sem tooltip — poucos pontos, não precisa).
+  - `FunnelChart`: Total de cadastros → já converteu (pagou via Asaas alguma vez, aproximado por `asaas_subscription_id is not null`) → pagando agora. Mesma cor em todas as barras de propósito — são o mesmo grupo de empresas afunilando, não categorias diferentes.
+  - `PlanDistributionChart`: quantas empresas em cada plano (Start/Profissional/Premium/sem plano), barras horizontais.
+- **Onboarding travado**: empresa cadastrada há mais de 7 dias (`ONBOARDING_TRAVADO_DIAS`) e com zero embarcações cadastradas. Aparece como métrica no topo e como ícone de alerta ao lado do nome da empresa na lista. É um proxy simples (só embarcações, não checa reservas) — decisão deliberada pra não precisar de mais uma RLS nova (`vessels` já era visível ao super admin; `reservations` não).
+- **Filtro por plano**: dropdown novo ao lado da busca (`?plano=<code>`), filtra a lista pelo plano atual da empresa.

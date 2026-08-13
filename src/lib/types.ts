@@ -11,6 +11,7 @@ export type Profile = {
   role: UserRole;
   name: string | null;
   email: string | null;
+  companies?: Company | null;
 };
 
 export type Company = {

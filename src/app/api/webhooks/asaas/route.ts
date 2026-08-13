@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { timingSafeEqual } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
 // Recebe as notificacoes de pagamento do Asaas (evento PAYMENT_CONFIRMED/PAYMENT_RECEIVED)
@@ -11,9 +13,19 @@ import { createClient } from "@supabase/supabase-js";
 
 const RELEVANT_EVENTS = new Set(["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"]);
 
+// comparacao em tempo constante -- "!==" normal vaza, por timing, quantos caracteres
+// iniciais bateram, o que teoricamente ajuda um atacante a adivinhar o token aos poucos
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 export async function POST(request: Request) {
   const token = request.headers.get("asaas-access-token");
-  if (!process.env.ASAAS_WEBHOOK_TOKEN || token !== process.env.ASAAS_WEBHOOK_TOKEN) {
+  const secret = process.env.ASAAS_WEBHOOK_TOKEN;
+  if (!secret || !token || !safeEqual(token, secret)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -45,6 +57,10 @@ export async function POST(request: Request) {
     .from("subscriptions")
     .update({ paid_until: base.toISOString(), status: "ativa" })
     .eq("id", sub.id);
+
+  // sem o "force-dynamic" global no layout, precisa disso pra sidebar/topbar da empresa
+  // mostrarem o plano/vencimento renovados na próxima navegação, e não o dado antigo em cache
+  revalidatePath("/dashboard", "layout");
 
   return NextResponse.json({ ok: true });
 }

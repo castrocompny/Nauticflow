@@ -1,13 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, Badge } from "@/components/ui";
-import { fmtDate } from "@/lib/format";
+import { brl, fmtDate } from "@/lib/format";
 import { SettingsForm } from "./settings-form";
+
+type Invoice = { id: string; number: string | null; amount_cents: number; pdf_url: string | null; issued_at: string };
 
 export default async function ConfiguracoesPage() {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getProfile();
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -18,7 +19,7 @@ export default async function ConfiguracoesPage() {
   const p = profile as any;
   const company = p?.companies ?? {};
 
-  const [subRes, vesselsCount, monthRes] = await Promise.all([
+  const [subRes, vesselsCount, monthRes, invoicesRes] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("status, paid_until, plans(name, max_vessels, max_users)")
@@ -30,12 +31,14 @@ export default async function ConfiguracoesPage() {
       .from("reservations")
       .select("id", { count: "exact", head: true })
       .gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
+    supabase.from("invoices").select("id, number, amount_cents, pdf_url, issued_at").order("issued_at", { ascending: false }),
   ]);
 
   const sub = subRes.data as any;
   const plan = sub?.plans ?? {};
   const paidUntil = sub?.paid_until ? new Date(sub.paid_until as string) : null;
   const overdue = paidUntil ? paidUntil < new Date() : false;
+  const invoices = (invoicesRes.data ?? []) as Invoice[];
 
   return (
     <>
@@ -76,6 +79,32 @@ export default async function ConfiguracoesPage() {
               As opções de pagamento aparecem na faixa amarela no topo das telas enquanto a assinatura estiver
               vencida.
             </p>
+          )}
+        </Card>
+
+        <Card className="h-fit lg:col-span-3">
+          <h2 className="mb-1 font-display font-semibold text-heading">Notas fiscais</h2>
+          <p className="mb-3 text-xs text-muted">Notas emitidas referentes à sua assinatura do NauticFlow.</p>
+          {invoices.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted">Nenhuma nota fiscal registrada ainda.</p>
+          ) : (
+            <div className="space-y-2">
+              {invoices.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2 text-sm">
+                  <div>
+                    <p className="font-medium text-heading">{inv.number || "sem número"}</p>
+                    <p className="text-xs text-muted">
+                      {fmtDate(inv.issued_at)} · {brl(inv.amount_cents)}
+                    </p>
+                  </div>
+                  {inv.pdf_url && (
+                    <a href={inv.pdf_url} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline">
+                      Ver PDF
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </Card>
       </div>

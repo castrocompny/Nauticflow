@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requireActiveSubscription } from "@/lib/subscription";
+import { getSubscriptionStatus } from "@/lib/subscription";
 
 export async function createVessel(_prev: unknown, formData: FormData) {
   const supabase = createClient();
@@ -30,18 +30,9 @@ export async function createVessel(_prev: unknown, formData: FormData) {
     };
   }
 
-  const subscriptionBlocked = await requireActiveSubscription(profile.company_id);
-  if (subscriptionBlocked) return { error: subscriptionBlocked };
-
-  // 3) confere o limite de embarcacoes do plano contratado antes de inserir
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("plans(max_vessels)")
-    .eq("company_id", profile.company_id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const maxVessels = (sub as any)?.plans?.max_vessels as number | null | undefined;
+  // 3) confirma assinatura em dia e confere o limite de embarcacoes do plano, numa unica query
+  const { blocked, maxVessels } = await getSubscriptionStatus(profile.company_id);
+  if (blocked) return { error: blocked };
 
   if (maxVessels != null) {
     const { count } = await supabase

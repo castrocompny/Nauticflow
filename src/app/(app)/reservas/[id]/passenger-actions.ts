@@ -10,6 +10,20 @@ export async function addPassenger(_prev: unknown, formData: FormData) {
   const reservationId = String(formData.get("reservation_id"));
 
   const supabase = createClient();
+
+  // confere que a reserva e da propria empresa -- sem isso, um usuario autenticado de
+  // qualquer empresa poderia injetar um passageiro numa reserva de OUTRA empresa (o id
+  // aparece na URL do voucher, que e enviado por e-mail ao cliente por design). reforcado
+  // tambem por gatilho no banco (migration 0015).
+  const { data: reservation } = await supabase
+    .from("reservations")
+    .select("company_id")
+    .eq("id", reservationId)
+    .maybeSingle();
+  if (!reservation || reservation.company_id !== profile.company_id) {
+    return { error: "Reserva inválida." };
+  }
+
   const { error } = await supabase.from("passengers").insert({
     company_id: profile.company_id,
     reservation_id: reservationId,
