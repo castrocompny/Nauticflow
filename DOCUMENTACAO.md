@@ -259,3 +259,14 @@ Sem migration nova — tudo construído em cima do que já existia (a RLS de `ve
   - `PlanDistributionChart`: quantas empresas em cada plano (Start/Profissional/Premium/sem plano), barras horizontais.
 - **Onboarding travado**: empresa cadastrada há mais de 7 dias (`ONBOARDING_TRAVADO_DIAS`) e com zero embarcações cadastradas. Aparece como métrica no topo e como ícone de alerta ao lado do nome da empresa na lista. É um proxy simples (só embarcações, não checa reservas) — decisão deliberada pra não precisar de mais uma RLS nova (`vessels` já era visível ao super admin; `reservations` não).
 - **Filtro por plano**: dropdown novo ao lado da busca (`?plano=<code>`), filtra a lista pelo plano atual da empresa.
+
+## 18. Validação final antes do commit (sessão de 2026-08-12)
+
+Antes de commitar o lote inteiro de mudanças desta sessão (seções 10-17), rodei uma checagem completa pra garantir que não tinha nada quebrado. Sem login/credenciais de teste no ambiente, então isto **não substitui teste manual na interface** — cobre tudo que dá pra verificar sem uma conta autenticada.
+
+- **Estático**: `tsc --noEmit`, `next lint` e `next build` completos, todos limpos (só os 2 warnings pré-existentes de `<img>` sem `next/image`, sem relação com o que mudou).
+- **Runtime**: subiu o servidor em modo produção (`next start`) e bateu em todas as rotas — públicas retornam 200, protegidas redirecionam 307 pro login (nenhum 500/crash em lugar nenhum). Testado também o webhook do Asaas direto (sem token e com token errado): responde 401 nos dois casos sem lançar exceção, confirmando que a troca pra `crypto.timingSafeEqual` (seção 13) não quebrou a checagem.
+- **Revisão de lógica** (além de compilar) nos pontos de maior risco: `admin/actions.ts` (as 7 actions, discriminated union de auth), `reservas/actions.ts` + `passenger-actions.ts` (validação de IDOR), `layout.tsx` + `subscription.ts` (suspensão sempre tem prioridade sobre vencida, sem sobreposição), `admin/page.tsx` + `charts.tsx` (funil sempre monotônico — Total ≥ Converteu ≥ Pagando —, gráficos protegidos contra divisão por zero).
+- `npm audit`: sem novidade, só os 2 advisories residuais já documentados na seção 6 (postcss interno do Next.js, sem caminho de input não confiável nesse app).
+
+**Não coberto por essa validação**: cliques reais na UI autenticada (dashboard, reservas, `/admin` etc.) — decisão do dono do produto de não criar conta de teste na Supabase de produção pra isso. Recomendo passar pelas telas principais manualmente depois do commit, em especial as que tiveram a validação de IDOR adicionada (Reservas, Passageiros) e o `/admin` novo.
