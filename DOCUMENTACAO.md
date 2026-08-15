@@ -343,3 +343,13 @@ Domínio `nauticflow.com.br` adicionado no Resend, com "Auto configure" (integra
 ### Validação final desta sessão
 
 `tsc --noEmit`, `next lint`, `next build` — todos limpos, sem erros novos. `npm audit` sem novidade (mesmos 2 advisories residuais já conhecidos, ver seção 6). Testado ao vivo em `nauticflow.com.br`: todas as rotas protegidas redirecionam certo, rotas públicas respondem 200, webhook recusa sem token, CSS carrega normal.
+
+## 21. Chave do Asaas nunca tinha sido configurada — checkout testado e funcionando (sessão de 2026-08-14)
+
+Pedido: testar a forma de pagamento. Descoberta: **nunca tinha funcionado**, desde o início do projeto — `ASAAS_API_KEY` no `.env.local` (e, por consequência, na Vercel, porque foi copiada de lá na seção 19) era literalmente o texto de exemplo `sua-chave-asaas`, nunca substituído pela chave real.
+
+- Usuário colou a chave de **produção** por engano primeiro (prefixo `$aact_prod_`) — não foi usada pra nada, porque produção com dinheiro real não é o que se quer pra "testar". Trocado por uma chave de **sandbox** de verdade (prefixo `$aact_hmlg_`, gerada no painel do Asaas em ambiente de testes).
+- **Segundo problema, mesmo depois da chave certa**: o `$` no início da chave estava sendo interpretado como referência de variável (mesmo bug já documentado na seção 4 sobre esse exato caractere) — precisou escapar como `\$aact_hmlg_...` no `.env.local` pra funcionar localmente. **Na Vercel não precisa escapar** (lá é só um valor de texto puro, sem parsing de shell/dotenv) — o valor colado lá é o `$aact_hmlg_...` sem barra.
+- Testado direto contra a API do Asaas (sandbox) via `curl`, replicando as 3 chamadas que `src/lib/asaas.ts` faz: criar cliente → criar assinatura → pegar link da fatura. Funcionou depois da correção — cliente e assinatura de teste criados e apagados em seguida (dados de diagnóstico, sem deixar lixo na conta sandbox).
+- Confirmado também pelo usuário, ao vivo: clicou em "Assinar" no plano Profissional em `/planos`, abriu a fatura real do Asaas sandbox (R$297, "Aguardando Pagamento") com os dados reais da empresa preenchidos automaticamente. **Checkout ponta a ponta funcionando.**
+- **Não testado ainda**: completar o pagamento de fato e confirmar que o webhook (`/api/webhooks/asaas`) atualiza `paid_until` no Supabase — combinado de deixar pra uma próxima sessão (ver seção 6).
