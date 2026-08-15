@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { fmtTime, saoPauloHour, saoPauloStartOfDay } from "@/lib/format";
 
 type Dep = {
   id: string;
@@ -18,23 +18,22 @@ const filters = [
   { key: "semana", label: "Semana" },
 ];
 
+function addDays(d: Date, n: number): Date {
+  return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
+}
+
 function rangeFor(f: string) {
-  const now = new Date();
-  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const base = saoPauloStartOfDay(new Date());
   if (f === "amanha") {
-    const s = new Date(base);
-    s.setDate(s.getDate() + 1);
-    const e = new Date(s);
-    e.setDate(e.getDate() + 1);
+    const s = addDays(base, 1);
+    const e = addDays(s, 1);
     return { start: s, end: e, days: 1 };
   }
   if (f === "semana") {
-    const e = new Date(base);
-    e.setDate(e.getDate() + 7);
+    const e = addDays(base, 7);
     return { start: base, end: e, days: 7 };
   }
-  const e = new Date(base);
-  e.setDate(e.getDate() + 1);
+  const e = addDays(base, 1);
   return { start: base, end: e, days: 1 };
 }
 
@@ -56,14 +55,9 @@ export default async function AgendaPage({ searchParams }: { searchParams: { f?:
 
   const dayList: Date[] = [];
   for (let i = 0; i < days; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    dayList.push(d);
+    dayList.push(addDays(start, i));
   }
-  const sameDay = (iso: string, d: Date) => {
-    const x = new Date(iso);
-    return x.getFullYear() === d.getFullYear() && x.getMonth() === d.getMonth() && x.getDate() === d.getDate();
-  };
+  const sameDay = (iso: string, d: Date) => saoPauloStartOfDay(new Date(iso)).getTime() === d.getTime();
 
   return (
     <>
@@ -111,18 +105,23 @@ export default async function AgendaPage({ searchParams }: { searchParams: { f?:
             const hours = new Set<number>();
             for (let h = 8; h <= 19; h++) hours.add(h);
             ofDay.forEach((d) => {
-              const h = new Date(d.departs_at).getHours();
+              const h = saoPauloHour(d.departs_at);
               if (h <= 19) hours.add(h);
             });
             const hourList = Array.from(hours).sort((a, b) => a - b);
             return (
               <Card key={day.toISOString()}>
                 <h2 className="mb-3 font-display text-sm font-semibold capitalize text-heading">
-                  {day.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
+                  {day.toLocaleDateString("pt-BR", {
+                    weekday: "long",
+                    day: "2-digit",
+                    month: "long",
+                    timeZone: "America/Sao_Paulo",
+                  })}
                 </h2>
                 <div className="space-y-1">
                   {hourList.map((h) => {
-                    const here = ofDay.filter((r) => new Date(r.departs_at).getHours() === h);
+                    const here = ofDay.filter((r) => saoPauloHour(r.departs_at) === h);
                     return (
                       <div key={h} className="flex items-start gap-3 border-b border-line py-1.5 last:border-0">
                         <span className="w-12 shrink-0 text-xs text-muted">{String(h).padStart(2, "0")}:00</span>

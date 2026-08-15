@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { requireActiveSubscription } from "@/lib/subscription";
+import { saoPauloHHMM } from "@/lib/format";
 
 export async function createReservation(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
@@ -31,8 +32,7 @@ export async function createReservation(_prev: unknown, formData: FormData) {
   if (!client || client.company_id !== profile.company_id) {
     return { error: "Cliente inválido." };
   }
-  const d = new Date(departure.departs_at);
-  const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const hhmm = saoPauloHHMM(departure.departs_at);
   if (hhmm < "08:00" || hhmm > "19:00")
     return { error: "Esta saída está fora do horário permitido para reservas (08:00–19:00)." };
 

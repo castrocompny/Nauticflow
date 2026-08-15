@@ -14,7 +14,7 @@ import {
   Handshake,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { brl, fmtTime, fmtDate, startEndOfToday } from "@/lib/format";
+import { brl, fmtTime, fmtDate, startEndOfToday, saoPauloHour, saoPauloStartOfDay, saoPauloStartOfMonth, saoPauloDayKey } from "@/lib/format";
 import { getProfile } from "@/lib/profile";
 import { Card, Badge } from "@/components/ui";
 import { BarsChart } from "./bars-chart";
@@ -27,9 +27,9 @@ const PERIODS = [
 ];
 
 function periodStartFor(p: string, now: Date): Date {
-  if (p === "mes") return new Date(now.getFullYear(), now.getMonth(), 1);
+  if (p === "mes") return saoPauloStartOfMonth(now);
   const days = p === "7d" ? 6 : p === "90d" ? 89 : 29;
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
+  return new Date(saoPauloStartOfDay(now).getTime() - days * 24 * 60 * 60 * 1000);
 }
 
 export default async function Dashboard({ searchParams }: { searchParams: { p?: string } }) {
@@ -39,11 +39,11 @@ export default async function Dashboard({ searchParams }: { searchParams: { p?: 
 
   const now = new Date();
   const { start: todayStart, end: todayEnd } = startEndOfToday();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const d30 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+  const monthStart = saoPauloStartOfMonth(now);
+  const prevMonthStart = saoPauloStartOfMonth(now, -1);
+  const d30 = new Date(saoPauloStartOfDay(now).getTime() - 29 * 24 * 60 * 60 * 1000);
   const periodStart = periodStartFor(p, now);
-  const next7End = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+  const next7End = new Date(saoPauloStartOfDay(now).getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const [todayRes, recentRes, depsRes, clientsRes, lastResRes, prevMonthRes, periodResRes, periodDepsRes, next7Res] =
     await Promise.all([
@@ -95,7 +95,7 @@ export default async function Dashboard({ searchParams }: { searchParams: { p?: 
   const todayHours = new Set<number>();
   for (let h = 8; h <= 19; h++) todayHours.add(h);
   todayDeps.forEach((r) => {
-    const h = new Date(r.departs_at).getHours();
+    const h = saoPauloHour(r.departs_at);
     if (h <= 19) todayHours.add(h);
   });
   const todayHourList = Array.from(todayHours).sort((a, b) => a - b);
@@ -127,7 +127,7 @@ export default async function Dashboard({ searchParams }: { searchParams: { p?: 
     : 0;
   const ocupacaoTrendPts = occMedia30 > 0 ? ocupacaoHoje - occMedia30 : null;
 
-  const hour = now.getHours();
+  const hour = saoPauloHour(now.toISOString());
   const greet = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const firstName = (profile?.name ?? "").split(" ")[0] || "operador";
 
@@ -166,14 +166,12 @@ export default async function Dashboard({ searchParams }: { searchParams: { p?: 
   // series diarias do periodo (receita por data da reserva, ocupacao por data da saida)
   const dayKeys: string[] = [];
   const dayDates: Date[] = [];
-  for (let d = new Date(periodStart); d <= new Date(now.getFullYear(), now.getMonth(), now.getDate()); d.setDate(d.getDate() + 1)) {
-    dayKeys.push(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+  const todayStartSP = saoPauloStartOfDay(now);
+  for (let d = saoPauloStartOfDay(periodStart); d.getTime() <= todayStartSP.getTime(); d = new Date(d.getTime() + 24 * 60 * 60 * 1000)) {
+    dayKeys.push(saoPauloDayKey(d.toISOString()));
     dayDates.push(new Date(d));
   }
-  const keyOf = (iso: string) => {
-    const d = new Date(iso);
-    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-  };
+  const keyOf = (iso: string) => saoPauloDayKey(iso);
 
   const revByDay: Record<string, number> = Object.fromEntries(dayKeys.map((k) => [k, 0]));
   periodConfirmadas.forEach((r) => {
@@ -232,7 +230,7 @@ export default async function Dashboard({ searchParams }: { searchParams: { p?: 
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 6);
 
-  const dayLabel = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  const dayLabel = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
   const periodoLabel = PERIODS.find((o) => o.key === p)?.label ?? "período";
 
   return (
@@ -409,7 +407,7 @@ export default async function Dashboard({ searchParams }: { searchParams: { p?: 
         </div>
         <div className="space-y-1">
           {todayHourList.map((h) => {
-            const here = todayDeps.filter((r) => new Date(r.departs_at).getHours() === h);
+            const here = todayDeps.filter((r) => saoPauloHour(r.departs_at) === h);
             return (
               <div
                 key={h}

@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { fmtDate, fmtTime, saoPauloHHMM } from "@/lib/format";
 import { NewReservationForm } from "./new-reservation-form";
 import { ReservationRow } from "./reservation-row";
 
@@ -56,12 +56,8 @@ export default async function ReservationsPage() {
   });
   // novas reservas só podem ser feitas em saidas dentro do horario comercial (08:00-19:00);
   // reservas ja existentes ligadas a saidas fora disso continuam editaveis normalmente
-  const hhmm = (iso: string) => {
-    const d = new Date(iso);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  };
   const createDepOptions = depOptions.filter((d, i) => {
-    const h = hhmm(depRows[i].departs_at);
+    const h = saoPauloHHMM(depRows[i].departs_at);
     return h >= "08:00" && h <= "19:00";
   });
 
