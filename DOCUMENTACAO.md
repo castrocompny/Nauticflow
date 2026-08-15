@@ -55,15 +55,18 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
-- **Timezone: parsing ingênuo de data/hora de saída** — `saidas/actions.ts` monta `departs_at` com `new Date(`${date}T${time}`).toISOString()`, que interpreta a string usando o fuso horário do processo Node, não necessariamente `America/Sao_Paulo`. Hoje isso funciona porque o `next dev` roda na máquina do desenvolvedor (fuso de Brasília). **Se o app for hospedado num serviço que roda em UTC por padrão (Vercel, por exemplo), toda essa lógica de horário — inclusive a trava de 08:00–19:00 e o "não pode ser no passado" — vai calcular errado por 3 horas.** Precisa ser corrigido (fixar o offset `-03:00` na escrita, e/ou passar `timeZone: "America/Sao_Paulo"` explícito nas formatações de leitura) antes de publicar em produção num host fora do Brasil/fora desse fuso.
-- **Testar o webhook do Asaas com domínio real** (ou via ngrok) — hoje só validado localmente com uma chamada simulada.
+- 🔴 **URGENTE — Timezone: parsing ingênuo de data/hora de saída, agora ativo em produção DE VERDADE** — `saidas/actions.ts` monta `departs_at` com `new Date(`${date}T${time}`).toISOString()`, que interpreta a string usando o fuso horário do processo Node, não necessariamente `America/Sao_Paulo`. Isso funcionava certo em dev porque `next dev` roda na máquina do desenvolvedor (fuso de Brasília) — **e agora o app está publicado de verdade em `nauticflow.com.br`, rodando em UTC (Vercel)** — isso deixou de ser risco hipotético. Toda a lógica de horário de saída — a trava de 08:00–19:00 e o "não pode ser no passado" (migration `0014`, ver seção 10) — está calculando errado por 3 horas neste exato momento em produção. Precisa ser corrigido (fixar o offset `-03:00` na escrita, e/ou passar `timeZone: "America/Sao_Paulo"` explícito nas formatações de leitura).
+- **Testar o webhook do Asaas com domínio real** — apontar a URL do webhook no painel do Asaas pra `https://nauticflow.com.br/api/webhooks/asaas` (ver seção 20) e testar de verdade.
+- **Redirect URLs no Supabase** pra `https://nauticflow.com.br/**` — ainda não feito (as seções 19/20 mencionaram isso pra URL da Vercel, mas o domínio final mudou depois).
+- **Confirmar o Resend "Verified"** e testar envio de e-mail de verdade pelo domínio novo (ver seção 20 — status "Pending" no fim da sessão de 14/15 de agosto).
 - **Upgrade do Supabase pro plano Pro** — evita pausa automática do projeto por inatividade e ativa backup. Ainda não feito (decisão do dono do produto, envolve custo).
-- **`headers().get("origin")` usado pra montar link de e-mail** (reset de senha em `login/actions.ts`, convite em `equipe/actions.ts`) — hoje protegido pela validação nativa de Origin/Host das Server Actions do Next.js, mas é uma dependência frágil de comportamento de framework pra algo sensível (link de reset de senha). Recomendado trocar por uma `NEXT_PUBLIC_SITE_URL` fixa quando o domínio de produção estiver definido.
+- **`headers().get("origin")` usado pra montar link de e-mail** (reset de senha em `login/actions.ts`, convite em `equipe/actions.ts`) — hoje protegido pela validação nativa de Origin/Host das Server Actions do Next.js, mas é uma dependência frágil de comportamento de framework pra algo sensível (link de reset de senha). Recomendado trocar por uma `NEXT_PUBLIC_SITE_URL` fixa agora que já existe um domínio de produção definitivo (`nauticflow.com.br`, seção 20).
+- **Projeto Vercel órfão** (`nautic-flow/nauticflow`, ver seção 20) — não é mais o que serve o domínio, decidir se apaga pra não confundir.
 - **2 advisories HIGH residuais no `npm audit`** (SSRF em rewrites com host controlado por env var interna, DoS em Server Components) só têm correção disponível na branch major do Next (15/16) — não fazem sentido pra esse app hoje (sem custom server, sem i18n, sem `images.remotePatterns`, sem WebSocket), mas vale reavaliar numa futura migração de major version do Next.js.
 - **Linhas de tabela client-side demais** (`saidas/departure-row.tsx`, `reservas/reservation-row.tsx`, `parceiros/partner-row.tsx`, `embarcacoes/vessel-row.tsx`, `clientes/client-row.tsx`): cada linha é seu próprio Client Component com o formulário de edição inteiro embutido (mesmo escondido), instanciado uma vez por linha — até 25-50 por página. Contribui pro tempo de hidratação logo após abrir uma lista (o "atraso" pode aparecer como clique sem resposta nos primeiros instantes da página). Não mexido ainda porque exige reestruturar a UI (separar linha estática de um "island" de edição sob demanda) e eu não tenho como testar visualmente sem login no app.
 - **2FA pro super_admin** — sugerido na auditoria de segurança (seção 13), reconfirmado na melhoria do `/admin` (seção 15). Ainda não implementado, de propósito (feature grande demais pra fazer sem testar ao vivo).
 - **Emissão de nota fiscal ainda é manual** (seção 16) — não há certificado digital nem provedor de NFS-e configurado. O registro em `/admin/[id]` é só controle, não gera nota nenhuma de verdade.
-- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11), **deduplicação de `auth.getUser()` e queries repetidas** (ver seção 12), **auditoria de segurança — IDOR entre empresas e dependências vulneráveis** (ver seção 13), **migration `0015` aplicada** (trava de IDOR também no banco), **Supabase CLI instalado no projeto** (ver seção 14), **painel /admin melhorado** (ver seção 15, migration `0016` aplicada), **controle manual de notas fiscais** (ver seção 16, migration `0017` aplicada), **gráficos/funil/onboarding travado/filtro por plano no /admin** (ver seção 17).
+- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11), **deduplicação de `auth.getUser()` e queries repetidas** (ver seção 12), **auditoria de segurança — IDOR entre empresas e dependências vulneráveis** (ver seção 13), **migration `0015` aplicada** (trava de IDOR também no banco), **Supabase CLI instalado no projeto** (ver seção 14), **painel /admin melhorado** (ver seção 15, migration `0016` aplicada), **controle manual de notas fiscais** (ver seção 16, migration `0017` aplicada), **gráficos/funil/onboarding travado/filtro por plano no /admin** (ver seção 17), **deploy em produção com domínio próprio no ar** (`nauticflow.com.br`, ver seções 19 e 20), **2 commits de segurança/admin/performance que estavam sem push finalmente publicados** (ver seção 20).
 
 ## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
 
@@ -270,3 +273,69 @@ Antes de commitar o lote inteiro de mudanças desta sessão (seções 10-17), ro
 - `npm audit`: sem novidade, só os 2 advisories residuais já documentados na seção 6 (postcss interno do Next.js, sem caminho de input não confiável nesse app).
 
 **Não coberto por essa validação**: cliques reais na UI autenticada (dashboard, reservas, `/admin` etc.) — decisão do dono do produto de não criar conta de teste na Supabase de produção pra isso. Recomendo passar pelas telas principais manualmente depois do commit, em especial as que tiveram a validação de IDOR adicionada (Reservas, Passageiros) e o `/admin` novo.
+
+## 19. Primeiro deploy em produção — Vercel (sessão de 2026-08-14)
+
+O app foi ao ar pela primeira vez. Domínio próprio (`.com.br`) já comprado na HostGator, mas **ainda não conectado** — o deploy está rodando no subdomínio gratuito da Vercel por enquanto, o que já é uma URL pública e funcional (não é obrigatório ter domínio próprio pra operar).
+
+- **URL de produção**: https://nauticflow.vercel.app
+- Projeto Vercel: `nautic-flow/nauticflow` (criado via CLI, `npx vercel link --project nauticflow`)
+- Login no CLI feito via device flow (`npx vercel login`, código de autorização confirmado pelo navegador) — não precisou de senha compartilhada.
+- **Conexão automática com o GitHub falhou**: a conta Vercel usada não tem permissão de admin/escrita no repositório `castrocompny/Nauticflow`. Por enquanto o deploy é manual (`npx vercel deploy --prod`) a partir do código local — não re-deploya sozinho a cada `git push`. Pra resolver: conectar o repositório pela própria interface da Vercel (Project Settings → Git), autorizando o GitHub App da Vercel a acessar esse repositório.
+- **Variáveis de ambiente**: todas as 7 do `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SENTRY_DSN`, `ASAAS_API_KEY`, `ASAAS_API_URL`, `ASAAS_WEBHOOK_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`) foram enviadas pra Vercel via `vercel env add` (ambientes Production e Preview), lendo os valores direto do `.env.local` local sem nunca aparecerem no texto do chat. `.gitignore` ganhou `.vercel` e `.env*` automaticamente (feito pelo próprio `vercel link`).
+- Smoke test pós-deploy: `/` e `/dashboard` redirecionam 307 pro login (correto, sem sessão), `/login` e `/termos` respondem 200 com conteúdo real renderizado — confirma que as env vars do Supabase estão corretas em produção.
+
+### Pendências decorrentes do deploy (ver seção 6 também)
+
+- ~~Atualizar Redirect URLs no Supabase~~ / ~~Atualizar webhook do Asaas~~ / ~~Conectar domínio da HostGator~~ — ver seção 20, a história completa mudou bastante desde que isto foi escrito (domínio conectado, mas a um projeto Vercel diferente do que está descrito acima).
+
+## 20. Domínio em produção, dois projetos Vercel, e um commit que nunca tinha ido pro ar (sessão de 2026-08-14/15)
+
+Continuação direta da seção 19. Resumo do que rolou, na ordem que aconteceu — importante entender pra não se perder, porque teve uma reviravolta grande no meio.
+
+### Existem DOIS projetos Vercel agora — só um deles importa
+
+- `nautic-flow/nauticflow` — o que **eu** criei via CLI (seção 19). URL: `nauticflow.vercel.app`. Continua existindo e funcionando, mas **não é mais o que serve o domínio real**. Candidato a ser apagado depois, pra não confundir (não apaguei ainda, decisão de vocês).
+- `Passatempo/fluxo náutico` (nome interno do projeto: `nauticflow`) — criado pelo **usuário direto pela interface da Vercel**, importando o repositório do GitHub. Esse **já veio com Git conectado** (o que o meu, via CLI, não conseguiu por falta de permissão — ver seção 19). **Este é o projeto real, o que está atrás de `nauticflow.com.br` hoje.**
+
+Como os dois projetos são de contas/times diferentes, o CLI que eu uso (logado como `jlpereiradcastro-droide`, time `nautic-flow`) **não enxerga nem consegue mexer no projeto `Passatempo/fluxo náutico`** — todo ajuste nele (variáveis de ambiente, domínio, deployment protection) teve que ser feito pelo usuário direto na interface, me mandando print pra eu confirmar/orientar o próximo passo.
+
+### Variáveis de ambiente no projeto certo
+
+O `Passatempo/fluxo náutico` foi criado do zero, sem nenhuma variável de ambiente configurada — por isso a primeira implantação de produção **crashou** (`MIDDLEWARE_INVOCATION_FAILED`, porque `src/lib/supabase/middleware.ts` não tinha `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY` pra usar). Corrigido gerando um arquivo `variaveis-vercel-nauticflow.txt` (a partir do `.env.local`, sem o `VERCEL_OIDC_TOKEN`) na Área de Trabalho do usuário, pra ele colar no formulário "Adicionar variável de ambiente" da Vercel (função de colar `.env` de uma vez, que separa tudo sozinha). **Arquivo já deve ser apagado da Área de Trabalho depois de usado** (tinha segredo em texto puro).
+
+### 🔴 Achado importante: 2 commits nunca chegaram no GitHub
+
+Ao investigar riscos antes do commit, descobri que existiam **2 commits salvos localmente que nunca tinham sido enviados** (`git push`) pro GitHub:
+- `024c4b6` — "atualização e otimização do sistema, melhoria na area de admin e teste de segurança no sistema" (o commit gigante: a correção de IDOR da auditoria de segurança, todo o painel `/admin` novo, as otimizações de performance, o upgrade do Next.js)
+- `506152e` — "anotado na documentação.md"
+
+Como o `Passatempo/fluxo náutico` builda a partir do `main` do GitHub, **o site que ficou no ar publicamente continha a falha de IDOR que a auditoria de segurança (seção 13) já tinha corrigido há dias** — a correção existia, só não tinha sido publicada. Resolvido com um `git push origin main` simples (fast-forward, sem conflito). A Vercel redeployou sozinha em seguida (Git já estava conectado).
+
+**Lição pra próximas sessões**: sempre que algo relevante for commitado localmente, verificar `git log origin/main..HEAD` antes de considerar o trabalho "entregue" — commit local sem push não protege ninguém.
+
+### Domínio: HostGator → descoberta de que na verdade é Cloudflare agora
+
+1. Primeiro, conectamos `nauticflow.com.br` ao projeto certo na Vercel (aba Domains), que pediu um registro `A @ → 216.198.79.1`.
+2. Guiei o usuário a colar isso na Zona de DNS da HostGator — funcionou, propagou, confirmado por `curl`/`dig`.
+3. Depois, ao configurar o domínio de envio de e-mail no **Resend** (pra sair de `nauticflow.com.br` em vez do domínio antigo), o próprio Resend detectou o provedor de DNS como **Cloudflare**, não HostGator.
+4. Investigado via `whois` + `dig`: os nameservers oficiais do domínio (registrados no `.br`) **já são do Cloudflare** (`hadlee.ns.cloudflare.com`, `shane.ns.cloudflare.com`). O usuário confirmou que fez essa troca ele mesmo (provavelmente ao usar a opção "Auto configure" do Resend, que integra com Cloudflare).
+5. **Consequência prática**: a partir de agora, a Zona de DNS da HostGator **não controla mais nada** — quem manda é o painel do Cloudflare. O registro `A` do Vercel felizmente foi preservado/migrado na troca (o site não caiu), mas qualquer ajuste de DNS futuro (inclusive os registros do Resend) precisa ser feito no Cloudflare, não na HostGator.
+6. Confirmado que o site continua no ar normalmente com Cloudflare na frente da Vercel (`server: cloudflare` no header, mas `x-vercel-id` presente também — passando a requisição adiante certinho).
+
+### Resend (e-mail do domínio próprio) — em andamento, não concluído
+
+Domínio `nauticflow.com.br` adicionado no Resend, com "Auto configure" (integração direta com Cloudflare). Status no fim desta sessão: **"Pending" / "Checking DNS"** — o próprio Resend avisa que pode levar horas. Ainda não confirmei os registros DNS de e-mail (MX/TXT específicos do Resend) aparecendo — só vi o SPF/MX antigos da HostGator até agora. **Retomar depois**: conferir se o status virou "Verified" e se o envio de e-mail (voucher, reset de senha, convite de equipe) está saindo do domínio novo.
+
+### Checklist do que ainda falta (atualiza a seção 6 também)
+
+- [ ] Confirmar Resend "Verified" e testar um envio de e-mail de verdade
+- [ ] Redirect URLs no Supabase incluindo `https://nauticflow.com.br/**` (ainda não feito — só chegamos a mencionar pra `.vercel.app`, precisa atualizar pro domínio final)
+- [ ] URL do webhook no Asaas apontando pra `https://nauticflow.com.br/api/webhooks/asaas`
+- [ ] Corrigir o bug de timezone (seção 6) — agora que o site está de verdade em produção rodando em UTC (Vercel), isso deixou de ser risco teórico
+- [ ] Decidir se apaga o projeto Vercel órfão (`nautic-flow/nauticflow`) pra não confundir no futuro
+- [ ] Conectar Git no meu projeto original não é mais necessário — o `Passatempo/fluxo náutico` já tem Git; ele é o que deve continuar sendo usado
+
+### Validação final desta sessão
+
+`tsc --noEmit`, `next lint`, `next build` — todos limpos, sem erros novos. `npm audit` sem novidade (mesmos 2 advisories residuais já conhecidos, ver seção 6). Testado ao vivo em `nauticflow.com.br`: todas as rotas protegidas redirecionam certo, rotas públicas respondem 200, webhook recusa sem token, CSS carrega normal.
