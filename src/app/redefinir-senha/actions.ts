@@ -2,12 +2,14 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { validatePassword } from "@/lib/password";
 
 export async function updatePassword(_prev: unknown, formData: FormData) {
   const password = String(formData.get("password"));
   const confirm = String(formData.get("confirm"));
   if (password !== confirm) return { error: "As senhas não são iguais." };
-  if (password.length < 6) return { error: "A senha precisa ter pelo menos 6 caracteres." };
+  const passwordError = validatePassword(password);
+  if (passwordError) return { error: passwordError };
 
   const supabase = createClient();
   const {

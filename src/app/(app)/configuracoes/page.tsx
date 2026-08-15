@@ -3,6 +3,7 @@ import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { brl, fmtDate } from "@/lib/format";
 import { SettingsForm } from "./settings-form";
+import { DeleteAccountForm } from "./delete-account-form";
 
 type Invoice = { id: string; number: string | null; amount_cents: number; pdf_url: string | null; issued_at: string };
 
@@ -107,6 +108,10 @@ export default async function ConfiguracoesPage() {
             </div>
           )}
         </Card>
+
+        <div className="lg:col-span-3">
+          <DeleteAccountForm isCompanyAdmin={user?.role === "company_admin"} companyName={company.name ?? ""} />
+        </div>
       </div>
     </>
   );

@@ -81,7 +81,20 @@ export default function LoginPage() {
           {mode !== "forgot" && (
             <div>
               <label>Senha</label>
-              <input name="password" type="password" required className="mt-1" placeholder="••••••••" />
+              <input
+                name="password"
+                type="password"
+                required
+                minLength={mode === "up" ? 8 : undefined}
+                className="mt-1"
+                placeholder="••••••••"
+              />
+              {mode === "up" && (
+                <p className="mt-1 text-[11px] text-muted">
+                  Mínimo 8 caracteres, com letras e números — nada de sequência (123456) ou só números (data de
+                  nascimento).
+                </p>
+              )}
             </div>
           )}
           {mode === "in" && (
