@@ -45,18 +45,23 @@ export async function addPassenger(_prev: unknown, formData: FormData) {
 }
 
 export async function setPassengerStatus(formData: FormData) {
+  const profile = await getProfile();
+  if (!profile?.company_id) return;
   const id = String(formData.get("id"));
   const reservationId = String(formData.get("reservation_id"));
   const status = String(formData.get("status"));
   const supabase = createClient();
-  await supabase.from("passengers").update({ status }).eq("id", id);
+  // confere que o passageiro e da propria empresa, mesmo padrao do addPassenger acima
+  await supabase.from("passengers").update({ status }).eq("id", id).eq("company_id", profile.company_id);
   revalidatePath(`/reservas/${reservationId}`);
 }
 
 export async function removePassenger(formData: FormData) {
+  const profile = await getProfile();
+  if (!profile?.company_id) return;
   const id = String(formData.get("id"));
   const reservationId = String(formData.get("reservation_id"));
   const supabase = createClient();
-  await supabase.from("passengers").delete().eq("id", id);
+  await supabase.from("passengers").delete().eq("id", id).eq("company_id", profile.company_id);
   revalidatePath(`/reservas/${reservationId}`);
 }

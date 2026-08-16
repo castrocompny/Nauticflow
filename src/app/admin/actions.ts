@@ -192,7 +192,13 @@ export async function deleteInvoice(formData: FormData) {
   const { supabase, adminId, adminName } = auth;
 
   const id = String(formData.get("id"));
-  const companyId = String(formData.get("company_id"));
+
+  // busca o company_id de verdade da nota em vez de confiar no campo escondido do
+  // formulario -- assim o log de auditoria e o revalidatePath sempre refletem a
+  // empresa certa, mesmo se o campo enviado pelo client estiver errado/adulterado
+  const { data: invoice } = await supabase.from("invoices").select("company_id").eq("id", id).maybeSingle();
+  if (!invoice) return { error: "Nota fiscal não encontrada." };
+  const companyId = invoice.company_id as string;
 
   const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) return { error: "Erro ao excluir. " + error.message };
