@@ -13,6 +13,9 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "NauticFlow",
   description: "Gestão inteligente para o turismo náutico",
+  icons: {
+    icon: "/nauticflow-icon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
