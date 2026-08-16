@@ -33,6 +33,7 @@ export async function updateSession(request: NextRequest) {
   const isPublic =
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
+    path.startsWith("/redefinir-senha") ||
     path.startsWith("/termos") ||
     path.startsWith("/privacidade") ||
     path.startsWith("/api/webhooks");
