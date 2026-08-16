@@ -24,13 +24,103 @@ const titles: Record<string, string> = {
   forgot: "Recupere sua senha",
 };
 
-export default function LoginPage() {
-  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
+// isolado num componente proprio, montado com `key={mode}` no pai -- assim o
+// React descarta a instancia (e o estado do useFormState, com o erro/aviso da
+// tentativa anterior) toda vez que o usuario troca de aba (login/criar/esqueci),
+// em vez de deixar a mensagem antiga "grudada" na tela errada
+function AuthForm({ mode, onForgot }: { mode: "in" | "up" | "forgot"; onForgot: () => void }) {
   const action = (mode === "in" ? signIn : mode === "up" ? signUp : forgotPassword) as (
     prevState: { error: string; info?: string },
     formData: FormData
   ) => Promise<{ error: string; info?: string }>;
   const [state, formAction] = useFormState(action, { error: "" });
+
+  return (
+    <>
+      {state?.error && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+          <AlertCircle size={14} /> {state.error}
+        </div>
+      )}
+      {state?.info && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+          <AlertCircle size={14} /> {state.info}
+        </div>
+      )}
+
+      <form action={formAction} className="space-y-3">
+        {mode === "up" && (
+          <>
+            <div>
+              <label>Seu nome</label>
+              <input name="name" required className="mt-1" />
+            </div>
+            <div>
+              <label>Nome da empresa</label>
+              <input name="company" required className="mt-1" />
+            </div>
+            <div>
+              <label>Cidade</label>
+              <input name="city" required className="mt-1" placeholder="Arraial do Cabo" />
+            </div>
+            <div>
+              <label>CNPJ ou CPF (opcional)</label>
+              <input name="cnpj" className="mt-1" placeholder="00.000.000/0000-00" />
+            </div>
+          </>
+        )}
+        <div>
+          <label>Email</label>
+          <input name="email" type="email" required className="mt-1" placeholder="voce@empresa.com" />
+        </div>
+        {mode !== "forgot" && (
+          <div>
+            <label>Senha</label>
+            <input
+              name="password"
+              type="password"
+              required
+              minLength={mode === "up" ? 8 : undefined}
+              className="mt-1"
+              placeholder="••••••••"
+            />
+            {mode === "up" && (
+              <p className="mt-1 text-[11px] text-muted">
+                Mínimo 8 caracteres, com letras e números — nada de sequência (123456) ou só números (data de
+                nascimento).
+              </p>
+            )}
+          </div>
+        )}
+        {mode === "in" && (
+          <button type="button" onClick={onForgot} className="block text-xs text-brand">
+            Esqueci minha senha
+          </button>
+        )}
+        {mode === "up" && (
+          <label className="flex items-start gap-2 text-xs text-muted">
+            <input type="checkbox" name="terms_accepted" required className="mt-0.5" />
+            <span>
+              Li e aceito os{" "}
+              <a href="/termos" target="_blank" rel="noreferrer" className="text-brand">
+                Termos de Uso
+              </a>{" "}
+              e a{" "}
+              <a href="/privacidade" target="_blank" rel="noreferrer" className="text-brand">
+                Política de Privacidade
+              </a>
+              .
+            </span>
+          </label>
+        )}
+        <Submit label={mode === "in" ? "Entrar" : mode === "up" ? "Criar conta" : "Enviar link de redefinição"} />
+      </form>
+    </>
+  );
+}
+
+export default function LoginPage() {
+  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
 
   return (
     <div className="grid min-h-screen place-items-center bg-app p-6">
@@ -42,88 +132,7 @@ export default function LoginPage() {
           <p className="text-sm text-muted">{titles[mode]}</p>
         </div>
 
-        {state?.error && (
-          <div className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
-            <AlertCircle size={14} /> {state.error}
-          </div>
-        )}
-        {state?.info && (
-          <div className="mb-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-            <AlertCircle size={14} /> {state.info}
-          </div>
-        )}
-
-        <form action={formAction} className="space-y-3">
-          {mode === "up" && (
-            <>
-              <div>
-                <label>Seu nome</label>
-                <input name="name" required className="mt-1" />
-              </div>
-              <div>
-                <label>Nome da empresa</label>
-                <input name="company" required className="mt-1" />
-              </div>
-              <div>
-                <label>Cidade</label>
-                <input name="city" required className="mt-1" placeholder="Arraial do Cabo" />
-              </div>
-              <div>
-                <label>CNPJ ou CPF (opcional)</label>
-                <input name="cnpj" className="mt-1" placeholder="00.000.000/0000-00" />
-              </div>
-            </>
-          )}
-          <div>
-            <label>Email</label>
-            <input name="email" type="email" required className="mt-1" placeholder="voce@empresa.com" />
-          </div>
-          {mode !== "forgot" && (
-            <div>
-              <label>Senha</label>
-              <input
-                name="password"
-                type="password"
-                required
-                minLength={mode === "up" ? 8 : undefined}
-                className="mt-1"
-                placeholder="••••••••"
-              />
-              {mode === "up" && (
-                <p className="mt-1 text-[11px] text-muted">
-                  Mínimo 8 caracteres, com letras e números — nada de sequência (123456) ou só números (data de
-                  nascimento).
-                </p>
-              )}
-            </div>
-          )}
-          {mode === "in" && (
-            <button
-              type="button"
-              onClick={() => setMode("forgot")}
-              className="block text-xs text-brand"
-            >
-              Esqueci minha senha
-            </button>
-          )}
-          {mode === "up" && (
-            <label className="flex items-start gap-2 text-xs text-muted">
-              <input type="checkbox" name="terms_accepted" required className="mt-0.5" />
-              <span>
-                Li e aceito os{" "}
-                <a href="/termos" target="_blank" rel="noreferrer" className="text-brand">
-                  Termos de Uso
-                </a>{" "}
-                e a{" "}
-                <a href="/privacidade" target="_blank" rel="noreferrer" className="text-brand">
-                  Política de Privacidade
-                </a>
-                .
-              </span>
-            </label>
-          )}
-          <Submit label={mode === "in" ? "Entrar" : mode === "up" ? "Criar conta" : "Enviar link de redefinição"} />
-        </form>
+        <AuthForm key={mode} mode={mode} onForgot={() => setMode("forgot")} />
 
         {mode === "forgot" ? (
           <button onClick={() => setMode("in")} className="mt-4 w-full text-center text-sm text-brand">
