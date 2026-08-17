@@ -55,11 +55,22 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
-- **Timezone: parsing ingênuo de data/hora de saída** — `saidas/actions.ts` monta `departs_at` com `new Date(`${date}T${time}`).toISOString()`, que interpreta a string usando o fuso horário do processo Node, não necessariamente `America/Sao_Paulo`. Hoje isso funciona porque o `next dev` roda na máquina do desenvolvedor (fuso de Brasília). **Se o app for hospedado num serviço que roda em UTC por padrão (Vercel, por exemplo), toda essa lógica de horário — inclusive a trava de 08:00–19:00 e o "não pode ser no passado" — vai calcular errado por 3 horas.** Precisa ser corrigido (fixar o offset `-03:00` na escrita, e/ou passar `timeZone: "America/Sao_Paulo"` explícito nas formatações de leitura) antes de publicar em produção num host fora do Brasil/fora desse fuso.
-- **Testar o webhook do Asaas com domínio real** (ou via ngrok) — hoje só validado localmente com uma chamada simulada.
+- **Testar o webhook do Asaas com domínio real** — apontar a URL do webhook no painel do Asaas pra `https://nauticflow.com.br/api/webhooks/asaas` (ver seção 20) e testar de verdade.
 - **Upgrade do Supabase pro plano Pro** — evita pausa automática do projeto por inatividade e ativa backup. Ainda não feito (decisão do dono do produto, envolve custo).
+<<<<<<< HEAD
 - **CSP sem nonce**: o `Content-Security-Policy` (ver seção 12) libera `'unsafe-inline'` em `script-src` por causa do script anti-flash do tema. Endurecer isso com nonce é melhoria futura, não urgente.
 - Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11), **cabeçalhos de segurança HTTP (CSP, HSTS, etc.)** (ver seção 12).
+=======
+- **`headers().get("origin")` usado pra montar link de e-mail** (reset de senha em `login/actions.ts`, convite em `equipe/actions.ts`) — hoje protegido pela validação nativa de Origin/Host das Server Actions do Next.js, mas é uma dependência frágil de comportamento de framework pra algo sensível (link de reset de senha). Recomendado trocar por uma `NEXT_PUBLIC_SITE_URL` fixa agora que já existe um domínio de produção definitivo (`nauticflow.com.br`, seção 20).
+- **Projeto Vercel órfão** (`nautic-flow/nauticflow`, ver seção 20) — não é mais o que serve o domínio, decidir se apaga pra não confundir.
+- **2 advisories HIGH residuais no `npm audit`** (SSRF em rewrites com host controlado por env var interna, DoS em Server Components) só têm correção disponível na branch major do Next (15/16) — não fazem sentido pra esse app hoje (sem custom server, sem i18n, sem `images.remotePatterns`, sem WebSocket), mas vale reavaliar numa futura migração de major version do Next.js.
+- **Linhas de tabela client-side demais** (`saidas/departure-row.tsx`, `reservas/reservation-row.tsx`, `parceiros/partner-row.tsx`, `embarcacoes/vessel-row.tsx`, `clientes/client-row.tsx`): cada linha é seu próprio Client Component com o formulário de edição inteiro embutido (mesmo escondido), instanciado uma vez por linha — até 25-50 por página. Contribui pro tempo de hidratação logo após abrir uma lista (o "atraso" pode aparecer como clique sem resposta nos primeiros instantes da página). Não mexido ainda porque exige reestruturar a UI (separar linha estática de um "island" de edição sob demanda) e eu não tenho como testar visualmente sem login no app.
+- **2FA pro super_admin** — sugerido na auditoria de segurança (seção 13), reconfirmado na melhoria do `/admin` (seção 15). Ainda não implementado, de propósito (feature grande demais pra fazer sem testar ao vivo).
+- **Emissão de nota fiscal ainda é manual** (seção 16) — não há certificado digital nem provedor de NFS-e configurado. O registro em `/admin/[id]` é só controle, não gera nota nenhuma de verdade.
+- **Simular pagamento no Asaas sandbox e confirmar que o webhook atualiza a assinatura** — o checkout (`/planos`) já foi testado de ponta a ponta e funciona (ver seção 21), só falta confirmar que completar o pagamento de fato dispara o webhook e atualiza `paid_until`. Combinado com o usuário deixar pra uma próxima sessão.
+- **Chat de suporte online** — pedido do dono do produto (2026-08-14). Chegou a ser integrado com Tawk.to (widget no layout raiz) e depois **removido a pedido do dono do produto** (2026-08-15) — ver seção 22 pro motivo. Hoje o único contato de suporte é o link de WhatsApp no `OverdueBanner` (`src/app/(app)/overdue-banner.tsx`) de novo. Se for reconsiderar no futuro, dar preferência a um provedor com bot de IA gratuito de verdade (o AI Assist do Tawk.to é pago acima de 100 mensagens/mês), já que o dono do produto não quer ficar respondendo manualmente.
+- Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11), **deduplicação de `auth.getUser()` e queries repetidas** (ver seção 12), **auditoria de segurança — IDOR entre empresas e dependências vulneráveis** (ver seção 13), **migration `0015` aplicada** (trava de IDOR também no banco), **Supabase CLI instalado no projeto** (ver seção 14), **painel /admin melhorado** (ver seção 15, migration `0016` aplicada), **controle manual de notas fiscais** (ver seção 16, migration `0017` aplicada), **gráficos/funil/onboarding travado/filtro por plano no /admin** (ver seção 17), **deploy em produção com domínio próprio no ar** (`nauticflow.com.br`, ver seções 19 e 20), **2 commits de segurança/admin/performance que estavam sem push finalmente publicados** (ver seção 20), **senha forte no cadastro/reset e botão de excluir conta** (ver seção 22), **domínio verificado no Resend** (ver seção 23), **bug de timezone (UTC vs Brasília) corrigido** (ver seção 24), **fluxo de "esqueci minha senha" corrigido de ponta a ponta** (ver seção 25), **falha crítica de escalação de privilégio no cadastro corrigida** (migration `0018`, ver seção 26), **favicon adicionado/ajustado** (ver seção 27).
+>>>>>>> 609ae7804e7c15b51b3c311adc326dd10ab1495f
 
 ## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
 
@@ -79,7 +90,7 @@ Construído nesta sessão. Fluxo:
 
 ## 9. Convenções
 
-- Migrations em `supabase/migrations/` **não rodam sozinhas** — cada uma precisa ser colada manualmente no SQL Editor do Supabase, na ordem numérica.
+- Migrations em `supabase/migrations/` **não rodam sozinhas** — cada uma precisa ser colada manualmente no SQL Editor do Supabase, na ordem numérica. Isso muda assim que o CLI estiver logado/linkado (ver seção 14) — depois disso dá pra usar `npx supabase db push`.
 - `npx tsc --noEmit` antes de considerar qualquer mudança de código pronta.
 - Servidor de dev: `npm run dev`, porta 3000.
 
@@ -137,6 +148,7 @@ Adicionados dois gráficos, reaproveitando o componente `BarsChart` já criado p
 
 O card do plano atual só mostra o botão "Renovar plano" quando faltam **7 dias ou menos** pra vencer (`DIAS_PARA_AVISAR_VENCIMENTO`) ou quando já venceu; fora essa janela, mostra só "Ativo até [data]" — antes disso, o botão de renovar aparecia sempre, mesmo logo depois de um pagamento confirmado, confundindo o cliente.
 
+<<<<<<< HEAD
 ## 12. Varredura de segurança passiva (sessão de 2026-08-16)
 
 O dono do produto rodou uma análise de segurança passiva no site publicado (`nauticflow.com.br`) usando um agente de navegador (Claude), sem testes ativos de invasão. Resultado, ponto a ponto:
@@ -153,3 +165,294 @@ O dono do produto rodou uma análise de segurança passiva no site publicado (`n
 - **Rate limiting / CAPTCHA no login** — não testado pelo agente (exigiria tentativas reais de login, evitado de propósito). A própria Supabase Auth (GoTrue) já aplica rate limiting por IP em tentativas de login por padrão; não foi adicionada camada extra no app.
 
 **Importante**: essa foi uma varredura passiva (observação de comportamento público), não um pentest. Testes ativos (SQL injection, força bruta, troca de IDs entre empresas/IDOR) não foram feitos porque exigiriam autorização formal — e, feitos de forma descuidada num sistema multi-tenant em produção, podem afetar outros clientes reais da plataforma.
+=======
+## 12. Otimização de performance — atraso ao clicar em botões (sessão de 2026-08-10)
+
+Causa raiz principal: `supabase.auth.getUser()` **não é um check local** — é uma chamada de rede real pra API de Auth do Supabase, pra validar o token direto no servidor deles (é o jeito certo/seguro de fazer, `getSession()` sozinho não valida). O problema era a quantidade de vezes que isso rodava **na mesma requisição**:
+
+1. `src/lib/supabase/middleware.ts` chama uma vez, em toda navegação e toda Server Action (não dá pra tirar essa, é a validação de sessão de verdade).
+2. `src/app/(app)/layout.tsx` chamava de novo, com sua própria query em `profiles`.
+3. Cada `page.tsx` que usa `getProfile()` (`src/lib/profile.ts`) chamava uma terceira vez.
+
+Resultado: até 3 idas e voltas até o Supabase Auth, mais 2 queries repetidas em `profiles`, só pra saber quem tá logado — em toda navegação e em vários cliques.
+
+**Corrigido:**
+- `src/lib/profile.ts`: `getProfile()` agora usa `cache()` do React (memoização por requisição, o padrão recomendado do Next.js App Router pra isso). Chamadas repetidas de `getProfile()` na mesma requisição (layout + page, por exemplo) reaproveitam o mesmo resultado em vez de bater no banco de novo. De quebra, o select passou a trazer `companies(name, city)` junto.
+- `src/app/(app)/layout.tsx`: trocou sua checagem de auth + query de profile própria por `getProfile()` — elimina 1 chamada de auth e 1 query por navegação.
+- `src/app/(app)/configuracoes/page.tsx`: mesma troca (usava `auth.getUser()` direto).
+- `src/lib/subscription.ts`: nova função `getSubscriptionStatus()` busca `paid_until` **e** os limites do plano (`max_vessels`, `max_users`) numa única query — `requireActiveSubscription()` continua existindo (agora só chama essa por baixo) pra não quebrar quem só precisa do bloqueio simples.
+- `src/app/(app)/embarcacoes/actions.ts` (`createVessel`) e `src/app/(app)/equipe/actions.ts` (`inviteTeamMember`): paravam de fazer duas queries seguidas em `subscriptions` (uma pra checar vencimento, outra pra pegar o limite do plano) — agora é uma só, via `getSubscriptionStatus()`.
+- `src/app/(app)/billing-actions.ts` (`startAsaasCheckout`): a busca da empresa e a busca do plano eram sequenciais mas independentes — viraram `Promise.all`.
+
+### Causa principal do atraso especificamente no menu lateral
+
+`src/app/(app)/layout.tsx` tinha `export const dynamic = "force-dynamic"` e `export const revalidate = 0`. Isso não só forçava renderização por requisição (isso já acontecia de qualquer forma, por causa do `cookies()` usado no `createClient()`/`getProfile()`) — **também desligava o cache de navegação do lado do cliente** que o Next.js usa por padrão (~30s) pra rotas dinâmicas já visitadas. Resultado: **todo clique no menu lateral**, mesmo entre páginas abertas segundos antes, refazia a checagem de auth inteira + as 5 queries do layout (assinatura, contagem de embarcações, reservas do mês, saídas de hoje, notificações) do zero no servidor. Esse era o principal motivo do "menu lateral lento" — mais direto que a duplicação de `auth.getUser()` da seção acima.
+
+Removidas as duas linhas. Pra não reintroduzir o bug que elas existiam pra evitar (sidebar mostrando plano/vencimento desatualizado logo após uma renovação), a invalidação virou cirúrgica: `revalidatePath("/dashboard", "layout")` foi adicionado nos dois únicos lugares que alteram `subscriptions.paid_until` — `src/app/api/webhooks/asaas/route.ts` (confirmação de pagamento) e `src/app/admin/actions.ts` (`renewSubscription`, renovação manual pelo super_admin). Fora desses dois pontos, a navegação agora reaproveita o cache padrão do Next.js.
+
+**Reforço, na sequência (usuário relatou que o menu ainda estava "atrasado" depois da correção acima):**
+- `next.config.mjs`: adicionado `experimental.staleTimes.dynamic = 30` — o Next 14 não reaproveita automaticamente páginas dinâmicas já visitadas no cache do navegador a não ser que isso seja configurado explicitamente; sem essa opção, remover o `force-dynamic` do layout sozinho não gerava cache nenhum de navegação. Agora, clicar de novo numa página vista há menos de 30s é instantâneo (sem ida ao servidor).
+- `src/app/(app)/loading.tsx` (novo): esqueleto genérico que o Next.js mostra **na hora** assim que o link é clicado, enquanto a página de destino ainda busca dados no servidor. Sidebar/Topbar continuam visíveis (fazem parte do layout, não trocam). Isso ataca a sensação de "clique sem resposta" mesmo quando a navegação em si ainda leva uma fração de segundo — sem `loading.tsx`, a tela ficava parada até tudo pronto, o que parece trava mesmo sendo rápido.
+
+**Se ainda estiver lento depois disso**, o próximo suspeito é o ambiente de teste: tudo acima melhora produção (`npm run build && npm run start`) de verdade, mas em **`npm run dev`** o Next.js compila cada rota sob demanda na primeira visita da sessão (alguns segundos, normal, não é bug) — só fica rápido de fato depois de "aquecida". Vale testar com build de produção pra ver o ganho real.
+
+**Não mexido nesta passada** (ver seção 6, pendências): a hidratação pesada dos Client Components de linha de tabela (`departure-row.tsx` e afins). Essa é sobre tempo até a página ficar clicável depois de carregar, não sobre a latência de rede por clique — impacto real, mas escopo maior, fica pra próxima.
+
+## 13. Auditoria de segurança (sessão de 2026-08-10)
+
+Auditoria completa a pedido do dono do produto: reconhecimento, análise estática de todo o código + migrations SQL, `npm audit`, e verificação de cada achado por rastreamento manual de fluxo de dados (sem testes de intrusão ao vivo contra a instância de produção — sem credenciais de teste pra isso).
+
+**Avaliação geral**: a base tem RLS habilitado em toda tabela sensível, `security definer` usado corretamente em `current_company_id()`/`is_super_admin()` (com `set search_path` fixo, evitando hijacking), `profiles` com GRANT restrito por coluna (impede troca de `company_id` via API direta), painel `/admin` com checagem dupla (app + RLS). O achado real foi uma classe de IDOR bem específica, não uma falha estrutural ampla.
+
+### Corrigidas
+
+- **IDOR entre empresas em `reservations` e `passengers` (ALTA)** — `createReservation`, `updateReservation` (`reservas/actions.ts`) e `addPassenger` (`reservas/[id]/passenger-actions.ts`) inseriam/atualizavam `departure_id`, `client_id` e `reservation_id` vindos direto do formulário, sem checar se esses IDs pertenciam à própria empresa do usuário logado. A política de RLS só validava a linha nova (`company_id = current_company_id()`), nunca a empresa dona da referência estrangeira. Um usuário autenticado de qualquer empresa (cadastro é auto-serviço, sem aprovação) que soubesse o UUID de uma saída/reserva de outra empresa — por exemplo, o próprio UUID que aparece na URL do voucher enviado por e-mail ao cliente — podia grudar uma reserva ou um passageiro fantasma nela, corrompendo a contagem de vagas/passageiros da vítima sem aparecer no painel dela (RLS esconde, já que a linha nova tem o `company_id` do atacante). Corrigido em duas camadas: validação explícita no app (compara o `company_id` do registro referenciado antes do insert/update) e um gatilho novo no banco, `supabase/migrations/0015_valida_dono_das_fks.sql` (**aplicada no Supabase**).
+- **Next.js desatualizado, incluindo CVE crítica de bypass de autorização em Middleware (CVE-2025-29927 / GHSA-f82v-jwr5-mffw)** — estava em `14.2.13`, atualizado pra `14.2.35` (última da série 14.2, sem breaking change). O middleware de auth (`src/middleware.ts`) já tinha uma segunda camada independente de verificação em `layout.tsx`/`admin/page.tsx`, então o impacto prático dessa CVE específica já era reduzido — mas não é motivo pra deixar sem corrigir uma CVE crítica com correção de graça disponível. `eslint-config-next` atualizado junto pra manter consistência de versão.
+- **`postcss` desatualizado (XSS/leitura arbitrária de arquivo via sourceMappingURL)** — atualizado de `8.5.19` pra `^8.5.26`. Risco real era baixo (só processa CSS do próprio projeto em build-time, nenhum input de usuário chega nele), mas a correção é de graça.
+- **Comparação não timing-safe do token do webhook Asaas** — `src/app/api/webhooks/asaas/route.ts` usava `!==` pra comparar o token secreto contra o header recebido. Trocado por `crypto.timingSafeEqual`. Risco prático era baixo (exige posição de rede muito precisa pra explorar), mas é uma correção de uma função.
+- **Migration `0015_valida_dono_das_fks.sql` aplicada no Supabase** — o gatilho de banco que reforça a checagem de IDOR (achado acima) já está ativo, não só no app.
+
+### Não corrigidas (documentadas como pendência, ver seção 6)
+
+- **`headers().get("origin")` usado pra montar link de e-mail de reset de senha/convite** — verifiquei e não é explorável hoje (Server Actions do Next.js validam Origin contra Host antes do código rodar), mas é uma dependência frágil de comportamento de framework pra algo sensível. Não troquei por uma URL fixa porque isso precisa de uma `NEXT_PUBLIC_SITE_URL` configurada em produção, e não quis arriscar quebrar o fluxo de e-mail sem confirmar o domínio final com o dono do produto.
+- **2 advisories HIGH residuais no `npm audit`** — só têm correção na branch major 15/16 do Next.js. Confirmei que os cenários que elas descrevem (custom server, i18n, `images.remotePatterns`, WebSocket) não se aplicam a este app hoje.
+
+### O que NÃO foi encontrado (verificado e descartado)
+
+Pra não dar a impressão de que a análise foi rasa: também foram checados e descartados como não-vulneráveis — SQL injection (o projeto usa só o query builder do Supabase-js, nenhuma concatenação de SQL cru), XSS via `dangerouslySetInnerHTML` (nenhum uso no código), secrets vazando pro bundle do cliente (nenhuma env var sensível com prefixo `NEXT_PUBLIC_`), uploads de arquivo (funcionalidade não existe no app), a RPC `link_asaas_subscription` (deriva a empresa via `current_company_id()`, não aceita `company_id` do chamador), e o `client_id` sendo usado como vetor de leitura cross-tenant (RLS na tabela `clients` bloqueia a leitura mesmo que o vínculo exista).
+
+## 14. Supabase CLI instalado (sessão de 2026-08-12)
+
+Instalado a pedido do dono do produto, pra poder aplicar migrations sem depender de colar manualmente no SQL Editor.
+
+- **Como foi instalado**: como devDependency do projeto (`npm install supabase --save-dev`), não como binário solto no sistema — é o jeito oficialmente suportado pra projetos npm (o CLI recusa instalação global via `npm install -g`). Uso: `npx supabase <comando>`.
+- Tentei primeiro baixar o binário standalone direto (`.tar.gz` da release do GitHub) pra deixar disponível globalmente também, mas o download travou/ficou muito lento nesse ambiente — abortado. A via npm funcionou de primeira.
+- `npx supabase init` já foi rodado — criou `supabase/config.toml` e `supabase/.gitignore` (ignora `supabase/.temp` e `.branches`, gerados localmente pelo CLI).
+- **Falta login + link, e isso só quem tem a conta consegue fazer** (não é algo que eu possa fazer por vocês — exige autenticação no navegador com a conta Supabase):
+  1. `npx supabase login` (abre o navegador pra autorizar)
+  2. `npx supabase link --project-ref gggpihphjjxndpfntnvm` (ref extraído de `NEXT_PUBLIC_SUPABASE_URL` no `.env.local`)
+- Depois disso, migrations pendentes (`0015_valida_dono_das_fks.sql` inclusive) podem ser aplicadas com `npx supabase db push`, em vez de colar manualmente no SQL Editor.
+
+## 15. Painel /admin melhorado (sessão de 2026-08-12)
+
+Reformulação completa a pedido do dono do produto — o painel do super admin era só uma tabela com botão de renovar. Migration nova: `supabase/migrations/0016_admin_panel_melhorias.sql` (**aplicada no Supabase**).
+
+### `/admin` (listagem)
+- **Métricas no topo**: total de empresas, MRR (soma do preço do plano das empresas pagando de verdade — trial não conta), quantas pagando, quantas em trial, vencidas, suspensas, e novas no mês.
+- **Busca** por nome/CNPJ (`?q=`) e **paginação** (`?page=`, 20 por página) — antes buscava e listava todas as empresas sem limite.
+- **Ordenação por urgência**: suspensas primeiro, depois vencidas, depois "vence em até 3 dias", só depois o resto por data de cadastro.
+- **Alerta de "vence em breve"**: antes só existia "vencida" ou "paga até X"; agora mostra `Vence em Nd (data)` quando faltam ≤3 dias, badge amarelo.
+- Nota de implementação: a página busca **todas** as empresas e faz filtro/ordenação/paginação em memória (JS), não no banco — decisão deliberada dado que hoje é 1 usuário (você) olhando poucas dezenas de empresas. Se a base crescer bastante, isso precisa virar uma query paginada de verdade no Supabase.
+
+### `/admin/[id]` (novo — detalhe da empresa)
+- Dados da empresa (nome, CNPJ, cidade, telefone, e-mail, cliente Asaas) com formulário de edição de CNPJ/cidade.
+- Uso do plano: embarcações e usuários usados vs. limite do plano (reaproveita o componente `OccupancyBar` que já existia pro app principal).
+- Histórico completo de assinaturas da empresa (toda vez que mudou de plano/renovou), com origem (Asaas vs. trial/manual).
+- Botão de trocar plano **sem** mexer na data de vencimento (`changePlan`), separado do "renovar +30 dias" (`renewSubscription`) que já existia.
+- **Suspensão manual** (`suspendCompany`/`unsuspendCompany`): bloqueia cadastro de coisa nova imediatamente, independente da assinatura estar em dia. Novo campo `companies.suspended_at`/`suspended_reason`. Reaproveita o mesmo mecanismo de bloqueio que já existia pra "assinatura vencida" (`src/lib/subscription.ts`, `getSubscriptionStatus`) e o mesmo banner (`overdue-banner.tsx`, agora com uma variante vermelha "Conta suspensa" em vez de amarela "Assinatura vencida").
+- Log de auditoria da empresa (últimas 30 ações).
+
+### Log de auditoria (`admin_audit_log`, novo)
+Toda ação administrativa sensível (renovar, trocar plano, suspender/reativar, editar dados) grava quem fez, quando, em qual empresa e com quais detalhes — antes disso não existia nenhum rastro de ações do super admin. RLS restringe leitura e escrita a `is_super_admin()`, e a escrita só aceita `admin_id = auth.uid()` (não dá pra forjar um log em nome de outro admin).
+
+### RLS nova pro super admin
+Antes, o super admin só tinha SELECT em `companies`/`subscriptions` (RLS da migration 0007) — não dava pra atualizar empresa (suspender, editar CNPJ) nem ver embarcações/usuários de outra empresa (necessário pra mostrar uso vs. limite). Adicionado: UPDATE em `companies`, SELECT em `vessels` e `profiles`, todos gated por `is_super_admin()`.
+
+### Não implementado nesta passada
+- **2FA pro super_admin** — sugerido na auditoria de segurança (seção 13) e reconfirmado aqui. Não implementei porque é uma feature de segurança grande o suficiente (fluxo de enrollment com QR code, tela de desafio no login, obrigatoriedade pra essa role especificamente) que merece uma passada própria, testada de verdade — não quis fazer isso "de brinde" dentro de uma tarefa maior sem poder validar visualmente.
+
+## 16. Controle de notas fiscais (sessão de 2026-08-12)
+
+**Importante: isto NÃO emite nota fiscal de verdade.** Perguntei antes de implementar (nota fiscal é assunto regulado, não dá pra chutar) e a resposta foi: nota fiscal da **assinatura do SaaS** (não das reservas de cada empresa), e ainda não existe certificado digital nem provedor de NFS-e configurado. Então isto é um **registro de controle manual** — o super admin emite a nota por fora (prefeitura/contador) e anota aqui número, valor, link do PDF e data, só pra não perder o controle de quais meses já foram faturados.
+
+Migration nova: `supabase/migrations/0017_notas_fiscais.sql` (**aplicada no Supabase**). Cria a tabela `invoices` (company_id, number, amount_cents, pdf_url, issued_at, notes, created_by).
+
+- **`/admin/[id]`**: card "Notas fiscais" com formulário de registro (`registerInvoice`) e lista das notas já registradas, com exclusão (`deleteInvoice`) pra corrigir erro de digitação. Toda ação vai pro log de auditoria (seção 15).
+- **`/configuracoes`**: a própria empresa vê (só leitura) o histórico das próprias notas — quem registra é sempre o super admin, a empresa não cria/edita.
+- RLS: `is_super_admin()` pra tudo (criar/editar/excluir), e `company_id = current_company_id()` só-leitura pra empresa ver as próprias.
+- `DeleteButton` (`src/components/delete-button.tsx`) ganhou um prop opcional `extraFields` — precisava mandar `company_id` junto do `id` pra revalidar o cache certo, e o componente só suportava `id` sozinho antes.
+
+**Quando integrar emissão de verdade**: se um dia configurarem um provedor (Asaas tem API de NFS-e vinculada a pagamento, ou serviços dedicados tipo NFe.io/Focus NFe/eNotas), a tabela `invoices` já dá a base — trocaria só o formulário manual por uma chamada de API que preenche os mesmos campos automaticamente.
+
+## 17. Gráficos, funil, distribuição por plano e onboarding travado no /admin (sessão de 2026-08-12)
+
+Sem migration nova — tudo construído em cima do que já existia (a RLS de `vessels` pro super admin já tinha sido criada na migration 0016).
+
+- **`src/app/admin/charts.tsx`** (novo): 3 componentes de gráfico, todos Server Components (zero JS extra no bundle — `/admin` cresceu só 1.5kB com tudo isso). Usam uma única cor (`bg-brand`) em vez de paleta categórica — a identidade de cada barra vem do rótulo de texto ao lado, não da cor, então não precisou validar contraste/CVD pra isso (consultei a skill de dataviz do projeto antes de implementar).
+  - `NewCompaniesChart`: empresas novas por mês, últimos 12 meses, barras verticais com valor direto acima (sem tooltip — poucos pontos, não precisa).
+  - `FunnelChart`: Total de cadastros → já converteu (pagou via Asaas alguma vez, aproximado por `asaas_subscription_id is not null`) → pagando agora. Mesma cor em todas as barras de propósito — são o mesmo grupo de empresas afunilando, não categorias diferentes.
+  - `PlanDistributionChart`: quantas empresas em cada plano (Start/Profissional/Premium/sem plano), barras horizontais.
+- **Onboarding travado**: empresa cadastrada há mais de 7 dias (`ONBOARDING_TRAVADO_DIAS`) e com zero embarcações cadastradas. Aparece como métrica no topo e como ícone de alerta ao lado do nome da empresa na lista. É um proxy simples (só embarcações, não checa reservas) — decisão deliberada pra não precisar de mais uma RLS nova (`vessels` já era visível ao super admin; `reservations` não).
+- **Filtro por plano**: dropdown novo ao lado da busca (`?plano=<code>`), filtra a lista pelo plano atual da empresa.
+
+## 18. Validação final antes do commit (sessão de 2026-08-12)
+
+Antes de commitar o lote inteiro de mudanças desta sessão (seções 10-17), rodei uma checagem completa pra garantir que não tinha nada quebrado. Sem login/credenciais de teste no ambiente, então isto **não substitui teste manual na interface** — cobre tudo que dá pra verificar sem uma conta autenticada.
+
+- **Estático**: `tsc --noEmit`, `next lint` e `next build` completos, todos limpos (só os 2 warnings pré-existentes de `<img>` sem `next/image`, sem relação com o que mudou).
+- **Runtime**: subiu o servidor em modo produção (`next start`) e bateu em todas as rotas — públicas retornam 200, protegidas redirecionam 307 pro login (nenhum 500/crash em lugar nenhum). Testado também o webhook do Asaas direto (sem token e com token errado): responde 401 nos dois casos sem lançar exceção, confirmando que a troca pra `crypto.timingSafeEqual` (seção 13) não quebrou a checagem.
+- **Revisão de lógica** (além de compilar) nos pontos de maior risco: `admin/actions.ts` (as 7 actions, discriminated union de auth), `reservas/actions.ts` + `passenger-actions.ts` (validação de IDOR), `layout.tsx` + `subscription.ts` (suspensão sempre tem prioridade sobre vencida, sem sobreposição), `admin/page.tsx` + `charts.tsx` (funil sempre monotônico — Total ≥ Converteu ≥ Pagando —, gráficos protegidos contra divisão por zero).
+- `npm audit`: sem novidade, só os 2 advisories residuais já documentados na seção 6 (postcss interno do Next.js, sem caminho de input não confiável nesse app).
+
+**Não coberto por essa validação**: cliques reais na UI autenticada (dashboard, reservas, `/admin` etc.) — decisão do dono do produto de não criar conta de teste na Supabase de produção pra isso. Recomendo passar pelas telas principais manualmente depois do commit, em especial as que tiveram a validação de IDOR adicionada (Reservas, Passageiros) e o `/admin` novo.
+
+## 19. Primeiro deploy em produção — Vercel (sessão de 2026-08-14)
+
+O app foi ao ar pela primeira vez. Domínio próprio (`.com.br`) já comprado na HostGator, mas **ainda não conectado** — o deploy está rodando no subdomínio gratuito da Vercel por enquanto, o que já é uma URL pública e funcional (não é obrigatório ter domínio próprio pra operar).
+
+- **URL de produção**: https://nauticflow.vercel.app
+- Projeto Vercel: `nautic-flow/nauticflow` (criado via CLI, `npx vercel link --project nauticflow`)
+- Login no CLI feito via device flow (`npx vercel login`, código de autorização confirmado pelo navegador) — não precisou de senha compartilhada.
+- **Conexão automática com o GitHub falhou**: a conta Vercel usada não tem permissão de admin/escrita no repositório `castrocompny/Nauticflow`. Por enquanto o deploy é manual (`npx vercel deploy --prod`) a partir do código local — não re-deploya sozinho a cada `git push`. Pra resolver: conectar o repositório pela própria interface da Vercel (Project Settings → Git), autorizando o GitHub App da Vercel a acessar esse repositório.
+- **Variáveis de ambiente**: todas as 7 do `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SENTRY_DSN`, `ASAAS_API_KEY`, `ASAAS_API_URL`, `ASAAS_WEBHOOK_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`) foram enviadas pra Vercel via `vercel env add` (ambientes Production e Preview), lendo os valores direto do `.env.local` local sem nunca aparecerem no texto do chat. `.gitignore` ganhou `.vercel` e `.env*` automaticamente (feito pelo próprio `vercel link`).
+- Smoke test pós-deploy: `/` e `/dashboard` redirecionam 307 pro login (correto, sem sessão), `/login` e `/termos` respondem 200 com conteúdo real renderizado — confirma que as env vars do Supabase estão corretas em produção.
+
+### Pendências decorrentes do deploy (ver seção 6 também)
+
+- ~~Atualizar Redirect URLs no Supabase~~ / ~~Atualizar webhook do Asaas~~ / ~~Conectar domínio da HostGator~~ — ver seção 20, a história completa mudou bastante desde que isto foi escrito (domínio conectado, mas a um projeto Vercel diferente do que está descrito acima).
+
+## 20. Domínio em produção, dois projetos Vercel, e um commit que nunca tinha ido pro ar (sessão de 2026-08-14/15)
+
+Continuação direta da seção 19. Resumo do que rolou, na ordem que aconteceu — importante entender pra não se perder, porque teve uma reviravolta grande no meio.
+
+### Existem DOIS projetos Vercel agora — só um deles importa
+
+- `nautic-flow/nauticflow` — o que **eu** criei via CLI (seção 19). URL: `nauticflow.vercel.app`. Continua existindo e funcionando, mas **não é mais o que serve o domínio real**. Candidato a ser apagado depois, pra não confundir (não apaguei ainda, decisão de vocês).
+- `Passatempo/fluxo náutico` (nome interno do projeto: `nauticflow`) — criado pelo **usuário direto pela interface da Vercel**, importando o repositório do GitHub. Esse **já veio com Git conectado** (o que o meu, via CLI, não conseguiu por falta de permissão — ver seção 19). **Este é o projeto real, o que está atrás de `nauticflow.com.br` hoje.**
+
+Como os dois projetos são de contas/times diferentes, o CLI que eu uso (logado como `jlpereiradcastro-droide`, time `nautic-flow`) **não enxerga nem consegue mexer no projeto `Passatempo/fluxo náutico`** — todo ajuste nele (variáveis de ambiente, domínio, deployment protection) teve que ser feito pelo usuário direto na interface, me mandando print pra eu confirmar/orientar o próximo passo.
+
+### Variáveis de ambiente no projeto certo
+
+O `Passatempo/fluxo náutico` foi criado do zero, sem nenhuma variável de ambiente configurada — por isso a primeira implantação de produção **crashou** (`MIDDLEWARE_INVOCATION_FAILED`, porque `src/lib/supabase/middleware.ts` não tinha `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY` pra usar). Corrigido gerando um arquivo `variaveis-vercel-nauticflow.txt` (a partir do `.env.local`, sem o `VERCEL_OIDC_TOKEN`) na Área de Trabalho do usuário, pra ele colar no formulário "Adicionar variável de ambiente" da Vercel (função de colar `.env` de uma vez, que separa tudo sozinha). **Arquivo já deve ser apagado da Área de Trabalho depois de usado** (tinha segredo em texto puro).
+
+### 🔴 Achado importante: 2 commits nunca chegaram no GitHub
+
+Ao investigar riscos antes do commit, descobri que existiam **2 commits salvos localmente que nunca tinham sido enviados** (`git push`) pro GitHub:
+- `024c4b6` — "atualização e otimização do sistema, melhoria na area de admin e teste de segurança no sistema" (o commit gigante: a correção de IDOR da auditoria de segurança, todo o painel `/admin` novo, as otimizações de performance, o upgrade do Next.js)
+- `506152e` — "anotado na documentação.md"
+
+Como o `Passatempo/fluxo náutico` builda a partir do `main` do GitHub, **o site que ficou no ar publicamente continha a falha de IDOR que a auditoria de segurança (seção 13) já tinha corrigido há dias** — a correção existia, só não tinha sido publicada. Resolvido com um `git push origin main` simples (fast-forward, sem conflito). A Vercel redeployou sozinha em seguida (Git já estava conectado).
+
+**Lição pra próximas sessões**: sempre que algo relevante for commitado localmente, verificar `git log origin/main..HEAD` antes de considerar o trabalho "entregue" — commit local sem push não protege ninguém.
+
+### Domínio: HostGator → descoberta de que na verdade é Cloudflare agora
+
+1. Primeiro, conectamos `nauticflow.com.br` ao projeto certo na Vercel (aba Domains), que pediu um registro `A @ → 216.198.79.1`.
+2. Guiei o usuário a colar isso na Zona de DNS da HostGator — funcionou, propagou, confirmado por `curl`/`dig`.
+3. Depois, ao configurar o domínio de envio de e-mail no **Resend** (pra sair de `nauticflow.com.br` em vez do domínio antigo), o próprio Resend detectou o provedor de DNS como **Cloudflare**, não HostGator.
+4. Investigado via `whois` + `dig`: os nameservers oficiais do domínio (registrados no `.br`) **já são do Cloudflare** (`hadlee.ns.cloudflare.com`, `shane.ns.cloudflare.com`). O usuário confirmou que fez essa troca ele mesmo (provavelmente ao usar a opção "Auto configure" do Resend, que integra com Cloudflare).
+5. **Consequência prática**: a partir de agora, a Zona de DNS da HostGator **não controla mais nada** — quem manda é o painel do Cloudflare. O registro `A` do Vercel felizmente foi preservado/migrado na troca (o site não caiu), mas qualquer ajuste de DNS futuro (inclusive os registros do Resend) precisa ser feito no Cloudflare, não na HostGator.
+6. Confirmado que o site continua no ar normalmente com Cloudflare na frente da Vercel (`server: cloudflare` no header, mas `x-vercel-id` presente também — passando a requisição adiante certinho).
+
+### Resend (e-mail do domínio próprio) — em andamento, não concluído
+
+Domínio `nauticflow.com.br` adicionado no Resend, com "Auto configure" (integração direta com Cloudflare). Status no fim desta sessão: **"Pending" / "Checking DNS"** — o próprio Resend avisa que pode levar horas. Ainda não confirmei os registros DNS de e-mail (MX/TXT específicos do Resend) aparecendo — só vi o SPF/MX antigos da HostGator até agora. **Retomar depois**: conferir se o status virou "Verified" e se o envio de e-mail (voucher, reset de senha, convite de equipe) está saindo do domínio novo.
+
+### Checklist do que ainda falta (atualiza a seção 6 também)
+
+- [ ] Confirmar Resend "Verified" e testar um envio de e-mail de verdade
+- [ ] Redirect URLs no Supabase incluindo `https://nauticflow.com.br/**` (ainda não feito — só chegamos a mencionar pra `.vercel.app`, precisa atualizar pro domínio final)
+- [ ] URL do webhook no Asaas apontando pra `https://nauticflow.com.br/api/webhooks/asaas`
+- [ ] Corrigir o bug de timezone (seção 6) — agora que o site está de verdade em produção rodando em UTC (Vercel), isso deixou de ser risco teórico
+- [ ] Decidir se apaga o projeto Vercel órfão (`nautic-flow/nauticflow`) pra não confundir no futuro
+- [ ] Conectar Git no meu projeto original não é mais necessário — o `Passatempo/fluxo náutico` já tem Git; ele é o que deve continuar sendo usado
+
+### Validação final desta sessão
+
+`tsc --noEmit`, `next lint`, `next build` — todos limpos, sem erros novos. `npm audit` sem novidade (mesmos 2 advisories residuais já conhecidos, ver seção 6). Testado ao vivo em `nauticflow.com.br`: todas as rotas protegidas redirecionam certo, rotas públicas respondem 200, webhook recusa sem token, CSS carrega normal.
+
+## 21. Chave do Asaas nunca tinha sido configurada — checkout testado e funcionando (sessão de 2026-08-14)
+
+Pedido: testar a forma de pagamento. Descoberta: **nunca tinha funcionado**, desde o início do projeto — `ASAAS_API_KEY` no `.env.local` (e, por consequência, na Vercel, porque foi copiada de lá na seção 19) era literalmente o texto de exemplo `sua-chave-asaas`, nunca substituído pela chave real.
+
+- Usuário colou a chave de **produção** por engano primeiro (prefixo `$aact_prod_`) — não foi usada pra nada, porque produção com dinheiro real não é o que se quer pra "testar". Trocado por uma chave de **sandbox** de verdade (prefixo `$aact_hmlg_`, gerada no painel do Asaas em ambiente de testes).
+- **Segundo problema, mesmo depois da chave certa**: o `$` no início da chave estava sendo interpretado como referência de variável (mesmo bug já documentado na seção 4 sobre esse exato caractere) — precisou escapar como `\$aact_hmlg_...` no `.env.local` pra funcionar localmente. **Na Vercel não precisa escapar** (lá é só um valor de texto puro, sem parsing de shell/dotenv) — o valor colado lá é o `$aact_hmlg_...` sem barra.
+- Testado direto contra a API do Asaas (sandbox) via `curl`, replicando as 3 chamadas que `src/lib/asaas.ts` faz: criar cliente → criar assinatura → pegar link da fatura. Funcionou depois da correção — cliente e assinatura de teste criados e apagados em seguida (dados de diagnóstico, sem deixar lixo na conta sandbox).
+- Confirmado também pelo usuário, ao vivo: clicou em "Assinar" no plano Profissional em `/planos`, abriu a fatura real do Asaas sandbox (R$297, "Aguardando Pagamento") com os dados reais da empresa preenchidos automaticamente. **Checkout ponta a ponta funcionando.**
+- **Não testado ainda**: completar o pagamento de fato e confirmar que o webhook (`/api/webhooks/asaas`) atualiza `paid_until` no Supabase — combinado de deixar pra uma próxima sessão (ver seção 6).
+
+## 22. Senha forte no cadastro/reset e botão de excluir conta (sessão de 2026-08-14/15)
+
+Pedido do dono do produto: reforçar a criação de senha (nada de `123456` ou data de nascimento) e adicionar um botão de excluir a própria conta.
+
+**Senha forte** (`src/lib/password.ts`, função `validatePassword`): mínimo 8 caracteres, exige pelo menos uma letra e um número (isso já bloqueia sozinho qualquer senha 100% numérica, incluindo datas de nascimento como `15081995`), bloqueia uma lista de senhas óbvias comuns no Brasil (`senha123`, `brasil123`, `admin123` etc.) e rejeita o mesmo caractere repetido (`aaaaaaaa`). Usada tanto em `signUp` (`login/actions.ts`) quanto em `updatePassword` (`redefinir-senha/actions.ts`, substituindo o antigo mínimo de 6 caracteres do Supabase Auth). O front (`login/page.tsx`, `redefinir-senha/page.tsx`) mostra a dica de requisitos e aplica `minLength={8}` — só no modo cadastro/reset, não no login, pra não travar quem já tem conta com senha mais curta de antes.
+
+**Excluir conta** (`configuracoes/actions.ts`, função `deleteMyAccount`, formulário em `configuracoes/delete-account-form.tsx`, seção "Zona de perigo" na tela de Configurações): decisão tomada — `staff` apaga só a própria conta (confirmação: digitar `EXCLUIR`); `company_admin` apaga a **empresa inteira** (confirmação: digitar o nome exato da empresa), porque não faz sentido o admin sumir e deixar uma empresa órfã sem dono. A rotina usa o client `service_role` (`createAdminClient`, mesmo padrão de `removeTeamMember` em `equipe/actions.ts`): apaga via `auth.admin.deleteUser` cada usuário do time (o admin por último), depois apaga a linha em `companies` — o `delete` em `companies` cascateia embarcações, passeios, clientes, reservas, notas fiscais etc. (única FK que não cascateia é `profiles.company_id`, por isso os perfis precisam ser removidos antes, via `auth.admin`, e não como consequência do delete da empresa). Sem período de carência — exclusão é imediata e definitiva, dado que a UX já exige digitar o nome/`EXCLUIR` como trava contra clique acidental.
+
+Validado: `tsc --noEmit`, `next lint`, `next build` — todos limpos, sem erros novos.
+
+**Chat de suporte — integrado e depois removido**: widget do Tawk.to chegou a ser adicionado no `<body>` do `src/app/layout.tsx` (via `next/script`, `strategy="lazyOnload"`), aparecendo em todas as páginas incluindo `/login`. Removido no mesmo dia a pedido do dono do produto: ele não quer ficar respondendo chat manualmente, e o widget do Tawk.to por padrão é atendimento humano ao vivo — a opção de bot automático de verdade (**AI Assist / Apollo AI**) é só grátis até 100 mensagens/mês, depois vira pago (~US$29/mês por site). Ficou decidido não integrar chat nenhum por enquanto (ver pendência reaberta na seção 6) até decidir um provedor com automação de fato gratuita, ou aceitar o custo do AI Assist.
+
+## 23. Domínio verificado no Resend — e uma zona Cloudflare duplicada por engano (sessão de 2026-08-15)
+
+Pedido: resolver a verificação pendente do domínio no Resend (`nauticflow.com.br` aparecia "Fracassado"/"Failed" há 22h). No processo, quase se criou um problema maior por engano — vale registrar o que rolou pra não repetir.
+
+- Ao tentar corrigir pelo botão **"Auto configure"** no painel do Resend, foi criada sem querer uma **segunda zona no Cloudflare** (nameservers `ariadne.ns.cloudflare.com`/`rory.ns.cloudflare.com`), diferente da zona que já estava ativa de verdade (`hadlee.ns.cloudflare.com`/`shane.ns.cloudflare.com`, confirmada via `whois -h whois.registro.br nauticflow.com.br`). Como o registrador (Registro.br, via revenda da HostGator/Newfold) nunca teve os nameservers trocados pra essa zona nova, ela ficou só "pendente" e nunca chegou a valer — **nada quebrou**, mas gerou bastante confusão até isso ficar claro.
+- Ao investigar uma alternativa (voltar o DNS pra HostGator), descobriu-se que o painel de "nameservers padrão" da HostGator pra esse domínio estava associado a um **plano de hospedagem cancelado** ("Plano M") — ou seja, não seria uma base estável pra depender no longo prazo. Path descartado.
+- **A causa real do "Fracassado" no Resend**: nenhuma das duas coisas acima. Checando os registros DNS de verdade (`dig TXT/MX` para `send.nauticflow.com.br`, `resend._domainkey`, `_dmarc`), todos já estavam corretos e propagados na zona antiga (a que sempre esteve ativa) — o domínio só precisava que a verificação fosse **reiniciada** no próprio Resend (botão "Restart"/"Reiniciar verificação"). Assim que reiniciado, ficou "Verificado" em ~3 minutos, sem tocar em Cloudflare nem HostGator.
+- **Lição pra próxima vez que o Resend (ou qualquer serviço) mostrar DNS como "falhou"**: checar os registros de verdade via `dig` antes de sair mexendo em nameserver/provedor — o status pode estar só desatualizado de uma checagem antiga, e a correção pode ser só clicar em "reiniciar verificação".
+- A zona Cloudflare duplicada (ariadne/rory) foi removida pelo usuário. A conta Cloudflare "castrocompany" que a criou continua sendo uma incógnita — ninguém lembra de ter criado essa conta de propósito (provavelmente foi provisionada automaticamente via SSO/Google na primeira vez que algum "Auto configure" de algum serviço pediu acesso ao Cloudflare). Não é um problema agora, mas vale ter em mente se aparecer de novo.
+
+## 24. Bug de timezone corrigido (UTC vs. Brasília) — sessão de 2026-08-15
+
+Esse era o item 🔴 urgente da seção 6: em produção (Vercel roda em UTC), toda a lógica de horário de saída estava calculando 3 horas errado, porque o código montava/lia `departs_at` como se o processo sempre rodasse no fuso de Brasília (só verdade em dev, na máquina do desenvolvedor).
+
+**Abordagem**: sem adicionar biblioteca de timezone (não havia `date-fns-tz`/`luxon`/`dayjs` no projeto) — como o Brasil não tem horário de verão desde 2019, o offset de Brasília é fixo em `-03:00` o ano inteiro, então dá pra resolver com aritmética simples. Centralizado em `src/lib/format.ts`, que ganhou funções novas além de `fmtTime`/`fmtDate` (que passaram a receber `timeZone: "America/Sao_Paulo"` explícito):
+
+- `saoPauloToUTC(date, time)` — grava um `departs_at` a partir dos campos separados `date`/`time` do formulário, interpretados como horário de Brasília (usa em `saidas/actions.ts`, nas duas ações `createDeparture`/`updateDeparture`, substituindo o antigo `new Date(\`${date}T${time}\`)` que confiava no fuso do processo).
+- `saoPauloHour(iso)` / `saoPauloHHMM(iso)` — hora (0-23) / "HH:MM" de um timestamp UTC já convertido pro horário de Brasília. Substituiu todo `new Date(iso).getHours()`/`.getMinutes()` espalhado pelo app: agrupamento por hora na Agenda e no Dashboard, e a checagem "essa saída está dentro do horário comercial (08:00-19:00)?" que existia **duplicada** em `reservas/page.tsx` (`hhmm` local) e `reservas/actions.ts` (`createReservation`, validação server-side antes de aceitar reserva).
+- `saoPauloStartOfDay(instant)` / `saoPauloStartOfMonth(instant, monthOffset?)` / `saoPauloDayKey(iso)` — limites de dia/mês em Brasília, usados no `startEndOfToday()` (dashboard "hoje"), nos filtros "hoje/amanhã/semana" da Agenda (`rangeFor`, `sameDay`), e nas séries diárias/mensais do Dashboard (`periodStartFor`, `monthStart`, `prevMonthStart`, `d30`, `next7End`, agrupamento por dia dos gráficos). O caso mais delicado (testado explicitamente) é perto da meia-noite: às 23h30 em Brasília já é 02h30 UTC do dia seguinte — sem a correção, o servidor achava que já tinha virado o dia.
+- O e-mail de voucher (`supabase/functions/send-reservation-voucher/index.ts`, Edge Function em Deno — **não é deployada pelo `git push`/Vercel, precisa de `supabase functions deploy` manual**) também ganhou `timeZone: "America/Sao_Paulo"` explícito nos dois `toLocale*Date/TimeString`.
+- O gatilho no banco (`0014_horario_saida_no_banco.sql`) **não precisou mudar** — ele já convertia `departs_at at time zone 'America/Sao_Paulo'` corretamente; o bug era só na escrita vinda do app, que gravava o instante UTC errado pro banco converter.
+
+**Validado**: `tsc --noEmit`, `next lint`, `next build` limpos. Testado adicionalmente rodando com `TZ=UTC node -e ...` (simulando o ambiente da Vercel, que a máquina de dev não reproduz sozinha) — confirmado que um horário digitado como 14:30 grava `17:30:00.000Z` e volta a exibir `14:30` corretamente, e que os limites de dia/mês acertam o caso de virada de meia-noite.
+
+## 25. "Esqueci minha senha" corrigido de ponta a ponta (sessão de 2026-08-15)
+
+O e-mail de reset simplesmente não chegava. Foram **quatro problemas independentes**, descobertos um atrás do outro:
+
+1. **Redirect URLs do Supabase sem o domínio de produção** — em Authentication → URL Configuration, a lista de "Redirect URLs" só tinha `http://localhost:3000/**`. O Supabase recusa gerar/enviar o link de reset se o `redirectTo` não bater com algo da lista — e o código (`forgotPassword` em `login/actions.ts`) engole esse erro de propósito (pra não revelar quais e-mails existem no sistema), então a tela sempre mostrava "e-mail enviado" mesmo falhando. Corrigido adicionando `https://nauticflow.com.br/**`; "Site URL" também ajustado pra `https://` (estava `http://`).
+2. **Remetente do SMTP customizado num domínio errado** — o Custom SMTP (Project Settings → Auth) já estava configurado com o Resend, mas o "Sender email address" era `contato@castrocompny.online`, um domínio que nunca foi verificado no Resend (o verificado é `nauticflow.com.br`). Resend recusa enviar a partir de domínio não verificado. Corrigido trocando pra `contato@nauticflow.com.br`.
+3. **Template de e-mail em inglês e sem a logo** — cosmético, mas pedido do dono do produto: traduzido o template "Reset Password" do Supabase (Authentication → Email Templates) pra português e adicionada a tag `<img src="https://nauticflow.com.br/nauticflow-icon.png">` no topo. (O avatar circular ao lado do remetente no Gmail é outra coisa — foto de perfil de conta Google, não controlável por HTML de e-mail nem por config do Supabase/Resend; decidido não perseguir isso, nem configurar BIMI, por não valer o esforço nesse estágio.)
+4. **O bug de código de verdade** — mesmo com o e-mail chegando certo, clicar no link caía de volta no `/login` em vez de abrir `/redefinir-senha`. Dois bugs empilhados:
+   - `src/app/auth/callback/route.ts` só sabia processar o fluxo PKCE (`?code=...`), mas o link de recovery do Supabase manda o fluxo OTP (`?token_hash=...&type=recovery`) — o `if (code)` era pulado silenciosamente, nenhuma sessão era criada, sem erro nenhum. Corrigido tratando os dois formatos (`exchangeCodeForSession` pro `code`, `verifyOtp({ token_hash, type })` pro OTP).
+   - `src/lib/supabase/middleware.ts` não tinha `/redefinir-senha` na lista de rotas públicas (`isPublic`) — então qualquer acesso sem sessão válida (inclusive um link expirado, que deveria mostrar a mensagem amigável "Link inválido ou expirado" que já existe em `redefinir-senha/actions.ts`) era redirecionado pro `/login` antes mesmo da página renderizar. Adicionado à lista.
+
+**Validado**: `tsc --noEmit`, `next lint`, `next build` limpos. Os itens 1-3 foram configuração manual no painel do Supabase (não versionada em código); o item 4 foi commitado normalmente.
+
+## 26. 🔴 Nova auditoria de segurança — falha crítica de escalação de privilégio corrigida (sessão de 2026-08-15/16)
+
+Pedido do dono do produto: varredura completa de segurança em todo o codebase ("aja como profissional sênior de cyber"). Encontrados 3 problemas reais, todos corrigidos e validados no mesmo dia.
+
+### 🔴 CRÍTICO — escalação de privilégio via cadastro público (corrigido: migration `0018_corrige_escalacao_privilegio_convite.sql`)
+
+`handle_new_user()` (o gatilho `SECURITY DEFINER` que roda em todo `INSERT` em `auth.users`, criado na migration `0002` e reescrito na `0013` pra suportar convite de colaborador) confiava sem validação nenhuma em `raw_user_meta_data->>'invited_to_company_id'` e `raw_user_meta_data->>'role'` pra decidir a empresa e o cargo do novo perfil. Esses dois campos vêm de `options.data` passado pro `supabase.auth.signUp()` — uma chamada **pública**, que qualquer pessoa consegue fazer direto contra a API do Supabase usando a `NEXT_PUBLIC_SUPABASE_ANON_KEY` (pública por design, embutida no bundle do site). Ou seja: bastava chamar `signUp` com `{ invited_to_company_id: '<uuid de qualquer empresa>', role: 'super_admin' }` pra virar super admin da plataforma inteira, ou `role: 'company_admin'`/`'staff'` de qualquer empresa alvo — sem precisar de senha, convite real, nem nenhum dado secreto. É a mesma classe de bug que a migration `0003` já tinha corrigido uma vez (lá, via `UPDATE` em `profiles.company_id`/`role`, bloqueado revogando o `GRANT UPDATE` dessas colunas) — só que reaberta por um caminho novo (`INSERT` dentro de função `SECURITY DEFINER`, que ignora completamente a restrição de coluna do `GRANT`).
+
+**Correção**: `auth.users.invited_at` só é preenchido pelo próprio GoTrue (motor de auth do Supabase) quando o usuário é criado via `admin.inviteUserByEmail()` — endpoint que exige a `SUPABASE_SERVICE_ROLE_KEY`, nunca exposta ao cliente. Diferente de `raw_user_meta_data`, esse campo não pode ser forjado por uma chamada pública a `signUp()`. O gatilho agora só aceita o caminho de "colaborador convidado" quando `new.invited_at is not null`; caso contrário, mesmo que o metadata contenha `invited_to_company_id`, ele é ignorado e o cadastro segue o fluxo normal (cria uma empresa nova pro próprio usuário, comportamento inofensivo). Além disso, `role` do colaborador convidado agora é sempre `'staff'` fixo no SQL, ignorando qualquer valor vindo do metadata — nunca herda `company_admin`/`super_admin` por esse caminho, consistente com o que `equipe/actions.ts` (`inviteTeamMember`) sempre envia.
+
+**Testado contra produção de verdade** (não só localmente): script Node com a `service_role` key criou uma empresa "alvo" e tentou o exploit exato (`signUp` forjando `invited_to_company_id` da empresa alvo + `role: 'super_admin'`) — confirmado que nenhum perfil malicioso foi criado após a correção. Usuário de teste removido em seguida.
+
+### 🟡 MÉDIO — passageiros sem checagem de empresa (`src/app/(app)/reservas/[id]/passenger-actions.ts`)
+
+`setPassengerStatus` e `removePassenger` faziam `UPDATE`/`DELETE` em `passengers` só com `.eq('id', id)`, sem checar `company_id` — dependiam inteiramente da RLS como única barreira, ao contrário do padrão usado em todo o resto do app (inclusive no `addPassenger`, poucas linhas acima do mesmo arquivo). Corrigido adicionando `.eq('company_id', profile.company_id)` nas duas.
+
+### 🟢 BAIXO — trilha de auditoria podia gravar a empresa errada (`src/app/admin/actions.ts`, `deleteInvoice`)
+
+Ao excluir uma nota fiscal, o `company_id` usado no log de auditoria (`admin_audit_log`) vinha direto de um campo escondido do formulário, sem confirmar contra o banco que aquela nota realmente pertencia a essa empresa. Corrigido buscando o `company_id` de verdade da nota antes de apagar.
+
+**Validado**: `tsc --noEmit`, `next lint`, `next build` limpos, exploit testado e bloqueado em produção. Áreas revisadas e consideradas limpas nesta varredura: middleware/CVE-2025-29927 (correção da seção 13 continua de pé), todos os outros Server Actions (reservas, embarcações, clientes, parceiros, saídas, equipe, configurações, billing — todos aplicam `company_id` corretamente), webhook do Asaas (comparação em tempo constante), RPC `link_asaas_subscription`, ausência de `dangerouslySetInnerHTML`/`eval`, nenhum secret commitado, e-mail do voucher escapa HTML corretamente.
+
+## 27. Favicon (sessão de 2026-08-15/16)
+
+O site não tinha favicon configurado (`src/app/layout.tsx` sem `metadata.icons`) — aba do navegador mostrava o ícone genérico. Adicionado `public/favicon.png`, referenciado em `metadata.icons.icon`.
+
+Passou por algumas iterações até o formato final:
+- Versão inicial usava `nauticflow-icon.png` (o mesmo ícone da sidebar/e-mail) direto — mas esse arquivo é bem largo (738x341, não quadrado), então o navegador esmagava/cortava a imagem de forma distorcida na aba.
+- Corrigido gerando uma versão quadrada (padding transparente + resample de qualidade via Python/Pillow, já que o projeto não tem `sharp`/ImageMagick disponível — usei `pip3 install pillow` na hora).
+- Testadas variações de fundo (branco, navy da marca, azul da marca) — descartadas todas a pedido do dono do produto, que preferiu manter fiel à arte original.
+- Dono do produto forneceu uma logo nova (`~/Downloads/logo.png`, barco branco + onda azul, já com fundo transparente de verdade — confirmado checando o canal alpha) — essa é a versão usada agora, sem nenhuma cor de fundo adicionada.
+- Ajustado o enquadramento (corte um pouco mais justo nas laterais, já que a arte é bem larga e sobrava muita margem vazia em cima/embaixo do quadrado) e depois revertido a pedido do dono do produto pro enquadramento anterior.
+
+**Nota pra próxima sessão**: como o barco é branco e o fundo é transparente, o favicon fica ilegível em superfícies claras (aba de navegador em tema claro, apps com fundo branco) — só funciona bem em fundos escuros. Foi uma escolha explícita do dono do produto (testei variações com fundo colorido e ele preferiu sem), não um bug.
+>>>>>>> 609ae7804e7c15b51b3c311adc326dd10ab1495f

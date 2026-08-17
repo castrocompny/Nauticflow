@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
-import { requireActiveSubscription } from "@/lib/subscription";
+import { getSubscriptionStatus } from "@/lib/subscription";
 
 export async function inviteTeamMember(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
@@ -15,27 +15,18 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
     return { error: "Só o administrador da empresa pode convidar novos usuários." };
   }
 
-  const subscriptionBlocked = await requireActiveSubscription(profile.company_id);
-  if (subscriptionBlocked) return { error: subscriptionBlocked };
-
   const name = String(formData.get("name") || "").trim();
   const email = String(formData.get("email") || "").trim();
   if (!name || !email) return { error: "Preencha nome e e-mail." };
 
   const supabase = createClient();
 
-  const [{ count: usedCount }, { data: sub }] = await Promise.all([
+  const [{ blocked, maxUsers }, { count: usedCount }] = await Promise.all([
+    getSubscriptionStatus(profile.company_id),
     supabase.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", profile.company_id),
-    supabase
-      .from("subscriptions")
-      .select("plans(max_users)")
-      .eq("company_id", profile.company_id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
   ]);
+  if (blocked) return { error: blocked };
 
-  const maxUsers = (sub as any)?.plans?.max_users as number | null | undefined;
   if (maxUsers != null && (usedCount ?? 0) >= maxUsers) {
     return {
       error: `Seu plano permite até ${maxUsers} usuário(s). Faça upgrade do plano em Planos para convidar mais gente.`,

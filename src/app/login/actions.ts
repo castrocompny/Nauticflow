@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { validatePassword } from "@/lib/password";
 
 export async function signIn(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
@@ -24,6 +25,8 @@ export async function signUp(_prev: unknown, formData: FormData) {
   if (!termsAccepted) {
     return { error: "É preciso aceitar os Termos de Uso e a Política de Privacidade para criar a conta." };
   }
+  const passwordError = validatePassword(password);
+  if (passwordError) return { error: passwordError };
   const supabase = createClient();
 
   // empresa, perfil e assinatura são criados por um gatilho no banco (on_auth_user_created),

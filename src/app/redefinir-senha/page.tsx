@@ -39,11 +39,15 @@ export default function RedefinirSenhaPage() {
         <form action={formAction} className="space-y-3">
           <div>
             <label>Nova senha</label>
-            <input name="password" type="password" required minLength={6} className="mt-1" placeholder="••••••••" />
+            <input name="password" type="password" required minLength={8} className="mt-1" placeholder="••••••••" />
+            <p className="mt-1 text-[11px] text-muted">
+              Mínimo 8 caracteres, com letras e números — nada de sequência (123456) ou só números (data de
+              nascimento).
+            </p>
           </div>
           <div>
             <label>Confirme a nova senha</label>
-            <input name="confirm" type="password" required minLength={6} className="mt-1" placeholder="••••••••" />
+            <input name="confirm" type="password" required minLength={8} className="mt-1" placeholder="••••••••" />
           </div>
           <Submit />
         </form>

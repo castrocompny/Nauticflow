@@ -9,10 +9,12 @@ export function DeleteButton({
   action,
   id,
   confirmText = "Tem certeza que deseja excluir?",
+  extraFields,
 }: {
   action: (formData: FormData) => Promise<Result>;
   id: string;
   confirmText?: string;
+  extraFields?: Record<string, string>;
 }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -23,6 +25,7 @@ export function DeleteButton({
     setMsg(null);
     const fd = new FormData();
     fd.set("id", id);
+    if (extraFields) for (const [k, v] of Object.entries(extraFields)) fd.set(k, v);
     const res = await action(fd);
     setBusy(false);
     if (res && res.error) {

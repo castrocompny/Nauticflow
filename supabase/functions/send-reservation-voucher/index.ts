@@ -91,9 +91,9 @@ function escapeHtml(value: string): string {
 function buildEmail(r: any): string {
   const code = `RES-${String(r.id).slice(0, 8).toUpperCase()}`;
   const dep = r.departures ?? {};
-  const date = dep.departs_at ? new Date(dep.departs_at).toLocaleDateString("pt-BR") : "-";
+  const date = dep.departs_at ? new Date(dep.departs_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "-";
   const time = dep.departs_at
-    ? new Date(dep.departs_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    ? new Date(dep.departs_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
     : "-";
   const row = (label: string, value: string) =>
     `<tr><td style="padding:6px 0;color:#64748b;font-size:13px">${label}</td>` +

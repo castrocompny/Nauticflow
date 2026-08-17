@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { requireActiveSubscription } from "@/lib/subscription";
+import { saoPauloToUTC } from "@/lib/format";
 
 export async function createDeparture(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
@@ -20,7 +21,7 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   const time = String(formData.get("time"));
   if (!vessel_id || !date || !time) return { error: "Preencha embarcação, data e hora." };
   if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
-  if (new Date(`${date}T${time}`) < new Date()) return { error: "Não é possível criar uma saída em um horário que já passou." };
+  if (new Date(saoPauloToUTC(date, time)) < new Date()) return { error: "Não é possível criar uma saída em um horário que já passou." };
 
   // resolve o passeio: existente ou novo
   let tour_id = String(formData.get("tour_id") || "");
@@ -36,7 +37,7 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   }
   if (!tour_id) return { error: "Selecione ou crie um passeio." };
 
-  const departs_at = new Date(`${date}T${time}`).toISOString();
+  const departs_at = saoPauloToUTC(date, time);
   const capRaw = formData.get("capacity");
   const capacity = capRaw ? Number(capRaw) : null;
 
@@ -83,7 +84,7 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
   if (!vessel_id || !tour_id || !date || !time) return { error: "Preencha embarcação, passeio, data e hora." };
   if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
 
-  const departs_at = new Date(`${date}T${time}`).toISOString();
+  const departs_at = saoPauloToUTC(date, time);
   const capRaw = formData.get("capacity");
   const capacity = capRaw ? Number(capRaw) : null;
 

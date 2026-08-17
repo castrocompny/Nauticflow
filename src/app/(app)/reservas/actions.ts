@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { requireActiveSubscription } from "@/lib/subscription";
+import { saoPauloHHMM } from "@/lib/format";
 
 export async function createReservation(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
@@ -15,21 +16,32 @@ export async function createReservation(_prev: unknown, formData: FormData) {
   const supabase = createClient();
   const valueReais = Number(String(formData.get("value") || "0").replace(",", "."));
   const departure_id = String(formData.get("departure_id"));
+  const client_id = String(formData.get("client_id"));
 
-  const { data: departure } = await supabase.from("departures").select("departs_at").eq("id", departure_id).single();
-  if (departure) {
-    const d = new Date(departure.departs_at);
-    const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    if (hhmm < "08:00" || hhmm > "19:00")
-      return { error: "Esta saída está fora do horário permitido para reservas (08:00–19:00)." };
+  // confere que a saida e o cliente escolhidos sao mesmo da propria empresa -- sem isso,
+  // um usuario autenticado de qualquer empresa poderia forjar o POST com o id de uma saida
+  // ou cliente de OUTRA empresa (o dropdown do formulario nao e a unica forma de submeter
+  // esses campos). reforcado tambem por gatilho no banco (migration 0015).
+  const [{ data: departure }, { data: client }] = await Promise.all([
+    supabase.from("departures").select("departs_at, company_id").eq("id", departure_id).maybeSingle(),
+    supabase.from("clients").select("company_id").eq("id", client_id).maybeSingle(),
+  ]);
+  if (!departure || departure.company_id !== profile.company_id) {
+    return { error: "Saída inválida." };
   }
+  if (!client || client.company_id !== profile.company_id) {
+    return { error: "Cliente inválido." };
+  }
+  const hhmm = saoPauloHHMM(departure.departs_at);
+  if (hhmm < "08:00" || hhmm > "19:00")
+    return { error: "Esta saída está fora do horário permitido para reservas (08:00–19:00)." };
 
   const { data: inserted, error } = await supabase
     .from("reservations")
     .insert({
       company_id: profile.company_id,
       departure_id,
-      client_id: String(formData.get("client_id")),
+      client_id,
       people_count: Number(formData.get("people_count")),
       total_cents: Math.round(valueReais * 100),
       origin_name: String(formData.get("origin_name") || "") || null,
@@ -118,12 +130,27 @@ export async function updateReservation(_prev: unknown, formData: FormData) {
   const supabase = createClient();
   const id = String(formData.get("id"));
   const valueReais = Number(String(formData.get("value") || "0").replace(",", "."));
+  const departure_id = String(formData.get("departure_id"));
+  const client_id = String(formData.get("client_id"));
+
+  // mesma checagem de dono da createReservation -- editar tambem aceitava trocar pra uma
+  // saida/cliente de outra empresa sem validacao (reforcado tambem via migration 0015)
+  const [{ data: departure }, { data: client }] = await Promise.all([
+    supabase.from("departures").select("company_id").eq("id", departure_id).maybeSingle(),
+    supabase.from("clients").select("company_id").eq("id", client_id).maybeSingle(),
+  ]);
+  if (!departure || departure.company_id !== profile.company_id) {
+    return { error: "Saída inválida." };
+  }
+  if (!client || client.company_id !== profile.company_id) {
+    return { error: "Cliente inválido." };
+  }
 
   const { error } = await supabase
     .from("reservations")
     .update({
-      departure_id: String(formData.get("departure_id")),
-      client_id: String(formData.get("client_id")),
+      departure_id,
+      client_id,
       people_count: Number(formData.get("people_count")),
       total_cents: Math.round(valueReais * 100),
       origin_name: String(formData.get("origin_name") || "") || null,

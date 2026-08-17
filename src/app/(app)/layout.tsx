@@ -1,16 +1,26 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/profile";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { startEndOfToday } from "@/lib/format";
 import { OverdueBanner } from "./overdue-banner";
 import type { Notif } from "@/components/notifications-bell";
 
-// forca toda a area logada a buscar dado fresco do banco a cada requisicao — sem isso,
-// o Next.js pode reaproveitar uma resposta antiga em cache (ex: plano/assinatura logo
-// depois de uma renovacao feita em outra tela) e mostrar informacao desatualizada.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// Este layout usa cookies() (via createClient/getProfile), o que já obriga o Next.js a
+// renderizar por requisição -- não precisa de "force-dynamic" pra isso. O que "force-dynamic"
+// + "revalidate = 0" faziam de verdade era desligar o cache de navegação do lado do cliente,
+// forçando TODO clique no menu lateral a refazer a checagem de auth + as 5 queries do layout
+// no servidor, mesmo clicando entre páginas já visitadas há poucos segundos -- essa era a
+// causa principal do atraso ao clicar no menu.
+//
+// Sem essas duas linhas, o Next.js volta a cachear a navegação por ~30s (padrão do App
+// Router), então clicar de novo numa página recente é instantâneo. O motivo original pra
+// essas linhas existirem era evitar mostrar plano/assinatura desatualizados logo após uma
+// renovação -- isso agora é resolvido de forma cirúrgica: `revalidatePath` é chamado direto
+// nos dois lugares que alteram a assinatura (webhook do Asaas e renovação manual no /admin),
+// então o dado fica fresco assim que muda, sem precisar desligar o cache pra todo mundo o
+// tempo todo.
 
 const roleLabel: Record<string, string> = {
   company_admin: "Administrador",
@@ -20,22 +30,13 @@ const roleLabel: Record<string, string> = {
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const profile = await getProfile();
+  if (!profile) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("name, role, company_id, companies(name, city)")
-    .eq("id", user.id)
-    .single();
-
-  const p = profile as any;
-  const companyName = p?.companies?.name ?? "Minha empresa";
-  const companyCity = p?.companies?.city ?? null;
-  const firstName = (p?.name ?? "").split(" ")[0] || "operador";
-  const rawRole = p?.role as string | undefined;
+  const companyName = profile.companies?.name ?? "Minha empresa";
+  const companyCity = profile.companies?.city ?? null;
+  const firstName = (profile.name ?? "").split(" ")[0] || "operador";
+  const rawRole = profile.role as string | undefined;
   const role = roleLabel[rawRole ?? ""] ?? "Usuário";
 
   const now = new Date();
@@ -43,7 +44,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const { start: todayStart, end: todayEnd } = startEndOfToday();
 
-  const [subRes, vesselsCount, reservasMes, todayDeps, novasRes] = await Promise.all([
+  const [subRes, vesselsCount, reservasMes, todayDeps, novasRes, companyStatusRes] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("status, paid_until, plans(name, max_vessels)")
@@ -58,12 +59,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .gte("departs_at", todayStart)
       .lt("departs_at", todayEnd),
     supabase.from("reservations").select("id", { count: "exact", head: true }).gte("created_at", dayAgo),
+    supabase.from("companies").select("suspended_at, suspended_reason").eq("id", profile.company_id).maybeSingle(),
   ]);
 
   const planName = (subRes.data as any)?.plans?.name ?? "Sem plano";
   const vesselsLimite = (subRes.data as any)?.plans?.max_vessels ?? null;
   const paidUntil = (subRes.data as any)?.paid_until as string | null;
-  const isOverdue = rawRole !== "super_admin" && paidUntil != null && new Date(paidUntil) < new Date();
+  const suspendedAt = companyStatusRes.data?.suspended_at as string | null;
+  const suspendedReason = companyStatusRes.data?.suspended_reason as string | null;
+  const isSuspended = rawRole !== "super_admin" && !!suspendedAt;
+  const isOverdue = !isSuspended && rawRole !== "super_admin" && paidUntil != null && new Date(paidUntil) < new Date();
 
   const deps = (todayDeps.data ?? []) as any[];
   const lotadas = deps.filter((d) => {
@@ -91,11 +96,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         vesselsUso={vesselsCount.count ?? 0}
         vesselsLimite={vesselsLimite}
         paidUntil={paidUntil}
-        overdue={isOverdue}
+        overdue={isOverdue || isSuspended}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar name={firstName} role={role} notifications={notifications} />
-        {isOverdue && <OverdueBanner companyName={companyName} />}
+        {(isOverdue || isSuspended) && (
+          <OverdueBanner companyName={companyName} suspended={isSuspended} suspendedReason={suspendedReason} />
+        )}
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
     </div>

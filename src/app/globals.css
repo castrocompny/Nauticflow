@@ -37,12 +37,12 @@ body {
   box-sizing: border-box;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
   @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-heading outline-none transition;
 }
-input:focus,
+input:not([type="checkbox"]):not([type="radio"]):focus,
 select:focus,
 textarea:focus {
   @apply border-brand ring-2 ring-brand/20;

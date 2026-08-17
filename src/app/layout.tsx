@@ -13,6 +13,13 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "NauticFlow",
   description: "Gestão inteligente para o turismo náutico",
+  icons: {
+    // favicon.png e uma versao quadrada (com padding transparente) do
+    // nauticflow-icon.png -- o arquivo original e bem largo (738x341), e
+    // navegadores esmagam/cortam imagens nao-quadradas na aba, deixando
+    // irreconhecivel em tamanho pequeno
+    icon: "/favicon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -11,23 +11,20 @@ export async function startAsaasCheckout(planCode: string) {
 
   const supabase = createClient();
 
-  const { data: company } = await supabase
-    .from("companies")
-    .select("id, name, cnpj, email, phone, asaas_customer_id")
-    .eq("id", profile.company_id)
-    .maybeSingle();
+  const [{ data: company }, { data: plan }] = await Promise.all([
+    supabase
+      .from("companies")
+      .select("id, name, cnpj, email, phone, asaas_customer_id")
+      .eq("id", profile.company_id)
+      .maybeSingle(),
+    supabase.from("plans").select("code, name, price_cents").eq("code", planCode).maybeSingle(),
+  ]);
   if (!company) return { error: "Empresa não encontrada." };
   if (!company.cnpj) {
     return {
       error: "Preencha o CNPJ ou CPF da empresa em Configurações antes de assinar um plano.",
     };
   }
-
-  const { data: plan } = await supabase
-    .from("plans")
-    .select("code, name, price_cents")
-    .eq("code", planCode)
-    .maybeSingle();
   if (!plan) return { error: "Plano inválido." };
 
   const customerRes = await findOrCreateCustomer({
