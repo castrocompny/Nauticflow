@@ -2,13 +2,18 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useFormState, useFormStatus } from "react-dom";
+import dynamic from "next/dynamic";
 import { Pencil, Check, Ban } from "lucide-react";
 import { Card, OccupancyBar, Badge } from "@/components/ui";
 import { DeleteButton } from "@/components/delete-button";
 import { fmtDate, fmtTime } from "@/lib/format";
-import { deleteDeparture, updateDeparture, confirmDeparture, cancelDeparture } from "./actions";
+import { deleteDeparture, confirmDeparture, cancelDeparture } from "./actions";
 import type { Tour, Vessel } from "@/lib/types";
+
+const DepartureEditForm = dynamic(
+  () => import("./departure-edit-form").then((m) => m.DepartureEditForm),
+  { ssr: false, loading: () => <p className="text-sm text-muted">Carregando formulário...</p> }
+);
 
 type Row = {
   id: string;
@@ -29,38 +34,14 @@ const statusTone: Record<string, "green" | "amber" | "slate" | "red"> = {
   cancelada: "red",
 };
 
-function Save() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      disabled={pending}
-      className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-dark disabled:opacity-60"
-    >
-      {pending ? "Salvando..." : "Salvar"}
-    </button>
-  );
-}
-
 export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[]; tours: Tour[] }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState("");
-  const [state, action] = useFormState(
-    async (p: unknown, f: FormData) => {
-      const res = await updateDeparture(p, f);
-      if (!res.error) setEditing(false);
-      return res;
-    },
-    { error: "" }
-  );
 
   const booked = r.reservations.filter((x) => x.status === "confirmada").reduce((s, x) => s + x.people_count, 0);
   const full = booked >= r.capacity;
   const finished = r.status === "encerrada" || r.status === "cancelada";
-  const local = new Date(r.departs_at);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const dateISO = `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}`;
-  const timeHM = `${pad(local.getHours())}:${pad(local.getMinutes())}`;
 
   function run(fn: (id: string) => Promise<{ ok: boolean; message: string }>) {
     startTransition(async () => {
@@ -139,56 +120,7 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
       {msg && <p className="px-1 text-xs text-danger">{msg}</p>}
       {editing && (
         <Card>
-          {state.error && (
-            <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
-          )}
-          <form action={action} className="space-y-3">
-            <input type="hidden" name="id" value={r.id} />
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div>
-                <label>Embarcação</label>
-                <select name="vessel_id" className="mt-1" defaultValue={r.vessel_id}>
-                  {vessels.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name} ({v.commercial_capacity} lugares)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label>Passeio</label>
-                <select name="tour_id" className="mt-1" defaultValue={r.tour_id}>
-                  {tours.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label>Capacidade</label>
-                <input name="capacity" type="number" min={1} defaultValue={r.capacity} className="mt-1" />
-              </div>
-              <div>
-                <label>Data</label>
-                <input name="date" type="date" required defaultValue={dateISO} className="mt-1" />
-              </div>
-              <div>
-                <label>Hora</label>
-                <input name="time" type="time" required min="08:00" max="19:00" defaultValue={timeHM} className="mt-1" />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Save />
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="rounded-lg border border-line px-3 py-1.5 text-xs text-body"
-              >
-                Cancelar
-              </button>
-            </div>
-          </form>
+          <DepartureEditForm r={r} vessels={vessels} tours={tours} onClose={() => setEditing(false)} />
         </Card>
       )}
     </div>
