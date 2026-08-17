@@ -16,7 +16,6 @@ const csp = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-<<<<<<< HEAD
   async headers() {
     return [
       {
@@ -31,7 +30,7 @@ const nextConfig = {
         ],
       },
     ];
-=======
+  },
   experimental: {
     // sem isso, o Next 14 nao reaproveita paginas dinamicas ja visitadas no cache do
     // navegador -- todo clique no menu lateral ia direto pro servidor de novo, mesmo
@@ -40,7 +39,6 @@ const nextConfig = {
     staleTimes: {
       dynamic: 30,
     },
->>>>>>> 609ae7804e7c15b51b3c311adc326dd10ab1495f
   },
 };
 
