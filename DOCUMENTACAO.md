@@ -56,6 +56,7 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
 - **Testar o webhook do Asaas com domínio real** — apontar a URL do webhook no painel do Asaas pra `https://nauticflow.com.br/api/webhooks/asaas` (ver seção 20) e testar de verdade.
+- **Deploy em produção depende do João aprovar cada um manualmente** (ver seção 30) — decisão consciente de não pagar Pro nem transferir o projeto por enquanto. Risco: se o João ficar indisponível, o site para de receber atualizações (o `nauticflow.com.br` continua no ar normalmente, só não atualiza). Reavaliar se isso virar um problema recorrente.
 - **`headers().get("origin")` usado pra montar link de e-mail** (reset de senha em `login/actions.ts`, convite em `equipe/actions.ts`) — hoje protegido pela validação nativa de Origin/Host das Server Actions do Next.js, mas é uma dependência frágil de comportamento de framework pra algo sensível (link de reset de senha). Recomendado trocar por uma `NEXT_PUBLIC_SITE_URL` fixa agora que já existe um domínio de produção definitivo (`nauticflow.com.br`, seção 20).
 - **Projeto Vercel órfão** (`nautic-flow/nauticflow`, ver seção 20) — não é mais o que serve o domínio, decidir se apaga pra não confundir.
 - **2 advisories HIGH residuais no `npm audit`** (SSRF em rewrites com host controlado por env var interna, DoS em Server Components) só têm correção disponível na branch major do Next (15/16) — não fazem sentido pra esse app hoje (sem custom server, sem i18n, sem `images.remotePatterns`, sem WebSocket), mas vale reavaliar numa futura migração de major version do Next.js.
@@ -299,7 +300,7 @@ Continuação direta da seção 19. Resumo do que rolou, na ordem que aconteceu 
 
 Como os dois projetos são de contas/times diferentes, o CLI que eu uso (logado como `jlpereiradcastro-droide`, time `nautic-flow`) **não enxerga nem consegue mexer no projeto `Passatempo/fluxo náutico`** — todo ajuste nele (variáveis de ambiente, domínio, deployment protection) teve que ser feito pelo usuário direto na interface, me mandando print pra eu confirmar/orientar o próximo passo.
 
-**Um TERCEIRO projeto Vercel apareceu (descoberto em 2026-08-16)**: `joão-s-projecto1` (domínios `nauticflow-git-main-joao-s-projecto1.vercel.app` e afins), de uma conta de alguém que o dono do produto conhece e que também tem acesso ao repositório `castrocompny/Nauticflow` no GitHub. Esse projeto tenta redeployar sozinho a cada `git push` no `main`, e ficou com o deploy **bloqueado** ("Deployment Blocked — the commit author did not have contributing access to the project on Vercel", limitação do plano Hobby gratuito pra colaboração em repositório privado). **Confirmado com o dono do produto que é esperado** (pessoa conhecida) — não afeta `nauticflow.com.br` (esse é servido só pelo `Passatempo/fluxo náutico`, acima). Não requer ação, só registro pra não confundir numa próxima vez que aparecer notificação de "deploy bloqueado".
+**⚠️ CORREÇÃO (2026-08-16, ver seção 30 pra história completa)**: o parágrafo acima ("`Passatempo/fluxo náutico` é o projeto real") estava **desatualizado/errado**. O projeto que serve `nauticflow.com.br` de verdade hoje é o workspace **`joao's projects` → projeto `nauticflow`**, de uma conta que pertence a uma pessoa chamada **João** (conhecido do dono do produto, não é o dono do produto). Não se sabe ao certo se em algum momento o domínio migrou do `Passatempo/fluxo náutico` pra esse, ou se essa seção já nasceu com a informação errada — o importante é: **a partir de agora, é este workspace do João que importa**, e ele está no plano Hobby (gratuito), que não permite adicionar colaboradores. Ver seção 30.
 
 ### Variáveis de ambiente no projeto certo
 
@@ -477,3 +478,27 @@ Pendência aberta desde a seção 12 (otimização de performance): cada linha d
 - **Cuidado ao portar o formulário de saídas**: o campo de hora em `departure-row.tsx` tinha `min="08:00" max="19:00"` (trava de horário comercial, seção 10) que não estava visível numa leitura antiga do arquivo — conferido contra o arquivo atual antes de mover, pra não perder essa validação no HTML.
 
 **Validado**: `tsc --noEmit`, `next lint`, `next build` limpos. Build confirma os 5 chunks separados existindo fora dos bundles de página, e o tamanho de "First Load JS" das rotas afetadas não piorou (`embarcacoes` e `saidas` inclusive caíram de tamanho: 3.8kB→2.16kB e 4.54kB→2.91kB). **Não testado clicando na UI real** (sem login de teste disponível no ambiente) — recomendo confirmar visualmente que abrir/fechar/salvar edição em cada uma das 5 telas (Saídas, Reservas, Parceiros, Embarcações, Clientes) continua funcionando igual, especialmente o cálculo de capacidade comercial ao vivo em Embarcações.
+
+## 30. 🔴 Descoberta importante: quem hospeda `nauticflow.com.br` de verdade — e o problema de deploy bloqueado (sessão de 2026-08-16)
+
+Ao tentar confirmar se o commit da seção 29 (linhas de tabela) tinha ido pro ar, o dono do produto mandou um print do painel Vercel que revelou algo que a seção 20 tinha documentado errado (ou que mudou sem ninguém registrar): **o projeto que serve `nauticflow.com.br` de produção hoje não é o `Passatempo/fluxo náutico`** (como a seção 20 afirmava) — **é o workspace `joao's projects` → projeto `nauticflow`**, confirmado pelo campo "Domains" do próprio painel mostrando `nauticflow.com.br`.
+
+**Achado mais importante**: esse workspace **pertence a uma pessoa chamada João, não ao dono do produto** — o dono do produto usa a conta dele com acesso que o próprio João concedeu (login compartilhado), mas **não é dono/membro reconhecido pela Vercel**. Isso já causava sintomas antes de ser diagnosticado: o commit `3020e09` (seção 29, correção de performance das tabelas) ficou com o deploy **"Blocked"**, com o aviso "Usuário Vercel não encontrado" — o e-mail do commit (`davimagi1234@gmail.com`, GitHub `DAVIWENDELL`) aparece como **"Não vinculado"** a nenhuma conta Vercel.
+
+### Por que isso acontece
+
+O workspace do João está no plano **Hobby (gratuito)**, que **não suporta colaboração em repositório privado de jeito nenhum** — não é uma questão de "criar uma conta Vercel e linkar com o GitHub" (isso sozinho não resolve, testado/confirmado por pesquisa: o Hobby bloqueia qualquer segundo colaborador, com conta ou sem). As únicas formas de parar esse bloqueio de vez seriam: (a) pagar o plano Pro (US$20/mês por pessoa com acesso de deploy — Owner ou Member, mesmo preço; pra deixar dono+João como donos, seriam 2 assentos = US$40/mês), ou (b) transferir o projeto inteiro pra uma conta só do dono do produto (grátis, mas o João perde acesso ao painel), ou (c) tornar o repositório do GitHub **público** (a Vercel libera colaboração de graça pra repositórios públicos — mas isso expõe todo o código-fonte do sistema publicamente, não recomendado pra um produto comercial).
+
+### Decisão tomada (2026-08-16)
+
+O dono do produto optou por **não pagar e não transferir** — quer manter o João como dono também, e prefere que ele apenas destranque cada deploy bloqueado manualmente. **Fluxo combinado, sem custo**: toda vez que um commit meu (Claude) for enviado pro `main` do GitHub e a Vercel mostrar "Blocked" no painel do João, o João precisa publicar manualmente, direto do computador dele:
+
+```
+git pull origin main
+npx vercel login     # só na primeira vez
+npx vercel --prod
+```
+
+Isso funciona porque o CLI autentica pela pessoa logada (o João), não pelo autor do commit no Git — então não passa pela checagem que bloqueia o deploy automático via GitHub.
+
+**Consequência prática pra próximas sessões**: depois de qualquer commit/push que eu fizer daqui pra frente, **não presumir que o site atualizou sozinho** — a Vercel só redeploya automático se o commit não for bloqueado, e commits meus (autor `DAVIWENDELL`/e-mail vinculado ao Git do usuário) muito provavelmente **vão** ser bloqueados, dado que o e-mail do commit não está vinculado a nenhuma conta Vercel. Sempre avisar o dono do produto que ele (ou o João) precisa confirmar/rodar o deploy manual depois de um push importante, e idealmente confirmar depois (`curl -I https://nauticflow.com.br` ou um teste funcional) que a mudança realmente chegou ao ar antes de dar a tarefa como concluída.
