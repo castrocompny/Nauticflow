@@ -15,8 +15,20 @@ export async function createReservation(_prev: unknown, formData: FormData) {
 
   const supabase = createClient();
   const valueReais = Number(String(formData.get("value") || "0").replace(",", "."));
+  const peopleCount = Number(formData.get("people_count"));
   const departure_id = String(formData.get("departure_id"));
   const client_id = String(formData.get("client_id"));
+
+  // valor e quantidade vem direto do formulario -- sem essa checagem, uma chamada
+  // direta a action (sem passar pela UI) podia gravar receita negativa/inventada ou
+  // uma quantidade de passageiros sem sentido. desconto/preco combinado continua
+  // livre (nao trava contra o preco base do passeio), so bloqueia valor sem sentido.
+  if (!Number.isFinite(valueReais) || valueReais < 0) {
+    return { error: "Valor da reserva inválido." };
+  }
+  if (!Number.isInteger(peopleCount) || peopleCount < 1) {
+    return { error: "Número de passageiros inválido." };
+  }
 
   // confere que a saida e o cliente escolhidos sao mesmo da propria empresa -- sem isso,
   // um usuario autenticado de qualquer empresa poderia forjar o POST com o id de uma saida
@@ -42,7 +54,7 @@ export async function createReservation(_prev: unknown, formData: FormData) {
       company_id: profile.company_id,
       departure_id,
       client_id,
-      people_count: Number(formData.get("people_count")),
+      people_count: peopleCount,
       total_cents: Math.round(valueReais * 100),
       origin_name: String(formData.get("origin_name") || "") || null,
       created_by: profile.id,
@@ -130,8 +142,17 @@ export async function updateReservation(_prev: unknown, formData: FormData) {
   const supabase = createClient();
   const id = String(formData.get("id"));
   const valueReais = Number(String(formData.get("value") || "0").replace(",", "."));
+  const peopleCount = Number(formData.get("people_count"));
   const departure_id = String(formData.get("departure_id"));
   const client_id = String(formData.get("client_id"));
+
+  // mesma validacao de valor/quantidade da createReservation
+  if (!Number.isFinite(valueReais) || valueReais < 0) {
+    return { error: "Valor da reserva inválido." };
+  }
+  if (!Number.isInteger(peopleCount) || peopleCount < 1) {
+    return { error: "Número de passageiros inválido." };
+  }
 
   // mesma checagem de dono da createReservation -- editar tambem aceitava trocar pra uma
   // saida/cliente de outra empresa sem validacao (reforcado tambem via migration 0015)
@@ -151,7 +172,7 @@ export async function updateReservation(_prev: unknown, formData: FormData) {
     .update({
       departure_id,
       client_id,
-      people_count: Number(formData.get("people_count")),
+      people_count: peopleCount,
       total_cents: Math.round(valueReais * 100),
       origin_name: String(formData.get("origin_name") || "") || null,
     })
