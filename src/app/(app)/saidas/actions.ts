@@ -23,9 +23,19 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
   if (new Date(saoPauloToUTC(date, time)) < new Date()) return { error: "Não é possível criar uma saída em um horário que já passou." };
 
+  // confere que a embarcacao escolhida e da propria empresa -- sem isso, um usuario
+  // autenticado de qualquer empresa poderia criar uma saida apontando pra uma
+  // embarcacao de OUTRA empresa (o dropdown do formulario nao e a unica forma de
+  // submeter esse campo). mesmo padrao ja usado em reservas/actions.ts.
+  const { data: vessel } = await supabase.from("vessels").select("company_id").eq("id", vessel_id).maybeSingle();
+  if (!vessel || vessel.company_id !== company_id) {
+    return { error: "Embarcação inválida." };
+  }
+
   // resolve o passeio: existente ou novo
   let tour_id = String(formData.get("tour_id") || "");
   const newTour = String(formData.get("new_tour") || "").trim();
+  let tourJustCreated = false;
   if (!tour_id && newTour) {
     const { data, error } = await supabase
       .from("tours")
@@ -34,8 +44,17 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
       .single();
     if (error) return { error: error.message };
     tour_id = data!.id;
+    tourJustCreated = true;
   }
   if (!tour_id) return { error: "Selecione ou crie um passeio." };
+  if (!tourJustCreated) {
+    // so precisa validar dono quando o passeio veio do dropdown (existente) -- quando
+    // acabou de ser criado acima, ja nasce com o company_id certo
+    const { data: tour } = await supabase.from("tours").select("company_id").eq("id", tour_id).maybeSingle();
+    if (!tour || tour.company_id !== company_id) {
+      return { error: "Passeio inválido." };
+    }
+  }
 
   const departs_at = saoPauloToUTC(date, time);
   const capRaw = formData.get("capacity");
@@ -83,6 +102,15 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
   const time = String(formData.get("time"));
   if (!vessel_id || !tour_id || !date || !time) return { error: "Preencha embarcação, passeio, data e hora." };
   if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
+
+  // mesma checagem de dono do createDeparture -- editar tambem aceitava trocar pra uma
+  // embarcacao/passeio de outra empresa sem validacao
+  const [{ data: vessel }, { data: tour }] = await Promise.all([
+    supabase.from("vessels").select("company_id").eq("id", vessel_id).maybeSingle(),
+    supabase.from("tours").select("company_id").eq("id", tour_id).maybeSingle(),
+  ]);
+  if (!vessel || vessel.company_id !== company_id) return { error: "Embarcação inválida." };
+  if (!tour || tour.company_id !== company_id) return { error: "Passeio inválido." };
 
   const departs_at = saoPauloToUTC(date, time);
   const capRaw = formData.get("capacity");
