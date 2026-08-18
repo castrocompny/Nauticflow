@@ -7,6 +7,7 @@ import { brl, fmtDate } from "@/lib/format";
 import { RenewButton } from "../renew-button";
 import { ChangePlanButton } from "./change-plan-button";
 import { SuspendControls } from "./suspend-controls";
+import { DeleteCompanyControls } from "./delete-company-controls";
 import { BillingForm } from "./billing-form";
 import { InvoiceForm } from "./invoice-form";
 import { DeleteButton } from "@/components/delete-button";
@@ -168,6 +169,12 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
             <SuspendControls companyId={company.id} suspended={!!company.suspended_at} reason={company.suspended_reason} />
           </Card>
         </div>
+
+        <Card className="mb-5">
+          <h2 className="mb-1 font-display text-sm font-semibold text-heading">Zona de risco</h2>
+          <p className="mb-3 text-xs text-muted">Cancelamento definitivo — diferente de suspender, aqui não tem volta.</p>
+          <DeleteCompanyControls companyId={company.id} companyName={company.name} />
+        </Card>
 
         <Card className="mb-5 p-0">
           <h2 className="px-5 py-4 font-display text-sm font-semibold text-heading">Histórico de assinaturas</h2>

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSuperAdminAction as requireSuperAdmin } from "@/lib/admin-auth";
 
 // registra a acao no log de auditoria -- nunca desfaz a acao principal se o log falhar,
@@ -124,6 +125,42 @@ export async function unsuspendCompany(companyId: string) {
   await logAction(supabase, adminId, adminName, "reativar_empresa", companyId);
   revalidateAffectedCompany(companyId);
   return { ok: true, message: "Suspensão removida." };
+}
+
+// Cancelamento definitivo -- diferente de suspender (reversível), isso apaga a empresa
+// e TUDO que depende dela (assinatura, embarcações, reservas, clientes, notas fiscais
+// etc., via "on delete cascade" no banco) e apaga os usuários dela também. Não tem
+// desfazer. Exige digitar o nome exato da empresa como segunda confirmação, além do
+// aal2 já exigido por requireSuperAdmin.
+export async function deleteCompanyPermanently(companyId: string, confirmName: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { ok: false, message: auth.message };
+  const { supabase, adminId, adminName } = auth;
+
+  const { data: company } = await supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
+  if (!company) return { ok: false, message: "Empresa não encontrada." };
+  if (confirmName.trim() !== company.name) {
+    return { ok: false, message: `Digite "${company.name}" exatamente para confirmar.` };
+  }
+
+  // registra ANTES de apagar -- depois que a empresa some, o vínculo no audit log fica
+  // nulo (on delete set null), então o nome só sobrevive dentro de "details"
+  await logAction(supabase, adminId, adminName, "excluir_empresa_definitivamente", companyId, { nome: company.name });
+
+  // precisa do client de service_role: apagar os usuários da empresa (auth.admin.deleteUser)
+  // e a própria empresa exigem privilégio que a sessão normal (RLS) não tem -- mesmo padrão
+  // já usado na autoexclusão de conta em configuracoes/actions.ts
+  const admin = createAdminClient();
+  const { data: members } = await admin.from("profiles").select("id").eq("company_id", companyId);
+  for (const m of members ?? []) {
+    await admin.auth.admin.deleteUser(m.id);
+  }
+
+  const { error } = await admin.from("companies").delete().eq("id", companyId);
+  if (error) return { ok: false, message: "Não foi possível excluir: " + error.message };
+
+  revalidatePath("/admin");
+  return { ok: true, message: "Empresa excluída definitivamente." };
 }
 
 export async function updateCompanyBilling(_prev: unknown, formData: FormData) {

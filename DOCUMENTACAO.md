@@ -72,6 +72,7 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 - **Chat de suporte online** — pedido do dono do produto (2026-08-14). Chegou a ser integrado com Tawk.to (widget no layout raiz) e depois **removido a pedido do dono do produto** (2026-08-15) — ver seção 22 pro motivo. Hoje o único contato de suporte é o link de WhatsApp no `OverdueBanner` (`src/app/(app)/overdue-banner.tsx`) de novo. Se for reconsiderar no futuro, dar preferência a um provedor com bot de IA gratuito de verdade (o AI Assist do Tawk.to é pago acima de 100 mensagens/mês), já que o dono do produto não quer ficar respondendo manualmente.
 - **CSP sem nonce**: o `Content-Security-Policy` (ver seção 28) libera `'unsafe-inline'` em `script-src` por causa do script anti-flash do tema. Endurecer isso com nonce é melhoria futura, não urgente.
 - **Deixar o sistema responsivo pra celular** — pedido do dono do produto (2026-08-18), pra depois. Hoje o layout (sidebar fixa de 256px, tabelas largas) é pensado pra desktop; quando instalado como "app" no navegador do celular (atalho de tela inicial), não tem botão de voltar do navegador disponível, então isso também importa pra navegação dentro do app, não só pra caber na tela. Não iniciado ainda.
+- **Melhorias futuras no `/admin`** (ver seção 33): impersonar empresa pra dar suporte, exportar lista de empresas em CSV, indicador de risco de churn. Não urgente com a base de clientes ainda pequena.
 - Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11), **deduplicação de `auth.getUser()` e queries repetidas** (ver seção 12), **auditoria de segurança — IDOR entre empresas e dependências vulneráveis** (ver seção 13), **migration `0015` aplicada** (trava de IDOR também no banco), **Supabase CLI instalado no projeto** (ver seção 14), **painel /admin melhorado** (ver seção 15, migration `0016` aplicada), **controle manual de notas fiscais** (ver seção 16, migration `0017` aplicada), **gráficos/funil/onboarding travado/filtro por plano no /admin** (ver seção 17), **deploy em produção com domínio próprio no ar** (`nauticflow.com.br`, ver seções 19 e 20), **2 commits de segurança/admin/performance que estavam sem push finalmente publicados** (ver seção 20), **senha forte no cadastro/reset e botão de excluir conta** (ver seção 22), **domínio verificado no Resend** (ver seção 23), **bug de timezone (UTC vs Brasília) corrigido** (ver seção 24), **fluxo de "esqueci minha senha" corrigido de ponta a ponta** (ver seção 25), **falha crítica de escalação de privilégio no cadastro corrigida** (migration `0018`, ver seção 26), **favicon adicionado/ajustado** (ver seção 27), **varredura de segurança passiva e cabeçalhos HTTP de segurança (CSP/HSTS/X-Frame-Options/etc.)** (ver seção 28), **hidratação pesada das linhas de tabela corrigida** (ver seção 29).
 
 ## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
@@ -582,6 +583,21 @@ Só existe uma conta com `role = "super_admin"` hoje (a do dono do produto), com
 ### Botão "Voltar ao sistema" (mesma sessão, 2026-08-18)
 
 Adicionado no cabeçalho de `/admin` (`src/app/admin/page.tsx`), voltando pra `/dashboard`. Motivo: pedido do dono do produto pensando em uso como "app" instalado no celular (atalho de tela inicial), onde não existe botão de voltar do navegador disponível.
+
+### Cancelamento definitivo de empresa (mesma sessão, 2026-08-18)
+
+Pedido do dono do produto depois de revisar a tela do `/admin`: até então só existia "suspender" (reversível) — não tinha nenhum caminho no sistema pra encerrar uma empresa de vez, só mexendo direto no banco.
+
+- `deleteCompanyPermanently(companyId, confirmName)` em `src/app/admin/actions.ts` — exige `aal2` (via `requireSuperAdmin`, seção 33) + o nome exato da empresa como segunda confirmação (checado no cliente e de novo no servidor). Usa o client de `service_role` (`createAdminClient`) só pra apagar os usuários da empresa (`auth.admin.deleteUser`, um por um) e a linha de `companies` — o mesmo padrão já usado na autoexclusão de conta em `configuracoes/actions.ts`. O resto (assinatura, embarcações, passeios, reservas, clientes, parceiros, notas fiscais) já cai sozinho via `on delete cascade` no banco (schema em `0000_init_schema.sql`).
+- Registra no `admin_audit_log` **antes** de apagar, com o nome da empresa em `details` — depois que a empresa some, `target_company_id` fica nulo (`on delete set null`), então sem isso o rastro perderia qual empresa foi.
+- UI: `src/app/admin/[id]/delete-company-controls.tsx`, num card "Zona de risco" na página de detalhe da empresa (`admin/[id]/page.tsx`). Botão discreto que expande um formulário de confirmação com aviso, e só libera o botão de excluir depois do nome digitado bater exatamente.
+
+### Ideias levantadas e deixadas como pendência (não implementadas ainda)
+
+Na mesma revisão da tela do `/admin`, mais 3 ideias ficaram anotadas pra quando fizer sentido (base de clientes ainda é pequena hoje):
+- **Impersonar empresa** (entrar no sistema como se fosse aquele cliente, pra dar suporte sem pedir senha) — precisa de log de auditoria bem feito se for implementar, por ser sensível.
+- **Exportar lista de empresas em CSV/planilha** — útil pro contador/controle financeiro fora do sistema.
+- **Indicador de risco de churn** (empresa que sumiu depois de já ter usado, não só quem nunca ativou) — hoje só existe "onboarding travado" pra quem nunca cadastrou nada.
 
 ### Validação
 
