@@ -83,7 +83,7 @@ export function Sidebar({
         {navGroups.map((group, i) => (
           <div key={group.label ?? i} className="space-y-1">
             {group.label && (
-              <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</p>
+              <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-300">{group.label}</p>
             )}
             {group.items.map(({ href, label, icon: Icon }) => {
               const on = path === href || path.startsWith(href + "/");
