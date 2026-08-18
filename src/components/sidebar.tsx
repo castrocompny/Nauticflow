@@ -19,18 +19,36 @@ import {
 } from "lucide-react";
 import { Logo } from "@/components/logo";
 
-const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/reservas", label: "Reservas", icon: ClipboardList },
-  { href: "/agenda", label: "Agenda", icon: CalendarDays },
-  { href: "/saidas", label: "Saídas", icon: Anchor },
-  { href: "/clientes", label: "Clientes", icon: Users },
-  { href: "/embarcacoes", label: "Embarcações", icon: Ship },
-  { href: "/financeiro", label: "Financeiro", icon: Wallet },
-  { href: "/parceiros", label: "Parceiros", icon: Handshake },
-  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
-  { href: "/equipe", label: "Equipe", icon: UserCog },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
+const navGroups = [
+  {
+    label: null,
+    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    label: "Operação",
+    items: [
+      { href: "/reservas", label: "Reservas", icon: ClipboardList },
+      { href: "/agenda", label: "Agenda", icon: CalendarDays },
+      { href: "/saidas", label: "Saídas", icon: Anchor },
+    ],
+  },
+  {
+    label: "Cadastros",
+    items: [
+      { href: "/clientes", label: "Clientes", icon: Users },
+      { href: "/embarcacoes", label: "Embarcações", icon: Ship },
+      { href: "/parceiros", label: "Parceiros", icon: Handshake },
+    ],
+  },
+  {
+    label: "Gestão",
+    items: [
+      { href: "/financeiro", label: "Financeiro", icon: Wallet },
+      { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+      { href: "/equipe", label: "Equipe", icon: UserCog },
+      { href: "/configuracoes", label: "Configurações", icon: Settings },
+    ],
+  },
 ];
 
 export function Sidebar({
@@ -64,21 +82,28 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        {nav.map(({ href, label, icon: Icon }) => {
-          const on = path === href || path.startsWith(href + "/");
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-                on ? "bg-brand text-white" : "text-muted hover:bg-navy-700"
-              }`}
-            >
-              <Icon size={18} /> {label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 space-y-3 overflow-y-auto px-3 py-2">
+        {navGroups.map((group, i) => (
+          <div key={group.label ?? i} className="space-y-1">
+            {group.label && (
+              <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted/70">{group.label}</p>
+            )}
+            {group.items.map(({ href, label, icon: Icon }) => {
+              const on = path === href || path.startsWith(href + "/");
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                    on ? "bg-brand text-white" : "text-muted hover:bg-navy-700"
+                  }`}
+                >
+                  <Icon size={18} /> {label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
         {isSuperAdmin && (
           <Link
             href="/admin"
