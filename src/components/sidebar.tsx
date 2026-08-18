@@ -15,9 +15,9 @@ import {
   Anchor,
   UserCog,
   ShieldAlert,
+  ChevronRight,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { fmtDate } from "@/lib/format";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -37,20 +37,12 @@ export function Sidebar({
   company,
   city,
   planName,
-  reservasUso,
-  vesselsUso,
-  vesselsLimite,
-  paidUntil,
   overdue,
   isSuperAdmin,
 }: {
   company: string;
   city: string | null;
   planName: string;
-  reservasUso: number;
-  vesselsUso: number;
-  vesselsLimite: number | null;
-  paidUntil: string | null;
   overdue: boolean;
   isSuperAdmin?: boolean;
 }) {
@@ -101,27 +93,16 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className="m-3 rounded-lg bg-navy-700 p-3 text-sm">
-        <p className="font-medium text-white">{planName}</p>
-        <div className="mt-2 space-y-1 text-xs text-muted">
-          <p>
-            Embarcações: {vesselsUso}
-            {vesselsLimite != null ? ` / ${vesselsLimite}` : ""}
-          </p>
-          <p>Reservas no mês: {reservasUso}</p>
-          {paidUntil && (
-            <p className={overdue ? "font-medium text-danger" : ""}>
-              {overdue ? "Vencida desde" : "Renova em"} {fmtDate(paidUntil)}
-            </p>
-          )}
-        </div>
-        <Link
-          href="/planos"
-          className="mt-3 block rounded-md bg-brand px-3 py-1.5 text-center text-xs font-medium text-white transition hover:bg-brand-dark"
-        >
-          Gerenciar plano
-        </Link>
-      </div>
+      <Link
+        href="/planos"
+        className="m-3 flex items-center justify-between rounded-lg bg-navy-700 px-3 py-2.5 text-sm transition hover:bg-navy-700/70"
+      >
+        <span className="truncate text-white">
+          {planName}
+          {overdue && <span className="ml-1.5 text-xs font-medium text-danger">vencida</span>}
+        </span>
+        <ChevronRight size={16} className="shrink-0 text-muted" />
+      </Link>
     </aside>
   );
 }

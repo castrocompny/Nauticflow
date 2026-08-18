@@ -40,19 +40,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const role = roleLabel[rawRole ?? ""] ?? "Usuário";
 
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const { start: todayStart, end: todayEnd } = startEndOfToday();
 
-  const [subRes, vesselsCount, reservasMes, todayDeps, novasRes, companyStatusRes] = await Promise.all([
+  const [subRes, todayDeps, novasRes, companyStatusRes] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("status, paid_until, plans(name, max_vessels)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabase.from("vessels").select("id", { count: "exact", head: true }),
-    supabase.from("reservations").select("id", { count: "exact", head: true }).gte("created_at", monthStart),
     supabase
       .from("departures")
       .select("capacity, reservations(people_count, status)")
@@ -63,7 +60,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ]);
 
   const planName = (subRes.data as any)?.plans?.name ?? "Sem plano";
-  const vesselsLimite = (subRes.data as any)?.plans?.max_vessels ?? null;
   const paidUntil = (subRes.data as any)?.paid_until as string | null;
   const suspendedAt = companyStatusRes.data?.suspended_at as string | null;
   const suspendedReason = companyStatusRes.data?.suspended_reason as string | null;
@@ -92,10 +88,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         company={companyName}
         city={companyCity}
         planName={planName}
-        reservasUso={reservasMes.count ?? 0}
-        vesselsUso={vesselsCount.count ?? 0}
-        vesselsLimite={vesselsLimite}
-        paidUntil={paidUntil}
         overdue={isOverdue || isSuspended}
         isSuperAdmin={rawRole === "super_admin"}
       />

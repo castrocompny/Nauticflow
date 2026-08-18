@@ -607,3 +607,15 @@ Na mesma revisão da tela do `/admin`, mais 3 ideias ficaram anotadas pra quando
 ### Validação
 
 `tsc --noEmit` e `eslint .` sem erros, `next build` completo (`/admin/mfa-setup` e `/admin/mfa-challenge` aparecem como rotas dinâmicas, igual ao resto de `/admin`). Não depende de nenhuma tabela nova nem RLS — MFA vive no schema `auth`, gerenciado pelo GoTrue, fora do alcance das políticas do schema `public`.
+
+## 34. Barra lateral mais limpa — resumo do plano virou um link, detalhes ficaram em `/planos` (sessão de 2026-08-18)
+
+Pedido do dono do produto: o cartão do rodapé da barra lateral (nome do plano + embarcações usadas + reservas do mês + data de renovação + botão "Gerenciar plano") ocupava espaço fixo o tempo todo. Trocado por uma linha única (nome do plano + um indicador "vencida" se for o caso + seta), que já é o link pra `/planos`.
+
+- `src/components/sidebar.tsx` — removidas as props `reservasUso`, `vesselsUso`, `vesselsLimite`, `paidUntil` (não são mais exibidas ali). `overdue` continua, agora só pra mostrar "vencida" ao lado do nome do plano.
+- `src/app/(app)/layout.tsx` — removidas as 2 queries que só existiam pra alimentar essas props (`vessels` e `reservations` do mês) — efeito colateral bom: **2 queries a menos em toda navegação do app**, não só simplificação visual.
+- `src/app/(app)/planos/page.tsx` — ganhou um card no topo com "Embarcações em uso: X / limite" e "Reservas este mês: X", pra não perder a informação que saiu da barra lateral — agora concentrada no único lugar que já existia pra gerenciar o plano, em vez de duplicada em dois lugares.
+
+### Validação
+
+`tsc --noEmit`, `eslint .` e `next build` sem erros. Mudança é só de UI/consulta — nenhum controle de acesso foi alterado.
