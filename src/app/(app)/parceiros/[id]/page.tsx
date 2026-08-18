@@ -37,7 +37,8 @@ const statusTone: Record<string, "green" | "amber" | "slate"> = {
   cancelada: "slate",
 };
 
-export default async function PartnerDetail({ params }: { params: { id: string } }) {
+export default async function PartnerDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const supabase = createClient();
   const [{ data: partner }, { data: res }] = await Promise.all([
     supabase.from("partners").select("*").eq("id", params.id).maybeSingle(),

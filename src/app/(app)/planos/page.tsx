@@ -39,6 +39,9 @@ export default async function PlanosPage() {
   const plans = (plansData ?? []) as Plan[];
   const currentPlanCode = (subData as any)?.plans?.code as string | undefined;
   const paidUntil = (subData as any)?.paid_until ? new Date((subData as any).paid_until) : null;
+  // Server Component: roda de novo a cada requisicao, sem memoizacao do React Compiler
+  // envolvida -- Date.now() aqui e seguro, so a regra de pureza nao distingue RSC.
+  // eslint-disable-next-line react-hooks/purity
   const daysLeft = paidUntil ? Math.ceil((paidUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
   const precisaRenovarLogo = daysLeft == null || daysLeft <= DIAS_PARA_AVISAR_VENCIMENTO;
 

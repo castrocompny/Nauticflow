@@ -33,7 +33,8 @@ const ACTION_LABEL: Record<string, string> = {
   excluir_nota_fiscal: "Excluiu registro de nota fiscal",
 };
 
-export default async function AdminCompanyPage({ params }: { params: { id: string } }) {
+export default async function AdminCompanyPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const supabase = createClient();
   const {
     data: { user },

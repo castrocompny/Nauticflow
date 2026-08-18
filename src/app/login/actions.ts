@@ -50,7 +50,7 @@ export async function signUp(_prev: unknown, formData: FormData) {
 export async function forgotPassword(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
   const supabase = createClient();
-  const origin = headers().get("origin") ?? "http://localhost:3000";
+  const origin = (await headers()).get("origin") ?? "http://localhost:3000";
 
   // sempre retorna a mesma mensagem, exista ou nao o e-mail, pra nao revelar quais
   // contas estao cadastradas no sistema

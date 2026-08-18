@@ -15,7 +15,8 @@ type Res = {
   departures: { departs_at: string; vessels: { name: string } | null } | null;
 };
 
-export default async function FinanceiroPage({ searchParams }: { searchParams: { p?: string } }) {
+export default async function FinanceiroPage(props: { searchParams: Promise<{ p?: string }> }) {
+  const searchParams = await props.searchParams;
   const p = searchParams.p === "ano" ? "ano" : "mes";
   const supabase = createClient();
   const now = new Date();

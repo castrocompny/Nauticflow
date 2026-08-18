@@ -25,7 +25,8 @@ type Dep = {
   }[];
 };
 
-export default async function DepartureDetail({ params }: { params: { id: string } }) {
+export default async function DepartureDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const supabase = createClient();
   const { data } = await supabase
     .from("departures")

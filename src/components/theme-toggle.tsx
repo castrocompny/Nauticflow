@@ -7,6 +7,10 @@ export function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
+    // le o estado real (definido pelo script anti-flash em layout.tsx antes da hidratacao)
+    // -- precisa comecar como false no SSR/1a renderizacao do client pra bater com o HTML
+    // do servidor, so corrige depois de montado. Padrao intencional, nao um efeito solto.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDark(document.documentElement.classList.contains("dark"));
   }, []);
 

@@ -30,7 +30,8 @@ const statusTone: Record<string, "green" | "red" | "slate"> = {
   confirmado: "slate",
 };
 
-export default async function ReservationDetail({ params }: { params: { id: string } }) {
+export default async function ReservationDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const supabase = createClient();
   const { data } = await supabase
     .from("reservations")

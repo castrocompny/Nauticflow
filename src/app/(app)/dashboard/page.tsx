@@ -32,7 +32,8 @@ function periodStartFor(p: string, now: Date): Date {
   return new Date(saoPauloStartOfDay(now).getTime() - days * 24 * 60 * 60 * 1000);
 }
 
-export default async function Dashboard({ searchParams }: { searchParams: { p?: string } }) {
+export default async function Dashboard(props: { searchParams: Promise<{ p?: string }> }) {
+  const searchParams = await props.searchParams;
   const p = PERIODS.some((o) => o.key === searchParams.p) ? (searchParams.p as string) : "30d";
   const supabase = createClient();
   const profile = await getProfile();

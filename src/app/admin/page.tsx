@@ -57,7 +57,10 @@ function situacao(c: Company, now: Date) {
   };
 }
 
-export default async function AdminPage({ searchParams }: { searchParams: { q?: string; page?: string; plano?: string } }) {
+export default async function AdminPage(
+  props: { searchParams: Promise<{ q?: string; page?: string; plano?: string }> }
+) {
+  const searchParams = await props.searchParams;
   const supabase = createClient();
   const {
     data: { user },

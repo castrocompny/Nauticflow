@@ -37,7 +37,8 @@ function rangeFor(f: string) {
   return { start: base, end: e, days: 1 };
 }
 
-export default async function AgendaPage({ searchParams }: { searchParams: { f?: string } }) {
+export default async function AgendaPage(props: { searchParams: Promise<{ f?: string }> }) {
+  const searchParams = await props.searchParams;
   const f = searchParams.f === "amanha" || searchParams.f === "semana" ? searchParams.f : "hoje";
   const { start, end, days } = rangeFor(f);
 

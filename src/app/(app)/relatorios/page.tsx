@@ -30,7 +30,8 @@ function startFor(p: string): Date {
   return d;
 }
 
-export default async function RelatoriosPage({ searchParams }: { searchParams: { p?: string } }) {
+export default async function RelatoriosPage(props: { searchParams: Promise<{ p?: string }> }) {
+  const searchParams = await props.searchParams;
   const p = ["hoje", "7d", "30d", "mes", "ano"].includes(searchParams.p ?? "") ? (searchParams.p as string) : "30d";
   const start = startFor(p).toISOString();
 

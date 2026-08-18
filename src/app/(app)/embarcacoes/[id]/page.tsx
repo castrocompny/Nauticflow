@@ -23,7 +23,8 @@ type DepRow = {
   reservations: { people_count: number; status: string }[];
 };
 
-export default async function VesselDetail({ params }: { params: { id: string } }) {
+export default async function VesselDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const supabase = createClient();
   const [{ data: vessel }, { data: deps }] = await Promise.all([
     supabase.from("vessels").select("*").eq("id", params.id).maybeSingle(),

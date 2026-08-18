@@ -17,13 +17,14 @@ type Voucher = {
   companies: { name: string } | null;
 };
 
-export default async function VoucherPage({
-  params,
-  searchParams,
-}: {
-  params: { id: string };
-  searchParams: { print?: string };
-}) {
+export default async function VoucherPage(
+  props: {
+    params: Promise<{ id: string }>;
+    searchParams: Promise<{ print?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const supabase = createClient();
   const { data } = await supabase
     .from("reservations")

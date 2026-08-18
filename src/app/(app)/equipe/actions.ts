@@ -33,7 +33,7 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
     };
   }
 
-  const origin = headers().get("origin") ?? "http://localhost:3000";
+  const origin = (await headers()).get("origin") ?? "http://localhost:3000";
   const admin = createAdminClient();
 
   const { error } = await admin.auth.admin.inviteUserByEmail(email, {

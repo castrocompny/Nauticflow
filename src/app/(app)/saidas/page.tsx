@@ -18,7 +18,8 @@ type Row = {
 
 const PAGE_SIZE = 25;
 
-export default async function DeparturesPage({ searchParams }: { searchParams: { page?: string } }) {
+export default async function DeparturesPage(props: { searchParams: Promise<{ page?: string }> }) {
+  const searchParams = await props.searchParams;
   const page = Math.max(1, Number(searchParams.page) || 1);
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
