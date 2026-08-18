@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ShieldAlert, Search, AlertTriangle } from "lucide-react";
+import { ShieldAlert, Search, AlertTriangle, ArrowLeft } from "lucide-react";
 import { requireSuperAdminPage } from "@/lib/admin-auth";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { brl, fmtDate } from "@/lib/format";
@@ -185,7 +185,18 @@ export default async function AdminPage(
   return (
     <div className="min-h-screen bg-app p-6">
       <div className="mx-auto max-w-6xl">
-        <PageHeader title="Administração NauticFlow" subtitle="Empresas cadastradas e status de pagamento." />
+        <PageHeader
+          title="Administração NauticFlow"
+          subtitle="Empresas cadastradas e status de pagamento."
+          action={
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-body transition hover:bg-surfaceHover"
+            >
+              <ArrowLeft size={16} /> Voltar ao sistema
+            </Link>
+          }
+        />
 
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
           <Metric label="Empresas" value={String(allCompanies.length)} />
