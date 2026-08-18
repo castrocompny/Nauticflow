@@ -37,14 +37,14 @@ body {
   box-sizing: border-box;
 }
 
-input:not([type="checkbox"]):not([type="radio"]),
-select,
-textarea {
+/* :where(...) zera a especificidade do seletor -- sem isso, os dois :not() dentro do
+   seletor de input davam a essa regra base mais peso que uma classe utilitária normal
+   (ex: pl-9, w-auto), então botões de busca com ícone e selects com largura customizada
+   perdiam pro padding/largura padrão aqui, mesmo com a classe certa aplicada no elemento. */
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
   @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-heading outline-none transition;
 }
-input:not([type="checkbox"]):not([type="radio"]):focus,
-select:focus,
-textarea:focus {
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
   @apply border-brand ring-2 ring-brand/20;
 }
 input::placeholder,
