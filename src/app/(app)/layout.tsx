@@ -97,6 +97,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         vesselsLimite={vesselsLimite}
         paidUntil={paidUntil}
         overdue={isOverdue || isSuspended}
+        isSuperAdmin={rawRole === "super_admin"}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar name={firstName} role={role} notifications={notifications} />

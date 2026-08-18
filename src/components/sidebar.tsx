@@ -14,6 +14,7 @@ import {
   Settings,
   Anchor,
   UserCog,
+  ShieldAlert,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { fmtDate } from "@/lib/format";
@@ -41,6 +42,7 @@ export function Sidebar({
   vesselsLimite,
   paidUntil,
   overdue,
+  isSuperAdmin,
 }: {
   company: string;
   city: string | null;
@@ -50,6 +52,7 @@ export function Sidebar({
   vesselsLimite: number | null;
   paidUntil: string | null;
   overdue: boolean;
+  isSuperAdmin?: boolean;
 }) {
   const path = usePathname();
   const initial = (company || "?").trim().charAt(0).toUpperCase();
@@ -84,6 +87,18 @@ export function Sidebar({
             </Link>
           );
         })}
+        {isSuperAdmin && (
+          <Link
+            href="/admin"
+            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+              path === "/admin" || path.startsWith("/admin/")
+                ? "bg-brand text-white"
+                : "text-amber-300 hover:bg-navy-700"
+            }`}
+          >
+            <ShieldAlert size={18} /> Super Admin
+          </Link>
+        )}
       </nav>
 
       <div className="m-3 rounded-lg bg-navy-700 p-3 text-sm">
