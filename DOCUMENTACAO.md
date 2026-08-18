@@ -619,3 +619,15 @@ Pedido do dono do produto: o cartão do rodapé da barra lateral (nome do plano 
 ### Validação
 
 `tsc --noEmit`, `eslint .` e `next build` sem erros. Mudança é só de UI/consulta — nenhum controle de acesso foi alterado.
+
+## 35. Link "Super Admin" na barra lateral, bug de CSS no `/admin` e reorganização do menu em grupos (sessão de 2026-08-18)
+
+Três ajustes menores de UI feitos na mesma sessão do 2FA (seção 33) e do cancelamento de empresa (seção 34):
+
+- **Link "Super Admin" no menu** (`src/components/sidebar.tsx`) — aparece só quando `isSuperAdmin` (calculado no servidor em `layout.tsx` a partir de `profile.role`, não confiável pelo cliente) é `true`. Antes disso não tinha como chegar em `/admin` sem digitar a URL na mão.
+- **Bug de CSS corrigido**: a busca com ícone e o select de filtro do `/admin` (ver seção 6) tinham o ícone de lupa sobreposto ao texto digitado, e o select ficava esticado ocupando a linha inteira. Causa raiz em `globals.css`: a regra base de `input`/`select` usava um seletor com dois `:not()`, que sem querer dava a ela **mais especificidade CSS** que uma classe utilitária normal (`pl-9`, `w-auto`) — então qualquer tentativa de ajustar padding/largura num elemento específico perdia pra esse estilo base, mesmo com a classe certa aplicada. Corrigido envolvendo o seletor em `:where(...)` (zera a especificidade do que está dentro), o jeito padrão de resolver esse problema em Tailwind. Afeta só onde alguém já tentava sobrescrever esses estilos — não muda nada nos outros inputs/selects do sistema.
+- **Menu lateral reorganizado em grupos**: os 11 itens (antes todos numa lista única) viraram 3 grupos com rotulozinho — **Operação** (Dashboard, Reservas, Agenda, Saídas), **Cadastros** (Clientes, Embarcações, Parceiros) e **Gestão** (Financeiro, Relatórios, Equipe, Configurações) — pra quebrar visualmente a lista longa. A cor dos itens inativos também foi corrigida: usava `text-muted` (variável que muda com o tema claro/escuro do app), mas a barra lateral é **sempre escura** (`bg-navy` é fixo, não muda com o tema) — então no modo claro o texto ficava escuro demais num fundo escuro, quase ilegível. Trocado por `text-slate-300`/`text-slate-400` fixos (não dependem do tema), consistentes com o resto das cores fixas da barra lateral (`bg-navy`, `bg-brand` etc.).
+
+### Validação
+
+`tsc --noEmit`, `eslint .` e `next build` sem erros em cada mudança (validado individualmente antes de cada commit). Todas as três são só UI/CSS — nenhuma mudança em controle de acesso, dados ou lógica de negócio.
