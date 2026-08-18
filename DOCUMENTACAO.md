@@ -55,6 +55,7 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
+- 🔴 **PRIORIDADE — cancelar a cobrança real da própria empresa do dono no Asaas** (sessão de 2026-08-18): a empresa "Castro Compny" (a do próprio dono/super admin, `company_id` `a1c92771-36d7-43f7-8898-27cac01b8cb2`) tem uma assinatura **real e ativa** no Asaas (`asaas_subscription_id` = `sub_klqdrpcxesksrn3c`), ou seja, continua sendo cobrada de verdade mesmo depois de marcada como plano Premium/sem vencimento no nosso banco (ver seção 33) — mudar o `paid_until` no nosso sistema não cancela a cobrança no Asaas, são coisas separadas. Precisa cancelar direto no painel do Asaas (Cobranças → Assinaturas → procurar `sub_klqdrpcxesksrn3c` → Cancelar assinatura). Não foi possível cancelar por aqui porque a chave de API do Asaas em produção só o João tem acesso, e ele estava indisponível no momento. **Perguntar assim que o dono do produto voltar a falar sobre o assunto** — é a primeira coisa a resolver, antes de qualquer outra tarefa nova.
 - **Testar o webhook do Asaas com domínio real** — apontar a URL do webhook no painel do Asaas pra `https://nauticflow.com.br/api/webhooks/asaas` (ver seção 20) e testar de verdade.
 - ~~Aplicar a migration `0019_valida_dono_fk_saidas.sql`~~ — **resolvido**, aplicada no Supabase pelo dono do produto.
 - ~~Rate limiting no login~~ — **resolvido** (ver seção 31). CAPTCHA (hCaptcha/Turnstile) fica como melhoria futura opcional, só se houver sinal de abuso real (dá pra acompanhar em Authentication → Audit Logs no Supabase).
@@ -591,6 +592,10 @@ Pedido do dono do produto depois de revisar a tela do `/admin`: até então só 
 - `deleteCompanyPermanently(companyId, confirmName)` em `src/app/admin/actions.ts` — exige `aal2` (via `requireSuperAdmin`, seção 33) + o nome exato da empresa como segunda confirmação (checado no cliente e de novo no servidor). Usa o client de `service_role` (`createAdminClient`) só pra apagar os usuários da empresa (`auth.admin.deleteUser`, um por um) e a linha de `companies` — o mesmo padrão já usado na autoexclusão de conta em `configuracoes/actions.ts`. O resto (assinatura, embarcações, passeios, reservas, clientes, parceiros, notas fiscais) já cai sozinho via `on delete cascade` no banco (schema em `0000_init_schema.sql`).
 - Registra no `admin_audit_log` **antes** de apagar, com o nome da empresa em `details` — depois que a empresa some, `target_company_id` fica nulo (`on delete set null`), então sem isso o rastro perderia qual empresa foi.
 - UI: `src/app/admin/[id]/delete-company-controls.tsx`, num card "Zona de risco" na página de detalhe da empresa (`admin/[id]/page.tsx`). Botão discreto que expande um formulário de confirmação com aviso, e só libera o botão de excluir depois do nome digitado bater exatamente.
+
+### Empresa do próprio dono marcada como plano Premium sem vencimento (mesma sessão, 2026-08-18)
+
+A empresa "Castro Compny" (a do dono do produto, também a conta `super_admin`) foi movida direto no banco pra plano Premium com `paid_until` em 2099-12-31, pra parar de pedir renovação manual toda hora no painel. **Isso NÃO cancelou a cobrança real no Asaas** — ver a pendência 🔴 marcada como prioridade na seção 6, ainda em aberto (depende do João, que tem acesso à conta do Asaas).
 
 ### Ideias levantadas e deixadas como pendência (não implementadas ainda)
 
