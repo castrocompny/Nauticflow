@@ -83,7 +83,7 @@ export function Sidebar({
         {navGroups.map((group, i) => (
           <div key={group.label ?? i} className="space-y-1">
             {group.label && (
-              <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted/70">{group.label}</p>
+              <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</p>
             )}
             {group.items.map(({ href, label, icon: Icon }) => {
               const on = path === href || path.startsWith(href + "/");
@@ -92,7 +92,7 @@ export function Sidebar({
                   key={href}
                   href={href}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-                    on ? "bg-brand text-white" : "text-muted hover:bg-navy-700"
+                    on ? "bg-brand text-white" : "text-slate-300 hover:bg-navy-700 hover:text-white"
                   }`}
                 >
                   <Icon size={18} /> {label}
