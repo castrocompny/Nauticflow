@@ -631,3 +631,14 @@ Três ajustes menores de UI feitos na mesma sessão do 2FA (seção 33) e do can
 ### Validação
 
 `tsc --noEmit`, `eslint .` e `next build` sem erros em cada mudança (validado individualmente antes de cada commit). Todas as três são só UI/CSS — nenhuma mudança em controle de acesso, dados ou lógica de negócio.
+
+## 36. Dois bugs achados rodando `npm run dev` local (sessão de 2026-08-18)
+
+O dono do produto rodou `npm run dev` pela primeira vez desde a migração pro Next 16/React 19 (seção 32) e achou 2 erros que só apareciam em desenvolvimento:
+
+1. **`useFormState` renomeado pra `useActionState`** — no React 19 essa função saiu de `"react-dom"` e foi pra `"react"`. A migração do Next 16 usou o codemod oficial (`@next/codemod`), que cobre só APIs do *Next.js* (`params`/`searchParams` async etc.) — não pega renomeações do *React* em si, então esse ficou pra trás. Corrigido nos 18 formulários do sistema que usam Server Actions (busca: `grep -rl 'useFormState' src`). `useFormStatus` não mudou, continua vindo de `"react-dom"` normalmente.
+2. **CSP bloqueando `eval()` em dev** — o Next usa `eval()` internamente em modo desenvolvimento (Hot Module Reload, stack traces). Como a CSP (seção 28) não tinha `'unsafe-eval'` no `script-src`, a página quebrava ao rodar localmente. Corrigido em `next.config.mjs`: `'unsafe-eval'` só entra quando `NODE_ENV !== "production"` — o build/deploy real continua com a CSP restrita de sempre (confirmado rodando `next build` e conferindo que o header em produção não muda).
+
+### Validação
+
+`tsc --noEmit`, `eslint .`, `next build` sem erros. Testado também rodando `npm run dev` de verdade: confirmado que o header CSP local já inclui `unsafe-eval` e que a página `/login` carrega sem os dois erros do console reportados.
