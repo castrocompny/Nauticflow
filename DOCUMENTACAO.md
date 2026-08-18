@@ -94,6 +94,7 @@ Construído nesta sessão. Fluxo:
 - Migrations em `supabase/migrations/` **não rodam sozinhas** — cada uma precisa ser colada manualmente no SQL Editor do Supabase, na ordem numérica. Isso muda assim que o CLI estiver logado/linkado (ver seção 14) — depois disso dá pra usar `npx supabase db push`.
 - `npx tsc --noEmit` antes de considerar qualquer mudança de código pronta.
 - Servidor de dev: `npm run dev`, porta 3000.
+- **Verificação de segurança antes de qualquer deploy** (regra permanente, pedida pelo dono do produto em 2026-08-18 — vale pra qualquer pessoa/IA trabalhando neste repositório, incluindo sessões de outros colaboradores): antes de enviar (`git push`) qualquer mudança que vá gerar deploy em produção, não basta rodar `tsc`/`lint`/`build` funcionalmente — revisar também com foco em segurança: controle de acesso (checagem de auth/role não foi removida/reordenada), IDOR (toda referência a outra tabela valida `company_id`), exposição de secrets/dados, e qualquer coisa que abra brecha pra força bruta, DDoS ou outro tipo de ataque. Ferramentas automáticas (codemods, `npm audit fix`, etc.) também precisam ser revisadas manualmente depois — passar no build não significa estar seguro. Ver auditoria completa de referência na seção 31, e a migração do Next.js na seção 32 como exemplo de mudança grande que foi conferida com esse cuidado (revisão manual das páginas que o codemod alterou, focando nas checagens de permissão).
 
 ## 10. Dashboard, Agenda e regras de horário (sessão de 2026-08-10)
 
