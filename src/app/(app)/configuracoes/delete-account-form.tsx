@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { AlertTriangle } from "lucide-react";
 import { deleteMyAccount } from "./actions";
 
@@ -18,7 +18,7 @@ function Submit({ disabled }: { disabled: boolean }) {
 }
 
 export function DeleteAccountForm({ isCompanyAdmin, companyName }: { isCompanyAdmin: boolean; companyName: string }) {
-  const [state, formAction] = useFormState(deleteMyAccount, { error: "" });
+  const [state, formAction] = useActionState(deleteMyAccount, { error: "" });
   const [confirmText, setConfirmText] = useState("");
   const [open, setOpen] = useState(false);
 

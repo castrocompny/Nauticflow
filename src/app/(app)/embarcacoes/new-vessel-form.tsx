@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { createVessel } from "./actions";
 
 function Save() {
@@ -20,7 +20,7 @@ export function NewVesselForm() {
   const [open, setOpen] = useState(false);
   const [official, setOfficial] = useState(50);
   const [crew, setCrew] = useState(4);
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const r = await createVessel(p, f);
       if (!r.error) setOpen(false);

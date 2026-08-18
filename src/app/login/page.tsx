@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { AlertCircle } from "lucide-react";
 import { signIn, signUp, forgotPassword } from "./actions";
 import { Logo } from "@/components/logo";
@@ -25,7 +25,7 @@ const titles: Record<string, string> = {
 };
 
 // isolado num componente proprio, montado com `key={mode}` no pai -- assim o
-// React descarta a instancia (e o estado do useFormState, com o erro/aviso da
+// React descarta a instancia (e o estado do useActionState, com o erro/aviso da
 // tentativa anterior) toda vez que o usuario troca de aba (login/criar/esqueci),
 // em vez de deixar a mensagem antiga "grudada" na tela errada
 function AuthForm({ mode, onForgot }: { mode: "in" | "up" | "forgot"; onForgot: () => void }) {
@@ -33,7 +33,7 @@ function AuthForm({ mode, onForgot }: { mode: "in" | "up" | "forgot"; onForgot: 
     prevState: { error: string; info?: string },
     formData: FormData
   ) => Promise<{ error: string; info?: string }>;
-  const [state, formAction] = useFormState(action, { error: "" });
+  const [state, formAction] = useActionState(action, { error: "" });
 
   return (
     <>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { updateReservation } from "./actions";
 
 type DepOption = { id: string; label: string; available: number };
@@ -38,7 +39,7 @@ export function ReservationEditForm({
   clients: ClientOption[];
   onClose: () => void;
 }) {
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const res = await updateReservation(p, f);
       if (!res.error) onClose();

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { updateVessel } from "./actions";
 import type { Vessel } from "@/lib/types";
 
@@ -20,7 +20,7 @@ function Save() {
 export function VesselEditForm({ v, onClose }: { v: Vessel; onClose: () => void }) {
   const [official, setOfficial] = useState(v.official_capacity);
   const [crew, setCrew] = useState(v.default_crew);
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const res = await updateVessel(p, f);
       if (!res.error) onClose();

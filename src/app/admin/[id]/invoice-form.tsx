@@ -1,6 +1,7 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { registerInvoice } from "../actions";
 
 function Save() {
@@ -16,7 +17,7 @@ function Save() {
 }
 
 export function InvoiceForm({ companyId, suggestedAmount }: { companyId: string; suggestedAmount: string }) {
-  const [state, action] = useFormState(registerInvoice, { error: "" });
+  const [state, action] = useActionState(registerInvoice, { error: "" });
   const today = new Date().toISOString().slice(0, 10);
 
   return (

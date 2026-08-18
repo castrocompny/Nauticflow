@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { createDeparture } from "./actions";
 import type { Tour, Vessel } from "@/lib/types";
 
@@ -20,7 +20,7 @@ function Save() {
 export function NewDepartureForm({ vessels, tours }: { vessels: Vessel[]; tours: Tour[] }) {
   const [open, setOpen] = useState(false);
   const [vesselId, setVesselId] = useState(vessels[0]?.id ?? "");
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const r = await createDeparture(p, f);
       if (!r.error) setOpen(false);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { addPassenger } from "./passenger-actions";
 
 function Save() {
@@ -24,7 +24,7 @@ export function AddPassengerForm({
   remaining: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const r = await addPassenger(p, f);
       if (!r.error) setOpen(false);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { AlertCircle } from "lucide-react";
 import { inviteTeamMember } from "./actions";
 
@@ -19,7 +19,7 @@ function Submit() {
 
 export function InviteForm() {
   const [open, setOpen] = useState(false);
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const r = await inviteTeamMember(p, f);
       if (!r.error) setOpen(false);

@@ -1,6 +1,7 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { AlertCircle } from "lucide-react";
 import { updatePassword } from "./actions";
 import { Logo } from "@/components/logo";
@@ -18,7 +19,7 @@ function Submit() {
 }
 
 export default function RedefinirSenhaPage() {
-  const [state, formAction] = useFormState(updatePassword, { error: "" });
+  const [state, formAction] = useActionState(updatePassword, { error: "" });
 
   return (
     <div className="grid min-h-screen place-items-center bg-app p-6">

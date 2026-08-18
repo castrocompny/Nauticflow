@@ -1,6 +1,7 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { updateCompanyBilling } from "../actions";
 
 function Save() {
@@ -16,7 +17,7 @@ function Save() {
 }
 
 export function BillingForm({ companyId, cnpj, city }: { companyId: string; cnpj: string; city: string }) {
-  const [state, action] = useFormState(updateCompanyBilling, { error: "" });
+  const [state, action] = useActionState(updateCompanyBilling, { error: "" });
 
   return (
     <form action={action} className="space-y-3">

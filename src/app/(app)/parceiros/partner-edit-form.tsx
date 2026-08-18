@@ -1,6 +1,7 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { updatePartner } from "./actions";
 
 type Partner = {
@@ -24,7 +25,7 @@ function Save() {
 }
 
 export function PartnerEditForm({ p, onClose }: { p: Partner; onClose: () => void }) {
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (prev: unknown, f: FormData) => {
       const res = await updatePartner(prev, f);
       if (!res.error) onClose();

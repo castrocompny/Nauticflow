@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { createReservation } from "./actions";
 
 type DepOption = { id: string; label: string; available: number };
@@ -29,7 +29,7 @@ export function NewReservationForm({
   const [open, setOpen] = useState(false);
   const [depId, setDepId] = useState(departures[0]?.id ?? "");
   const [toast, setToast] = useState("");
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const r = await createReservation(p, f);
       if (!r.error) {

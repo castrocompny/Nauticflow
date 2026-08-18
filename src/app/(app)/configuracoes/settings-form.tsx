@@ -1,6 +1,7 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { updateSettings } from "./actions";
 
 function Save() {
@@ -32,7 +33,7 @@ export function SettingsForm({
   adminName: string;
   adminEmail: string;
 }) {
-  const [state, action] = useFormState(updateSettings, { error: "", ok: false });
+  const [state, action] = useActionState(updateSettings, { error: "", ok: false });
 
   return (
     <form action={action} className="space-y-6">

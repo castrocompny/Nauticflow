@@ -1,6 +1,7 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { updateDeparture } from "./actions";
 import type { Tour, Vessel } from "@/lib/types";
 
@@ -35,7 +36,7 @@ export function DepartureEditForm({
   tours: Tour[];
   onClose: () => void;
 }) {
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const res = await updateDeparture(p, f);
       if (!res.error) onClose();

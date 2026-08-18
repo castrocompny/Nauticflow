@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { createClientRecord } from "./actions";
 
 function Save() {
@@ -18,7 +18,7 @@ function Save() {
 
 export function NewClientForm() {
   const [open, setOpen] = useState(false);
-  const [state, action] = useFormState(
+  const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
       const r = await createClientRecord(p, f);
       if (!r.error) setOpen(false);
