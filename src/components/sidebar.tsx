@@ -21,12 +21,9 @@ import { Logo } from "@/components/logo";
 
 const navGroups = [
   {
-    label: null,
-    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
-  },
-  {
     label: "Operação",
     items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/reservas", label: "Reservas", icon: ClipboardList },
       { href: "/agenda", label: "Agenda", icon: CalendarDays },
       { href: "/saidas", label: "Saídas", icon: Anchor },
