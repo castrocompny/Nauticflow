@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ShieldAlert, Search, AlertTriangle } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { requireSuperAdminPage } from "@/lib/admin-auth";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { brl, fmtDate } from "@/lib/format";
 import { RenewButton } from "./renew-button";
@@ -61,14 +60,8 @@ export default async function AdminPage(
   props: { searchParams: Promise<{ q?: string; page?: string; plano?: string }> }
 ) {
   const searchParams = await props.searchParams;
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (profile?.role !== "super_admin") {
+  const { supabase, denied } = await requireSuperAdminPage();
+  if (denied) {
     return (
       <div className="grid min-h-screen place-items-center bg-app p-6">
         <div className="w-full max-w-sm rounded-card border border-line bg-surface p-8 text-center">

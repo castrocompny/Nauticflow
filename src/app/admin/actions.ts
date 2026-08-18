@@ -2,19 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-
-async function requireSuperAdmin() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false as const, message: "Sessão inválida." };
-
-  const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).maybeSingle();
-  if (profile?.role !== "super_admin") return { ok: false as const, message: "Sem permissão." };
-
-  return { ok: true as const, supabase, adminId: user.id, adminName: profile.name ?? "Super admin" };
-}
+import { requireSuperAdminAction as requireSuperAdmin } from "@/lib/admin-auth";
 
 // registra a acao no log de auditoria -- nunca desfaz a acao principal se o log falhar,
 // so essa entrada especifica que fica sem rastro

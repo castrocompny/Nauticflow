@@ -66,7 +66,7 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 - **Projeto Vercel órfão** (`nautic-flow/nauticflow`, ver seção 20) — não é mais o que serve o domínio, decidir se apaga pra não confundir.
 - **2 advisories HIGH residuais no `npm audit`** (SSRF em rewrites com host controlado por env var interna, DoS em Server Components) só têm correção disponível na branch major do Next (15/16) — não fazem sentido pra esse app hoje (sem custom server, sem i18n, sem `images.remotePatterns`, sem WebSocket), mas vale reavaliar numa futura migração de major version do Next.js.
 - ~~Linhas de tabela client-side demais~~ — **resolvido** (ver seção 29).
-- **2FA pro super_admin** — sugerido na auditoria de segurança (seção 13), reconfirmado na melhoria do `/admin` (seção 15). Ainda não implementado, de propósito (feature grande demais pra fazer sem testar ao vivo).
+- ~~2FA pro super_admin~~ — **resolvido** (ver seção 33). TOTP nativo do Supabase Auth, obrigatório pra entrar em `/admin`.
 - **Emissão de nota fiscal ainda é manual** (seção 16) — não há certificado digital nem provedor de NFS-e configurado. O registro em `/admin/[id]` é só controle, não gera nota nenhuma de verdade.
 - **Simular pagamento no Asaas sandbox e confirmar que o webhook atualiza a assinatura** — o checkout (`/planos`) já foi testado de ponta a ponta e funciona (ver seção 21), só falta confirmar que completar o pagamento de fato dispara o webhook e atualiza `paid_until`. Combinado com o usuário deixar pra uma próxima sessão.
 - **Chat de suporte online** — pedido do dono do produto (2026-08-14). Chegou a ser integrado com Tawk.to (widget no layout raiz) e depois **removido a pedido do dono do produto** (2026-08-15) — ver seção 22 pro motivo. Hoje o único contato de suporte é o link de WhatsApp no `OverdueBanner` (`src/app/(app)/overdue-banner.tsx`) de novo. Se for reconsiderar no futuro, dar preferência a um provedor com bot de IA gratuito de verdade (o AI Assist do Tawk.to é pago acima de 100 mensagens/mês), já que o dono do produto não quer ficar respondendo manualmente.
@@ -551,3 +551,31 @@ Corrige os 5 advisories HIGH residuais do `npm audit` (seção 31) — a única 
 ### Validação
 
 `tsc --noEmit`, `eslint .` (0 erros, só os 2 avisos de sempre sobre `<img>`), `next build` completo (as 22 rotas geradas no mesmo padrão de antes), `npm audit` zerado, e teste funcional rodando `next start` de verdade: rotas públicas retornam 200, rotas protegidas redirecionam 307 sem sessão (incluindo `/admin/[id]`, que foi a página com o bug do `params.id`), webhook do Asaas recusa sem token (401). **Não testado**: navegação autenticada de verdade na UI (sem login de teste disponível no ambiente) — recomendo passar pelas telas principais manualmente depois do deploy, com atenção especial às páginas que usam `params`/`searchParams` (item 2 acima), já que é o tipo de bug que só aparece em uso real.
+
+## 33. Verificação em duas etapas (2FA/TOTP) obrigatória pro Super Admin (sessão de 2026-08-18)
+
+Pedido do dono do produto: proteger a área `/admin` (que dá acesso a todas as empresas clientes — renovar assinatura, suspender, ver dados de faturamento) com um segundo fator, além da senha.
+
+### Como funciona
+
+Usa o MFA nativo do Supabase Auth (TOTP — Google Authenticator, Authy, 1Password etc.), sem infraestrutura própria de segredo/QR code:
+
+- `src/lib/admin-auth.ts` — `requireSuperAdminPage()` (usado nas páginas `/admin` e `/admin/[id]`) e `requireSuperAdminAction()` (usado em todas as Server Actions de `admin/actions.ts`, no lugar do antigo `requireSuperAdmin` local). Ambos checam, nesta ordem: sessão existe → `profiles.role === "super_admin"` → `supabase.auth.mfa.getAuthenticatorAssuranceLevel().currentLevel === "aal2"`.
+- Sem sessão → `/login`. Não é super admin → tela de "acesso restrito" (não revela que a área existe). É super admin mas nunca cadastrou o segundo fator → `/admin/mfa-setup` (cadastro obrigatório, com QR code). Cadastrou mas ainda não verificou o código *nesta sessão* → `/admin/mfa-challenge`.
+- O AAL (Authenticator Assurance Level) fica preso à sessão — cada novo login começa em `aal1` e exige o código de 6 dígitos de novo, mesmo que o dispositivo já tenha o segundo fator cadastrado. É exatamente o "sempre pede o código pra entrar no Super Admin" pedido.
+- As Server Actions de admin (`renewSubscription`, `suspendCompany` etc.) também exigem `aal2`, não só a página — importante porque uma Server Action pode ser chamada diretamente, sem passar pela renderização da página.
+
+### Arquivos
+
+- `src/lib/admin-auth.ts` (novo)
+- `src/app/admin/mfa-setup/page.tsx` + `mfa-setup-form.tsx` (novo) — cadastro do TOTP: gera QR code (`supabase.auth.mfa.enroll`), limpa fatores não verificados de tentativas anteriores antes de gerar um novo, confirma com o código de 6 dígitos (`challenge` + `verify`).
+- `src/app/admin/mfa-challenge/page.tsx` + `mfa-challenge-form.tsx` (novo) — pede só o código, pra sessão que já tem fator cadastrado.
+- `src/app/admin/page.tsx`, `src/app/admin/[id]/page.tsx`, `src/app/admin/actions.ts` — trocado o auth check antigo (só checava `role`) pelos helpers novos de `admin-auth.ts`.
+
+### Único super admin cadastrado
+
+Só existe uma conta com `role = "super_admin"` hoje (a do dono do produto). Se um dia precisar resetar o segundo fator (perda do celular), é preciso apagar o fator TOTP direto no Supabase (Authentication → Users → o usuário → MFA) — não tem tela de "recuperar 2FA" no app ainda.
+
+### Validação
+
+`tsc --noEmit` e `eslint .` sem erros, `next build` completo (`/admin/mfa-setup` e `/admin/mfa-challenge` aparecem como rotas dinâmicas, igual ao resto de `/admin`). Não depende de nenhuma tabela nova nem RLS — MFA vive no schema `auth`, gerenciado pelo GoTrue, fora do alcance das políticas do schema `public`.
