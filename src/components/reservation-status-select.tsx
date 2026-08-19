@@ -45,8 +45,12 @@ export function ReservationStatusSelect({
           current === "confirmada" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
         } disabled:opacity-60`}
       >
-        <option value="confirmada">confirmada</option>
-        <option value="pendente">pendente</option>
+        <option value="confirmada" className="bg-surface text-heading">
+          confirmada
+        </option>
+        <option value="pendente" className="bg-surface text-heading">
+          pendente
+        </option>
       </select>
       {msg && <span className="text-[11px] text-danger">{msg.text}</span>}
     </div>
