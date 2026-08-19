@@ -31,7 +31,7 @@ export function NotificationsBell({ items }: { items: Notif[] }) {
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-40 mt-2 w-72 rounded-card border border-line bg-surface p-2 shadow-lg">
+          <div className="fixed right-4 top-16 z-40 w-72 max-w-[calc(100vw-2rem)] rounded-card border border-line bg-surface p-2 shadow-lg">
             <p className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
               Notificações
             </p>
