@@ -42,7 +42,7 @@ body {
    (ex: pl-9, w-auto), então botões de busca com ícone e selects com largura customizada
    perdiam pro padding/largura padrão aqui, mesmo com a classe certa aplicada no elemento. */
 :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
-  @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-heading outline-none transition;
+  @apply w-full rounded-lg border border-line bg-surface px-4 py-2.5 text-sm text-heading outline-none transition;
 }
 :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
   @apply border-brand ring-2 ring-brand/20;
