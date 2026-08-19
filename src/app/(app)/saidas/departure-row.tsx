@@ -55,8 +55,11 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
 
   return (
     <div className="space-y-2">
+      {/* no celular vira 3 linhas empilhadas (info / status+manifesto / ações); em telas
+          maiores os "sm:contents" somem e tudo volta a ser uma linha só, lado a lado --
+          mesmo layout de sempre, sem duplicar código pra cada tamanho de tela */}
       <Card className="flex flex-wrap items-center gap-3">
-        <Link href={`/saidas/${r.id}`} className="flex min-w-0 basis-full items-center gap-4 sm:basis-auto sm:flex-1">
+        <Link href={`/saidas/${r.id}`} className="flex min-w-0 w-full items-center gap-4 sm:w-auto sm:flex-1">
           <div className="w-20">
             <p className="font-display font-semibold text-heading">{fmtTime(r.departs_at)}</p>
             <p className="text-xs text-muted">{fmtDate(r.departs_at)}</p>
@@ -70,52 +73,60 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
             </div>
           </div>
         </Link>
-        <Badge tone={statusTone[r.status] ?? "slate"}>{r.status}</Badge>
-        <div className="w-20 text-right">
-          <p className={`text-sm font-medium ${full ? "text-danger" : ""}`}>
-            {booked}/{r.capacity}
-          </p>
-          <Badge tone={full ? "red" : "slate"}>{full ? "lotada" : `${r.capacity - booked} vagas`}</Badge>
+
+        <div className="flex w-full items-center justify-between gap-3 sm:contents">
+          <div className="flex items-center gap-3">
+            <Badge tone={statusTone[r.status] ?? "slate"}>{r.status}</Badge>
+            <div className="text-right">
+              <p className={`text-sm font-medium ${full ? "text-danger" : ""}`}>
+                {booked}/{r.capacity}
+              </p>
+              <Badge tone={full ? "red" : "slate"}>{full ? "lotada" : `${r.capacity - booked} vagas`}</Badge>
+            </div>
+          </div>
+          <Link
+            href={`/manifesto/${r.id}`}
+            className="whitespace-nowrap rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-brand transition hover:bg-surfaceHover"
+          >
+            Manifesto
+          </Link>
         </div>
-        <Link
-          href={`/manifesto/${r.id}`}
-          className="whitespace-nowrap rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-brand transition hover:bg-surfaceHover"
-        >
-          Manifesto
-        </Link>
-        {r.status === "agendada" && (
+
+        <div className="flex w-full items-center justify-end gap-2 sm:contents">
+          {r.status === "agendada" && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(confirmDeparture)}
+              title="Confirmar saída"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-green-600 transition hover:bg-green-50 disabled:opacity-50"
+            >
+              <Check size={16} />
+            </button>
+          )}
+          {!finished && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                if (window.confirm("Cancelar esta saída?")) run(cancelDeparture);
+              }}
+              title="Cancelar saída"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line text-danger transition hover:bg-red-50 disabled:opacity-50"
+            >
+              <Ban size={16} />
+            </button>
+          )}
           <button
             type="button"
-            disabled={pending}
-            onClick={() => run(confirmDeparture)}
-            title="Confirmar saída"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-line text-green-600 transition hover:bg-green-50 disabled:opacity-50"
+            onClick={() => setEditing((v) => !v)}
+            title="Editar saída"
+            className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
           >
-            <Check size={16} />
+            <Pencil size={16} />
           </button>
-        )}
-        {!finished && (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              if (window.confirm("Cancelar esta saída?")) run(cancelDeparture);
-            }}
-            title="Cancelar saída"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-line text-danger transition hover:bg-red-50 disabled:opacity-50"
-          >
-            <Ban size={16} />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setEditing((v) => !v)}
-          title="Editar saída"
-          className="grid h-8 w-8 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover hover:text-heading"
-        >
-          <Pencil size={16} />
-        </button>
-        <DeleteButton action={deleteDeparture} id={r.id} confirmText="Excluir esta saída?" />
+          <DeleteButton action={deleteDeparture} id={r.id} confirmText="Excluir esta saída?" />
+        </div>
       </Card>
       {msg && <p className="px-1 text-xs text-danger">{msg}</p>}
       {editing && (
