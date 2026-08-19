@@ -52,7 +52,7 @@ export default async function ReservationDetail(props: { params: Promise<{ id: s
         <ArrowLeft size={16} /> Reservas
       </Link>
 
-      <div className="mb-6 flex items-end justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-xl font-semibold text-heading">
             Passageiros · {r.clients?.name}
@@ -76,7 +76,7 @@ export default async function ReservationDetail(props: { params: Promise<{ id: s
 
       <div className="space-y-2">
         {r.passengers.map((p) => (
-          <Card key={p.id} className="flex items-center gap-3 py-3">
+          <Card key={p.id} className="flex flex-wrap items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-heading">{p.name}</p>
               <p className="text-xs text-muted">

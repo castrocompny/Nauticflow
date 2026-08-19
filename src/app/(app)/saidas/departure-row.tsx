@@ -55,8 +55,8 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
 
   return (
     <div className="space-y-2">
-      <Card className="flex items-center gap-4">
-        <Link href={`/saidas/${r.id}`} className="flex min-w-0 flex-1 items-center gap-4">
+      <Card className="flex flex-wrap items-center gap-3">
+        <Link href={`/saidas/${r.id}`} className="flex min-w-0 basis-full items-center gap-4 sm:basis-auto sm:flex-1">
           <div className="w-20">
             <p className="font-display font-semibold text-heading">{fmtTime(r.departs_at)}</p>
             <p className="text-xs text-muted">{fmtDate(r.departs_at)}</p>

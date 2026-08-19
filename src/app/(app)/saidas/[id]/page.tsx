@@ -48,7 +48,7 @@ export default async function DepartureDetail(props: { params: Promise<{ id: str
         <ArrowLeft size={16} /> Saídas
       </Link>
 
-      <div className="mb-6 flex items-end justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-xl font-semibold text-heading">
             {d.vessels?.name} · {d.tours?.name}

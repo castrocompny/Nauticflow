@@ -59,7 +59,7 @@ export default async function PartnerDetail(props: { params: Promise<{ id: strin
         <ArrowLeft size={16} /> Parceiros
       </Link>
 
-      <div className="mb-6 flex items-end justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-xl font-semibold text-heading">{p.name}</h1>
           <p className="mt-0.5 text-sm text-muted">

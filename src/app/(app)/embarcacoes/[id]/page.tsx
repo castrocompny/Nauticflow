@@ -63,7 +63,7 @@ export default async function VesselDetail(props: { params: Promise<{ id: string
           {rows.map((r) => {
             const b = booked(r);
             return (
-              <Card key={r.id} className="flex items-center gap-4">
+              <Card key={r.id} className="flex flex-wrap items-center gap-3">
                 <div className="w-24">
                   <p className="font-display font-semibold text-heading">{fmtTime(r.departs_at)}</p>
                   <p className="text-xs text-muted">{fmtDate(r.departs_at)}</p>
