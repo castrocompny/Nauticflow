@@ -51,6 +51,18 @@ input::placeholder,
 textarea::placeholder {
   color: var(--text-muted);
 }
+/* o autopreenchimento do navegador (autofill) usa a própria renderização interna dele --
+   fundo amarelo/azul e métricas de texto diferentes das nossas, o que deixava o texto
+   meio descentralizado verticalmente nos campos de login/senha preenchidos automaticamente.
+   Esse truque força o navegador a manter nosso fundo e cor de texto em vez do dele. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-heading);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-surface) inset;
+  box-shadow: 0 0 0 1000px var(--bg-surface) inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
 label {
   @apply text-xs font-medium text-muted;
 }
