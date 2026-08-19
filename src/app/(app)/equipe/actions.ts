@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
 import { getSubscriptionStatus } from "@/lib/subscription";
+import { SITE_URL } from "@/lib/site-url";
 
 export async function inviteTeamMember(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
@@ -33,7 +33,6 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
     };
   }
 
-  const origin = (await headers()).get("origin") ?? "http://localhost:3000";
   const admin = createAdminClient();
 
   const { error } = await admin.auth.admin.inviteUserByEmail(email, {
@@ -42,7 +41,7 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
       role: "staff",
       invited_to_company_id: profile.company_id,
     },
-    redirectTo: `${origin}/auth/callback?next=/redefinir-senha`,
+    redirectTo: `${SITE_URL}/auth/callback?next=/redefinir-senha`,
   });
 
   if (error) {

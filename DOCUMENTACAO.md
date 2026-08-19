@@ -65,7 +65,7 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 - **Renomear `middleware.ts` pra convenção `proxy`** — aviso de depreciação do Next 16 (não quebra nada ainda, ver seção 32), dá pra corrigir com `npx @next/codemod@canary middleware-to-proxy .` numa próxima sessão.
 - ~~Deploy em produção depende do João aprovar cada um manualmente~~ — **resolvido**, repositório tornado público (ver seção 30). Deploy automático via GitHub volta a funcionar sozinho.
 - **`headers().get("origin")` usado pra montar link de e-mail** (reset de senha em `login/actions.ts`, convite em `equipe/actions.ts`) — hoje protegido pela validação nativa de Origin/Host das Server Actions do Next.js, mas é uma dependência frágil de comportamento de framework pra algo sensível (link de reset de senha). Recomendado trocar por uma `NEXT_PUBLIC_SITE_URL` fixa agora que já existe um domínio de produção definitivo (`nauticflow.com.br`, seção 20).
-- **Projeto Vercel órfão** (`nautic-flow/nauticflow`, ver seção 20) — não é mais o que serve o domínio, decidir se apaga pra não confundir.
+- ~~Projeto Vercel órfão~~ — **não existe** (conferido em 2026-08-19 pelo dono do produto, direto no painel da Vercel: só tem o projeto `nauticflow` no workspace `joao's projects`). A referência ao `nautic-flow/nauticflow` nas seções 19/20 ficou desatualizada — provavelmente aquele projeto (criado via CLI numa sessão anterior) já tinha sido apagado ou nunca existiu de fato como um projeto separado visível pro João.
 - **2 advisories HIGH residuais no `npm audit`** (SSRF em rewrites com host controlado por env var interna, DoS em Server Components) só têm correção disponível na branch major do Next (15/16) — não fazem sentido pra esse app hoje (sem custom server, sem i18n, sem `images.remotePatterns`, sem WebSocket), mas vale reavaliar numa futura migração de major version do Next.js.
 - ~~Linhas de tabela client-side demais~~ — **resolvido** (ver seção 29).
 - ~~2FA pro super_admin~~ — **resolvido** (ver seção 33). TOTP nativo do Supabase Auth, obrigatório pra entrar em `/admin`.
@@ -345,7 +345,7 @@ Domínio `nauticflow.com.br` adicionado no Resend, com "Auto configure" (integra
 - [ ] Redirect URLs no Supabase incluindo `https://nauticflow.com.br/**` (ainda não feito — só chegamos a mencionar pra `.vercel.app`, precisa atualizar pro domínio final)
 - [ ] URL do webhook no Asaas apontando pra `https://nauticflow.com.br/api/webhooks/asaas`
 - [ ] Corrigir o bug de timezone (seção 6) — agora que o site está de verdade em produção rodando em UTC (Vercel), isso deixou de ser risco teórico
-- [ ] Decidir se apaga o projeto Vercel órfão (`nautic-flow/nauticflow`) pra não confundir no futuro
+- [x] ~~Decidir se apaga o projeto Vercel órfão (`nautic-flow/nauticflow`)~~ — checado em 2026-08-19: esse projeto não existe no workspace do João, só o `nauticflow` real. Nada a apagar (ver seção 6).
 - [ ] Conectar Git no meu projeto original não é mais necessário — o `Passatempo/fluxo náutico` já tem Git; ele é o que deve continuar sendo usado
 
 ### Validação final desta sessão

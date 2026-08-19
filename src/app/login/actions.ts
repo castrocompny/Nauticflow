@@ -1,9 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { validatePassword } from "@/lib/password";
+import { SITE_URL } from "@/lib/site-url";
 
 export async function signIn(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
@@ -50,12 +50,11 @@ export async function signUp(_prev: unknown, formData: FormData) {
 export async function forgotPassword(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
   const supabase = createClient();
-  const origin = (await headers()).get("origin") ?? "http://localhost:3000";
 
   // sempre retorna a mesma mensagem, exista ou nao o e-mail, pra nao revelar quais
   // contas estao cadastradas no sistema
   await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=/redefinir-senha`,
+    redirectTo: `${SITE_URL}/auth/callback?next=/redefinir-senha`,
   });
   return { error: "", info: "Se esse e-mail estiver cadastrado, enviamos um link pra redefinir a senha." };
 }
