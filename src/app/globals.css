@@ -37,14 +37,21 @@ body {
   box-sizing: border-box;
 }
 
-/* :where(...) zera a especificidade do seletor -- sem isso, os dois :not() dentro do
-   seletor de input davam a essa regra base mais peso que uma classe utilitária normal
-   (ex: pl-9, w-auto), então botões de busca com ícone e selects com largura customizada
-   perdiam pro padding/largura padrão aqui, mesmo com a classe certa aplicada no elemento. */
-:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+/* :where() só em volta dos :not() (não em volta de "input"/"select"/"textarea" inteiro):
+   isso mantém a especificidade dessa regra igual a de um seletor de elemento comum
+   (input{...}), o mesmo peso do reset do Tailwind (@tailwind base, que zera padding de
+   inputs) -- como essa regra vem depois no arquivo, ela ganha do reset em caso de empate.
+   Ao mesmo tempo, continua mais fraca que qualquer classe utilitária normal (ex: pl-9,
+   w-auto), que tem mais peso que um seletor de elemento -- então botão de busca com
+   ícone e select com largura customizada continuam podendo sobrescrever isso aqui. */
+input:where(:not([type="checkbox"]):not([type="radio"])),
+select,
+textarea {
   @apply w-full rounded-lg border border-line bg-surface px-4 py-2.5 text-sm text-heading outline-none transition;
 }
-:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+input:where(:not([type="checkbox"]):not([type="radio"])):focus,
+select:focus,
+textarea:focus {
   @apply border-brand ring-2 ring-brand/20;
 }
 input::placeholder,
