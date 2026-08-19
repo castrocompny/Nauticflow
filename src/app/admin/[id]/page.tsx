@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ShieldAlert } from "lucide-react";
@@ -181,7 +182,7 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
           {subscriptions.length === 0 ? (
             <p className="px-5 pb-5 text-sm text-muted">Nenhuma assinatura registrada.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <ScrollShadowX>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-line text-left text-xs text-muted">
@@ -206,7 +207,7 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
                 ))}
               </tbody>
             </table>
-            </div>
+            </ScrollShadowX>
           )}
         </Card>
 

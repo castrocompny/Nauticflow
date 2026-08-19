@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import Link from "next/link";
 import {
   CalendarCheck,
@@ -463,7 +464,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ p?: str
         {ultimasReservas.length === 0 ? (
           <p className="px-5 pb-6 text-center text-sm text-muted">Nenhuma reserva ainda.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollShadowX>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-line text-left text-xs text-muted">
@@ -491,7 +492,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ p?: str
               ))}
             </tbody>
           </table>
-          </div>
+          </ScrollShadowX>
         )}
       </Card>
     </>

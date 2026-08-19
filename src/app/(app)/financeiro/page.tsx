@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Badge } from "@/components/ui";
@@ -139,7 +140,7 @@ export default async function FinanceiroPage(props: { searchParams: Promise<{ p?
         {rows.length === 0 ? (
           <p className="px-5 pb-6 text-center text-sm text-muted">Nenhuma movimentação {periodoLabel}.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollShadowX>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-line text-left text-xs text-muted">
@@ -164,7 +165,7 @@ export default async function FinanceiroPage(props: { searchParams: Promise<{ p?
               ))}
             </tbody>
           </table>
-          </div>
+          </ScrollShadowX>
         )}
       </Card>
 

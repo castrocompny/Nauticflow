@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Pager } from "@/components/ui";
 import { NewClientForm } from "./new-client-form";
@@ -34,7 +35,7 @@ export default async function ClientsPage(props: { searchParams: Promise<{ page?
       ) : (
         <>
           <Card className="p-0">
-            <div className="overflow-x-auto">
+            <ScrollShadowX>
               <table className="w-full text-sm">
                 <thead>
                 <tr className="border-b border-line text-left text-xs text-muted">
@@ -50,9 +51,8 @@ export default async function ClientsPage(props: { searchParams: Promise<{ page?
                   <ClientRow key={c.id} c={c} />
                 ))}
               </tbody>
-            </table>
-
-            </div>
+              </table>
+            </ScrollShadowX>
           </Card>
           <Pager page={page} totalPages={totalPages} basePath="/clientes" />
         </>

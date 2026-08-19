@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import Link from "next/link";
 import { ShieldAlert, Search, AlertTriangle, ArrowLeft } from "lucide-react";
 import { requireSuperAdminPage } from "@/lib/admin-auth";
@@ -254,7 +255,7 @@ export default async function AdminPage(
         </form>
 
         <Card className="p-0">
-          <div className="overflow-x-auto">
+          <ScrollShadowX>
               <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
@@ -308,8 +309,7 @@ export default async function AdminPage(
               )}
             </tbody>
           </table>
-
-          </div>
+          </ScrollShadowX>
         </Card>
 
         {totalPages > 1 && (

@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -56,7 +57,7 @@ export default async function ClientDetail(props: { params: Promise<{ id: string
         <EmptyState title="Nenhuma reserva deste cliente ainda" />
       ) : (
         <Card className="p-0">
-          <div className="overflow-x-auto">
+          <ScrollShadowX>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
@@ -84,7 +85,7 @@ export default async function ClientDetail(props: { params: Promise<{ id: string
               ))}
             </tbody>
           </table>
-          </div>
+          </ScrollShadowX>
         </Card>
       )}
     </>

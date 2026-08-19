@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader } from "@/components/ui";
 import { NewVesselForm } from "./new-vessel-form";
@@ -20,7 +21,7 @@ export default async function VesselsPage() {
         </Card>
       ) : (
         <Card className="p-0">
-          <div className="overflow-x-auto">
+          <ScrollShadowX>
               <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
@@ -38,7 +39,7 @@ export default async function VesselsPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </ScrollShadowX>
         </Card>
       )}
     </>

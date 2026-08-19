@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, Badge } from "@/components/ui";
@@ -46,7 +47,7 @@ export default async function EquipePage() {
       {canInvite && <InviteForm />}
 
       <Card className="p-0">
-        <div className="overflow-x-auto">
+        <ScrollShadowX>
               <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left text-xs text-muted">
@@ -77,7 +78,7 @@ export default async function EquipePage() {
             })}
           </tbody>
         </table>
-        </div>
+        </ScrollShadowX>
       </Card>
     </>
   );

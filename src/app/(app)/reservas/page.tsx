@@ -1,3 +1,4 @@
+import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { fmtDate, fmtTime, saoPauloHHMM } from "@/lib/format";
@@ -75,7 +76,7 @@ export default async function ReservationsPage() {
         />
       ) : (
         <Card className="p-0">
-          <div className="overflow-x-auto">
+          <ScrollShadowX>
               <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
@@ -98,8 +99,7 @@ export default async function ReservationsPage() {
               ))}
             </tbody>
           </table>
-
-          </div>
+          </ScrollShadowX>
         </Card>
       )}
     </>
