@@ -513,11 +513,13 @@ function Metric({
   trend?: { pct: number; suffix: string; isPoints?: boolean } | null;
 }) {
   return (
-    <Card className="flex items-center gap-3">
-      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white ${tone}`}>{icon}</span>
+    <Card className="flex items-center gap-2 p-3 sm:gap-3 sm:p-5">
+      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white sm:h-11 sm:w-11 ${tone}`}>
+        {icon}
+      </span>
       <div className="min-w-0">
-        <p className="text-xs leading-tight text-muted">{label}</p>
-        <p className="font-display text-xl font-semibold text-heading">{value}</p>
+        <p className="truncate text-xs leading-tight text-muted">{label}</p>
+        <p className="truncate font-display text-lg font-semibold text-heading sm:text-xl">{value}</p>
         {trend && <TrendBadge {...trend} />}
       </div>
     </Card>

@@ -344,9 +344,9 @@ export default async function AdminPage(
 
 function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <Card>
-      <p className="text-xs text-muted">{label}</p>
-      <p className={`mt-1 font-display text-xl font-semibold ${tone ?? "text-heading"}`}>{value}</p>
+    <Card className="p-3 sm:p-5">
+      <p className="truncate text-xs text-muted">{label}</p>
+      <p className={`mt-1 truncate font-display text-lg font-semibold sm:text-xl ${tone ?? "text-heading"}`}>{value}</p>
     </Card>
   );
 }
