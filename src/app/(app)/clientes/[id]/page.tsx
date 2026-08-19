@@ -56,6 +56,7 @@ export default async function ClientDetail(props: { params: Promise<{ id: string
         <EmptyState title="Nenhuma reserva deste cliente ainda" />
       ) : (
         <Card className="p-0">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
@@ -83,6 +84,7 @@ export default async function ClientDetail(props: { params: Promise<{ id: string
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </>

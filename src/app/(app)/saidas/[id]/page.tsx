@@ -80,6 +80,7 @@ export default async function DepartureDetail(props: { params: Promise<{ id: str
       </Card>
 
       <Card className="p-0">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left text-xs text-muted">
@@ -122,6 +123,7 @@ export default async function DepartureDetail(props: { params: Promise<{ id: str
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </>
   );

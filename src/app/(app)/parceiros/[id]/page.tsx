@@ -75,6 +75,7 @@ export default async function PartnerDetail(props: { params: Promise<{ id: strin
         <EmptyState title="Nenhuma reserva vinculada a este parceiro ainda" />
       ) : (
         <Card className="p-0">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
@@ -102,6 +103,7 @@ export default async function PartnerDetail(props: { params: Promise<{ id: strin
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </>
