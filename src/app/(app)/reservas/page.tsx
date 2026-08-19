@@ -75,7 +75,8 @@ export default async function ReservationsPage() {
         />
       ) : (
         <Card className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+              <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
                 <th className="px-4 py-3">Cliente</th>
@@ -97,6 +98,8 @@ export default async function ReservationsPage() {
               ))}
             </tbody>
           </table>
+
+          </div>
         </Card>
       )}
     </>

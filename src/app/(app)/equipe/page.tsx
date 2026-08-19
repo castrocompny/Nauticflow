@@ -46,7 +46,8 @@ export default async function EquipePage() {
       {canInvite && <InviteForm />}
 
       <Card className="p-0">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+              <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left text-xs text-muted">
               <th className="px-4 py-3">Nome</th>
@@ -76,6 +77,7 @@ export default async function EquipePage() {
             })}
           </tbody>
         </table>
+        </div>
       </Card>
     </>
   );

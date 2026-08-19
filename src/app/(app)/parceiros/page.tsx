@@ -26,7 +26,8 @@ export default async function ParceirosPage() {
         <EmptyState title="Nenhum parceiro cadastrado" hint="Cadastre hotéis, pousadas e agências para acompanhar a origem das reservas." />
       ) : (
         <Card className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+              <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
                 <th className="px-4 py-3">Nome</th>
@@ -43,6 +44,7 @@ export default async function ParceirosPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </>

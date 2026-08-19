@@ -16,6 +16,7 @@ import {
   UserCog,
   ShieldAlert,
   ChevronRight,
+  X,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
 
@@ -54,19 +55,34 @@ export function Sidebar({
   planName,
   overdue,
   isSuperAdmin,
+  mobileOpen = false,
+  onNavigate,
 }: {
   company: string;
   city: string | null;
   planName: string;
   overdue: boolean;
   isSuperAdmin?: boolean;
+  mobileOpen?: boolean;
+  onNavigate?: () => void;
 }) {
   const path = usePathname();
   const initial = (company || "?").trim().charAt(0).toUpperCase();
   return (
-    <aside className="flex w-64 shrink-0 flex-col bg-navy text-slate-200">
-      <div className="px-5 py-5">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col bg-navy text-slate-200 transition-transform duration-200 lg:static lg:translate-x-0 ${
+        mobileOpen ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
+      <div className="flex items-center justify-between px-5 py-5">
         <Logo />
+        <button
+          onClick={onNavigate}
+          aria-label="Fechar menu"
+          className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-navy-700 lg:hidden"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       <div className="mx-3 mb-2 flex items-center gap-3 rounded-lg bg-navy-700 p-3">
@@ -91,6 +107,7 @@ export function Sidebar({
                 <Link
                   key={href}
                   href={href}
+                  onClick={onNavigate}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
                     on ? "bg-brand text-white" : "text-slate-300 hover:bg-navy-700 hover:text-white"
                   }`}
@@ -104,6 +121,7 @@ export function Sidebar({
         {isSuperAdmin && (
           <Link
             href="/admin"
+            onClick={onNavigate}
             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
               path === "/admin" || path.startsWith("/admin/")
                 ? "bg-brand text-white"
@@ -117,6 +135,7 @@ export function Sidebar({
 
       <Link
         href="/planos"
+        onClick={onNavigate}
         className="m-3 flex items-center justify-between rounded-lg bg-navy-700 px-3 py-2.5 text-sm transition hover:bg-navy-700/70"
       >
         <span className="truncate text-white">

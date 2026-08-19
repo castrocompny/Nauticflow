@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
-import { Sidebar } from "@/components/sidebar";
-import { Topbar } from "@/components/topbar";
+import { AppShell } from "@/components/app-shell";
 import { startEndOfToday } from "@/lib/format";
 import { OverdueBanner } from "./overdue-banner";
 import type { Notif } from "@/components/notifications-bell";
@@ -83,21 +82,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     notifications.push({ id: "saidas-lotadas", title: `${lotadas} saídas lotadas hoje`, desc: "capacidade máxima atingida" });
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        company={companyName}
-        city={companyCity}
-        planName={planName}
-        overdue={isOverdue || isSuspended}
-        isSuperAdmin={rawRole === "super_admin"}
-      />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Topbar name={firstName} role={role} notifications={notifications} />
-        {(isOverdue || isSuspended) && (
+    <AppShell
+      sidebar={{
+        company: companyName,
+        city: companyCity,
+        planName,
+        overdue: isOverdue || isSuspended,
+        isSuperAdmin: rawRole === "super_admin",
+      }}
+      topbar={{ name: firstName, role, notifications }}
+      banner={
+        (isOverdue || isSuspended) && (
           <OverdueBanner companyName={companyName} suspended={isSuspended} suspendedReason={suspendedReason} />
-        )}
-        <main className="flex-1 overflow-auto p-6">{children}</main>
-      </div>
-    </div>
+        )
+      }
+    >
+      {children}
+    </AppShell>
   );
 }

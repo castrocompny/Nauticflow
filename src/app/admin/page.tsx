@@ -254,7 +254,8 @@ export default async function AdminPage(
         </form>
 
         <Card className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+              <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
                 <th className="px-4 py-3">Empresa</th>
@@ -307,6 +308,8 @@ export default async function AdminPage(
               )}
             </tbody>
           </table>
+
+          </div>
         </Card>
 
         {totalPages > 1 && (

@@ -34,8 +34,9 @@ export default async function ClientsPage(props: { searchParams: Promise<{ page?
       ) : (
         <>
           <Card className="p-0">
-            <table className="w-full text-sm">
-              <thead>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
                 <tr className="border-b border-line text-left text-xs text-muted">
                   <th className="px-4 py-3">Nome</th>
                   <th className="px-4 py-3">CPF</th>
@@ -50,6 +51,8 @@ export default async function ClientsPage(props: { searchParams: Promise<{ page?
                 ))}
               </tbody>
             </table>
+
+            </div>
           </Card>
           <Pager page={page} totalPages={totalPages} basePath="/clientes" />
         </>
