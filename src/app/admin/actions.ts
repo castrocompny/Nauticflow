@@ -34,7 +34,7 @@ function revalidateAffectedCompany(companyId: string) {
   revalidatePath("/configuracoes");
 }
 
-export async function renewSubscription(companyId: string, planCode: string) {
+export async function renewSubscription(companyId: string, planCode: string, cycle?: "mensal" | "anual") {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { ok: false, message: auth.message };
   const { supabase, adminId, adminName } = auth;
@@ -51,15 +51,16 @@ export async function renewSubscription(companyId: string, planCode: string) {
     .maybeSingle();
   if (!sub) return { ok: false, message: "Assinatura não encontrada pra esta empresa." };
 
-  // renova pelo tamanho do ciclo da assinatura: 1 ano (anual) ou 30 dias (mensal)
-  const isAnual = sub.billing_cycle === "anual";
+  // ciclo escolhido no admin tem prioridade; sem escolha, mantém o ciclo que a
+  // assinatura já tinha (renovação sem trocar de mensal pra anual nem vice-versa)
+  const isAnual = cycle ? cycle === "anual" : sub.billing_cycle === "anual";
   const days = isAnual ? 365 : 30;
   const base = sub.paid_until && new Date(sub.paid_until) > new Date() ? new Date(sub.paid_until) : new Date();
   base.setDate(base.getDate() + days);
 
   const { error } = await supabase
     .from("subscriptions")
-    .update({ paid_until: base.toISOString(), status: "ativa", plan_id: plan.id })
+    .update({ paid_until: base.toISOString(), status: "ativa", plan_id: plan.id, billing_cycle: isAnual ? "anual" : "mensal" })
     .eq("id", sub.id);
   if (error) return { ok: false, message: error.message };
 

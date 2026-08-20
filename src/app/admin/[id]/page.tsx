@@ -20,7 +20,8 @@ type Sub = {
   paid_until: string | null;
   created_at: string;
   asaas_subscription_id: string | null;
-  plans: { name: string; price_cents: number; max_vessels: number | null; max_users: number | null } | null;
+  billing_cycle: string | null;
+  plans: { name: string; price_cents: number; price_cents_yearly: number | null; max_vessels: number | null; max_users: number | null } | null;
 };
 type LogRow = { id: string; admin_name: string | null; action: string; details: Record<string, unknown> | null; created_at: string };
 type Invoice = { id: string; number: string | null; amount_cents: number; pdf_url: string | null; issued_at: string; notes: string | null };
@@ -61,10 +62,10 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
         .maybeSingle(),
       supabase
         .from("subscriptions")
-        .select("id, status, paid_until, created_at, asaas_subscription_id, plans(name, price_cents, max_vessels, max_users)")
+        .select("id, status, paid_until, created_at, asaas_subscription_id, billing_cycle, plans(name, price_cents, price_cents_yearly, max_vessels, max_users)")
         .eq("company_id", params.id)
         .order("created_at", { ascending: false }),
-      supabase.from("plans").select("code, name, price_cents").order("price_cents"),
+      supabase.from("plans").select("code, name, price_cents, price_cents_yearly").order("price_cents"),
       supabase.from("vessels").select("id", { count: "exact", head: true }).eq("company_id", params.id),
       supabase.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", params.id),
       supabase
@@ -83,7 +84,7 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
   if (!company) notFound();
 
   const subscriptions = (subs ?? []) as unknown as Sub[];
-  const plans = (plansData ?? []) as { code: string; name: string; price_cents: number }[];
+  const plans = (plansData ?? []) as { code: string; name: string; price_cents: number; price_cents_yearly: number | null }[];
   const invoices = (invoicesData ?? []) as Invoice[];
   const current = subscriptions[0];
   const paidUntil = current?.paid_until ? new Date(current.paid_until) : null;
@@ -134,6 +135,9 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
             <div className="space-y-2 text-sm">
               <p>
                 Plano atual: <strong className="text-heading">{current?.plans?.name ?? "sem plano"}</strong>
+                {current?.plans && (
+                  <span className="ml-1 text-xs text-muted">({current.billing_cycle === "anual" ? "anual" : "mensal"})</span>
+                )}
                 {isTrial && <span className="ml-1 text-xs text-muted">(trial, nunca pagou via Asaas)</span>}
               </p>
               <p className="text-muted">
@@ -141,7 +145,7 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
               </p>
             </div>
             <div className="mt-4 space-y-3 border-t border-line pt-4">
-              <RenewButton companyId={company.id} plans={plans} />
+              <RenewButton companyId={company.id} plans={plans} defaultCycle={current?.billing_cycle === "anual" ? "anual" : "mensal"} />
               <ChangePlanButton companyId={company.id} plans={plans} currentPlanName={current?.plans?.name ?? "-"} />
             </div>
           </Card>
@@ -188,6 +192,7 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
                 <tr className="border-y border-line text-left text-xs text-muted">
                   <th className="px-5 py-2.5">Criada em</th>
                   <th className="px-4 py-2.5">Plano</th>
+                  <th className="px-4 py-2.5">Ciclo</th>
                   <th className="px-4 py-2.5">Vence em</th>
                   <th className="px-4 py-2.5">Status</th>
                   <th className="px-5 py-2.5">Origem</th>
@@ -198,8 +203,14 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
                   <tr key={s.id} className="border-b border-line last:border-0">
                     <td className="px-5 py-3 text-muted">{fmtDate(s.created_at)}</td>
                     <td className="px-4 py-3 text-heading">
-                      {s.plans?.name ?? "-"} {s.plans && <span className="text-xs text-muted">({brl(s.plans.price_cents)})</span>}
+                      {s.plans?.name ?? "-"}{" "}
+                      {s.plans && (
+                        <span className="text-xs text-muted">
+                          ({brl(s.billing_cycle === "anual" ? s.plans.price_cents_yearly ?? s.plans.price_cents * 10 : s.plans.price_cents)})
+                        </span>
+                      )}
                     </td>
+                    <td className="px-4 py-3 text-body">{s.billing_cycle === "anual" ? "Anual" : "Mensal"}</td>
                     <td className="px-4 py-3 text-body">{s.paid_until ? fmtDate(s.paid_until) : "-"}</td>
                     <td className="px-4 py-3 text-body">{s.status}</td>
                     <td className="px-5 py-3 text-xs text-muted">{s.asaas_subscription_id ? "Asaas" : "trial / manual"}</td>

@@ -17,7 +17,8 @@ type SubRow = {
   paid_until: string | null;
   created_at: string;
   asaas_subscription_id: string | null;
-  plans: { code: string; name: string; price_cents: number } | null;
+  billing_cycle: string | null;
+  plans: { code: string; name: string; price_cents: number; price_cents_yearly: number | null } | null;
 };
 type Company = {
   id: string;
@@ -82,10 +83,10 @@ export default async function AdminPage(
     supabase
       .from("companies")
       .select(
-        "id, name, cnpj, city, created_at, suspended_at, subscriptions(status, paid_until, created_at, asaas_subscription_id, plans(code, name, price_cents))"
+        "id, name, cnpj, city, created_at, suspended_at, subscriptions(status, paid_until, created_at, asaas_subscription_id, billing_cycle, plans(code, name, price_cents, price_cents_yearly))"
       )
       .order("created_at", { ascending: false }),
-    supabase.from("plans").select("code, name, price_cents").order("price_cents"),
+    supabase.from("plans").select("code, name, price_cents, price_cents_yearly").order("price_cents"),
     // conta embarcacoes por empresa pra detectar "onboarding travado" (ver abaixo) --
     // so funciona porque a migration 0016 deu ao super admin SELECT em vessels de
     // qualquer empresa
@@ -93,7 +94,7 @@ export default async function AdminPage(
   ]);
 
   const allCompanies = (data ?? []) as unknown as Company[];
-  const plans = (plansData ?? []) as { code: string; name: string; price_cents: number }[];
+  const plans = (plansData ?? []) as { code: string; name: string; price_cents: number; price_cents_yearly: number | null }[];
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -122,7 +123,13 @@ export default async function AdminPage(
     else if (s.isTrial) trial++;
     else {
       pagando++;
-      mrrCents += s.sub?.plans?.price_cents ?? 0;
+      // MRR normalizado: assinatura anual conta pelo valor mensal equivalente
+      // (preço anual / 12), não pelo preço mensal cheio, senão infla o MRR reportado
+      const plan = s.sub?.plans;
+      if (plan) {
+        const isAnual = s.sub?.billing_cycle === "anual";
+        mrrCents += isAnual ? Math.round((plan.price_cents_yearly ?? plan.price_cents * 10) / 12) : plan.price_cents;
+      }
     }
     if (!s.sub?.asaas_subscription_id) jamaisPagou++;
     if (new Date(c.created_at) >= monthStart) novasEsteMes++;
@@ -294,14 +301,20 @@ export default async function AdminPage(
                       </td>
                       <td className="px-4 py-3 text-body">{c.city ?? "-"}</td>
                       <td className="px-4 py-3 text-body">
-                        {s.sub?.plans?.name ?? "-"} {s.isTrial && s.sub && <span className="text-xs text-muted">(trial)</span>}
+                        {s.sub?.plans?.name ?? "-"}{" "}
+                        {s.sub?.plans && (
+                          <span className="text-xs text-muted">
+                            ({s.sub.billing_cycle === "anual" ? "anual" : "mensal"}
+                            {s.isTrial ? ", trial" : ""})
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-muted">{fmtDate(c.created_at)}</td>
                       <td className="px-4 py-3">
                         <Badge tone={s.tone}>{s.label}</Badge>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <RenewButton companyId={c.id} plans={plans} />
+                        <RenewButton companyId={c.id} plans={plans} defaultCycle={s.sub?.billing_cycle === "anual" ? "anual" : "mensal"} />
                       </td>
                     </tr>
                   );
