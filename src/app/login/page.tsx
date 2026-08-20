@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useActionState } from "react";
+import { Suspense, useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { signIn, signUp, forgotPassword } from "./actions";
 import { Logo } from "@/components/logo";
@@ -28,7 +29,15 @@ const titles: Record<string, string> = {
 // React descarta a instancia (e o estado do useActionState, com o erro/aviso da
 // tentativa anterior) toda vez que o usuario troca de aba (login/criar/esqueci),
 // em vez de deixar a mensagem antiga "grudada" na tela errada
-function AuthForm({ mode, onForgot }: { mode: "in" | "up" | "forgot"; onForgot: () => void }) {
+function AuthForm({
+  mode,
+  onForgot,
+  plan,
+}: {
+  mode: "in" | "up" | "forgot";
+  onForgot: () => void;
+  plan?: string;
+}) {
   const action = (mode === "in" ? signIn : mode === "up" ? signUp : forgotPassword) as (
     prevState: { error: string; info?: string },
     formData: FormData
@@ -51,6 +60,9 @@ function AuthForm({ mode, onForgot }: { mode: "in" | "up" | "forgot"; onForgot: 
       <form action={formAction} className="space-y-3">
         {mode === "up" && (
           <>
+            {/* plano escolhido na landing (?plan=...) -- vai junto pro cadastro pra
+                mandar o usuario direto pro checkout do plano certo depois de criar a conta */}
+            {plan && <input type="hidden" name="plan" value={plan} />}
             <div>
               <label>Seu nome</label>
               <input name="name" required className="mt-1" />
@@ -119,8 +131,18 @@ function AuthForm({ mode, onForgot }: { mode: "in" | "up" | "forgot"; onForgot: 
   );
 }
 
-export default function LoginPage() {
-  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
+function LoginPage() {
+  // ?mode=up abre direto na aba de cadastro (usado pelo CTA "Começar grátis" da
+  // landing); ?mode=in ou ausente abre em "Entrar".
+  const searchParams = useSearchParams();
+  const initialMode = searchParams.get("mode") === "up" ? "up" : "in";
+  const [mode, setMode] = useState<"in" | "up" | "forgot">(initialMode);
+  // plano escolhido na landing (?plan=start|profissional|premium) -- so aceita os
+  // codigos validos, pra nao propagar lixo da URL adiante
+  const planParam = searchParams.get("plan");
+  const plan = ["start", "profissional", "premium"].includes(planParam ?? "")
+    ? (planParam as string)
+    : undefined;
 
   return (
     <div className="grid min-h-screen place-items-center bg-app p-6">
@@ -132,7 +154,7 @@ export default function LoginPage() {
           <p className="text-sm text-muted">{titles[mode]}</p>
         </div>
 
-        <AuthForm key={mode} mode={mode} onForgot={() => setMode("forgot")} />
+        <AuthForm key={mode} mode={mode} onForgot={() => setMode("forgot")} plan={plan} />
 
         {mode === "forgot" ? (
           <button onClick={() => setMode("in")} className="mt-4 w-full text-center text-sm text-brand">
@@ -148,5 +170,15 @@ export default function LoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// useSearchParams exige um limite de Suspense em volta (App Router, Next 16) --
+// senao a rota inteira "cai" pra renderizacao client-side no build.
+export default function LoginPageWrapper() {
+  return (
+    <Suspense>
+      <LoginPage />
+    </Suspense>
   );
 }

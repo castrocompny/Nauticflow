@@ -22,6 +22,9 @@ export async function signUp(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
   const termsAccepted = formData.get("terms_accepted") === "on";
+  // plano vindo da landing (?plan=...) -- so aceita codigos validos
+  const planParam = String(formData.get("plan") || "");
+  const plan = ["start", "profissional", "premium"].includes(planParam) ? planParam : "";
   if (!termsAccepted) {
     return { error: "É preciso aceitar os Termos de Uso e a Política de Privacidade para criar a conta." };
   }
@@ -44,7 +47,9 @@ export async function signUp(_prev: unknown, formData: FormData) {
     return { error: "", info: "Conta criada! Confirme seu e-mail e depois entre normalmente." };
   }
 
-  redirect("/dashboard");
+  // veio de um plano especifico na landing -> cai direto na pagina de planos com ele
+  // destacado, pronto pra pagar. Sem plano, vai pro dashboard como sempre.
+  redirect(plan ? `/planos?plan=${plan}` : "/dashboard");
 }
 
 export async function forgotPassword(_prev: unknown, formData: FormData) {

@@ -11,6 +11,9 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
+  // resolve URLs relativas de Open Graph/Twitter (ex: /og-image.png) pro dominio real
+  // em producao, em vez de cair no localhost (aviso do next build).
+  metadataBase: new URL("https://nauticflow.com.br"),
   title: "NauticFlow",
   description: "Gestão inteligente para o turismo náutico",
   icons: {

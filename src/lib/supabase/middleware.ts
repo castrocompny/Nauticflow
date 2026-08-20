@@ -31,6 +31,7 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isPublic =
+    path === "/" || // landing institucional (raiz) e publica -- casa EXATO, nao startsWith
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
     path.startsWith("/redefinir-senha") ||
@@ -43,7 +44,8 @@ export async function updateSession(request: NextRequest) {
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
-  if (user && path === "/login") {
+  // quem ja tem sessao nao precisa ver login nem a landing -- vai direto pro app
+  if (user && (path === "/login" || path === "/")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

@@ -702,3 +702,48 @@ O token novo do webhook **não está escrito neste arquivo de propósito** (é v
 ### Validação
 
 Teste real, não só automatizado: pagamento confirmado no Asaas, webhook recebido, `subscriptions.paid_until` atualizado no banco, tudo refletido na UI sem intervenção manual. Essa era a última verificação que faltava antes de trocar as chaves do Asaas pra produção (ver seção 6, pendência de trocar pra produção quando for lançar de verdade).
+
+## 40. Site institucional / landing page na raiz `/` (sessão de 2026-08-19)
+
+Até aqui o domínio raiz não tinha página institucional: `src/app/page.tsx` fazia `redirect("/dashboard")` e, como `/dashboard` exige login, o visitante caía direto num formulário de login vazio. Esta sessão trouxe uma **landing page pública** pra raiz `/`, pra apresentar o produto, mostrar os planos e converter visitante em cadastro. A landing foi primeiro prototipada como projeto separado (Next 14, pasta irmã `nauticflow-site`, fora do repo) e depois **integrada ao produto real** (Next 16 / React 19), reaproveitando o design system existente.
+
+### O que mudou
+
+- **`src/app/page.tsx`** — deixou de redirecionar e passou a renderizar a landing. É um Server Component **estático** (sai como `○` no `next build`, ótimo pra SEO/performance), com `export const metadata` (title, description, keywords em pt-BR, Open Graph + Twitter) e um bloco JSON-LD (`SoftwareApplication` + `Offer` por plano). O redirecionamento de quem já está logado foi movido pro proxy (abaixo).
+- **`src/lib/supabase/middleware.ts`** (o `proxy`) — a raiz virou rota pública. **Cuidado importante**: a allowlist usa `path === "/"` (casamento EXATO), **não** `startsWith("/")` — um `startsWith` abriria o app inteiro sem login. E o redirect de quem tem sessão foi estendido de `path === "/login"` pra incluir também `path === "/"`, então logado que abre a raiz vai direto pro `/dashboard` (preserva o comportamento antigo).
+- **`src/app/login/page.tsx`** — passou a ler `?mode=up` da URL (`useSearchParams`, dentro de um limite `<Suspense>` exigido pelo App Router no Next 16) e já abrir na aba **"Crie sua empresa"**. Antes o parâmetro era ignorado e sempre abria em "Entrar". É o que faz o CTA "Começar grátis" (`/login?mode=up`) levar direto ao cadastro. Sem mudança nas server actions.
+- **`src/components/marketing/`** (novo) — as seções da landing: `site-header` (nav + `<ThemeToggle/>` + menu mobile), `hero` + `dashboard-mockup` (mockup ilustrativo, sem dados reais), `features`, `how-it-works`, `pricing`, `trust`, `final-cta`, `site-footer`, e `plans.ts` (dados literais dos planos + links/contatos). CTAs são links relativos (`/login`, `/login?mode=up`); rodapé linka `/termos` e `/privacidade`.
+- **`src/app/layout.tsx`** — adicionado `metadataBase: new URL("https://nauticflow.com.br")` pra as imagens de OG/Twitter resolverem pro domínio real em vez de `localhost` (tirava um aviso do `next build`).
+- **`public/og-image.png`** — imagem Open Graph 1200×630.
+
+### Reaproveitamento (nenhuma dependência nova)
+
+A landing usa o que o produto já tem: fontes Inter/Poppins (já no `layout.tsx`), tokens de tema (`bg-app`, `bg-surface`, `text-heading`/`body`/`muted`, `border-line`), cores `navy`/`brand`, o `<ThemeToggle/>`, o logo real (`/nauticflow-icon.png`) e ícones `lucide-react`. Hero e CTA final ficam em navy fixo (identidade de marca); o resto é reativo ao tema (claro/escuro), consistente com o app.
+
+### Ambiente (achado)
+
+O `node_modules` local estava desatualizado: em **Next 14/React 18**, anterior ao commit de migração pro Next 16 (o lockfile e a Vercel já estavam em **16.3.1/React 19**). Ou seja, o `next dev`/`build` local rodava numa versão diferente da produção. Rodado `npm install` pra sincronizar com o lockfile antes de desenvolver — agora local bate com produção.
+
+### Placeholders deixados (trocar antes de divulgar)
+
+- **Contato** em `src/components/marketing/plans.ts` (`MKT_CONTACT`): WhatsApp e e-mail estão como `(00) 00000-0000` / `contato@nauticflow.com.br`.
+- **Depoimentos**: a seção "Confiança" tem um espaço marcado como placeholder — nada de número/depoimento inventado.
+
+### Escopo / segurança
+
+Nenhuma rota do app (`(app)`), Supabase, billing/Asaas, admin ou webhook foi alterada. A única ampliação de acesso foi tornar a **raiz exata** `/` pública no proxy.
+
+### Validação
+
+Deslogado, `/` responde **200** com a landing completa (todos os planos com os valores literais R$147/R$297/R$597); `/login?mode=up` abre na aba de cadastro e `/login` (sem parâmetro) abre em "Entrar"; `/termos` e `/privacidade` seguem 200. `next build` sem erros, com `/` prerenderizada estática e o aviso de `metadataBase` resolvido. Conferido visualmente em claro e escuro, desktop e mobile, e o fluxo CTA "Começar grátis" → cadastro ponta a ponta.
+
+### Ajuste nos cards de planos: botão "Assinar por R$X/mês" + teste grátis separado (mesma sessão)
+
+A pedido do dono, os três cards de planos deixaram de ter cada um o botão "Começar teste grátis" e passaram a ter o **valor real como ação**: o botão virou **"Assinar por R$147/mês"** (etc.), e o teste grátis foi **separado** num bloco único abaixo dos três cards ("Quer testar antes de assinar? · Começar teste grátis"). O botão de assinar de cada card **sinaliza o plano escolhido** e leva a pré-seleção pra dentro do sistema:
+
+- **`src/components/marketing/pricing.tsx`** — botão do card = `Assinar por {preço}{período}`, link `/login?mode=up&plan=<code>` (`code` = `start`/`profissional`/`premium`, os mesmos da tabela `plans`). Bloco de teste grátis separado logo abaixo, apontando pra `/login?mode=up` (sem plano).
+- **`src/app/login/page.tsx`** — lê `?plan=` da URL (validando contra os 3 códigos; lixo é ignorado) e injeta um `<input type="hidden" name="plan">` no formulário de cadastro.
+- **`src/app/login/actions.ts`** (`signUp`) — lê o `plan` do form (revalidado) e, quando o cadastro já cria sessão, redireciona pra `/planos?plan=<code>` em vez de `/dashboard`. Sem plano, segue pro dashboard como antes. **Não** mexe no gatilho do banco nem no fluxo de pagamento (Asaas).
+- **`src/app/(app)/planos/page.tsx`** — passou a receber `searchParams` (assíncrono no Next 16, `await props.searchParams`) e **destaca** o card do plano escolhido (borda + `ring` + selo "PLANO ESCOLHIDO NO SITE"), onde o usuário conclui o pagamento com o `PayPlanButton` que já existia.
+
+Como não existe pagamento sem conta (checkout real é interno, via Asaas), o "Assinar" da landing continua passando pelo cadastro — só que agora carrega qual plano foi escolhido até a tela de planos. `next build` sem erros; `/` e `/login` estáticas, `/planos` dinâmica. Validado por HTML servido: botões "Assinar por…", `href` com `&plan=` codificado, `<input hidden name="plan">` presente pra plano válido e ausente pra valor inválido.

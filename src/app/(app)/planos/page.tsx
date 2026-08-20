@@ -23,7 +23,13 @@ const planExtras: Record<string, string[]> = {
 
 type Plan = { code: string; name: string; price_cents: number; max_vessels: number | null; max_users: number | null };
 
-export default async function PlanosPage() {
+export default async function PlanosPage(props: { searchParams: Promise<{ plan?: string }> }) {
+  // ?plan=... vem do cadastro quando o usuario escolheu um plano na landing --
+  // destaca o card certo. searchParams e assincrono no Next 16.
+  const { plan: planParam } = await props.searchParams;
+  const preselected = ["start", "profissional", "premium"].includes(planParam ?? "")
+    ? planParam
+    : undefined;
   const supabase = createClient();
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
@@ -68,9 +74,16 @@ export default async function PlanosPage() {
       <div className="grid gap-4 md:grid-cols-3">
         {plans.map((p) => {
           const isCurrent = p.code === currentPlanCode;
+          const isPreselected = !isCurrent && p.code === preselected;
           return (
-            <Card key={p.code} className={isCurrent ? "border-brand" : ""}>
+            <Card
+              key={p.code}
+              className={isCurrent || isPreselected ? "border-brand ring-2 ring-brand/25" : ""}
+            >
               {isCurrent && <p className="mb-1 text-xs font-semibold text-brand">SEU PLANO ATUAL</p>}
+              {isPreselected && (
+                <p className="mb-1 text-xs font-semibold text-brand">PLANO ESCOLHIDO NO SITE</p>
+              )}
               <p className="font-display text-lg font-semibold text-heading">{p.name}</p>
               <p className="mt-1 font-display text-3xl font-semibold text-brand">
                 {brl(p.price_cents)}
