@@ -794,7 +794,7 @@ Adicionada a opção de **cobrança anual** além da mensal, com **2 meses grát
 
 `next build` exit 0 e `eslint .` sem erros; `/` e `/login` seguem estáticas. Conferido por HTML: toggle Mensal/Anual na landing, preços anuais (R$1.470/2.970/5.970) e badge "2 meses grátis", e o login carregando `plan`+`cycle` como campos ocultos. **Falta testar ponta a ponta** (checkout YEARLY → webhook soma 365) — só é possível **depois de aplicar a migration** e no Sandbox do Asaas. **(Atualização: migration aplicada e testada com sucesso pelo dono em 2026-08-20 — planos anuais em produção.)**
 
-## 43. Favicon `.ico` — logo aparecendo nos previews de link (sessão de 2026-08-20)
+### Favicon `.ico` — logo aparecendo nos previews de link
 
 Nos previews de link (busca do Google, cards de chat) o site aparecia com um **globo genérico** em vez da logo. Causa: a home só declarava `<link rel="icon" href="/favicon.png">` e **`/favicon.ico` dava 404** — muitos crawlers pedem `/favicon.ico` direto por padrão e, sem ele, caem no globo. O `favicon.png` (a logo barco+onda de [public/favicon.png](public/favicon.png)) estava certo, só faltava o `.ico`.
 
