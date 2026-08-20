@@ -18,11 +18,16 @@ export const metadata: Metadata = {
   title: "NauticFlow",
   description: "Gestão inteligente para o turismo náutico",
   icons: {
-    // favicon.png e uma versao quadrada (com padding transparente) do
-    // nauticflow-icon.png -- o arquivo original e bem largo (738x341), e
-    // navegadores esmagam/cortam imagens nao-quadradas na aba, deixando
-    // irreconhecivel em tamanho pequeno
-    icon: "/favicon.png",
+    // favicon.png/ico/apple-icon sao versoes quadradas (padding transparente) do
+    // nauticflow-icon.png -- o original e bem largo (738x341), e navegadores esmagam/
+    // cortam imagens nao-quadradas na aba. O .ico e essencial: muitos crawlers de
+    // preview (Google, apps de chat) pedem /favicon.ico direto e, sem ele (404),
+    // caem no globo generico -- era o que acontecia.
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.png", type: "image/png" },
+    ],
+    apple: "/apple-icon.png",
   },
 };
 

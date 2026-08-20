@@ -792,4 +792,12 @@ Adicionada a opção de **cobrança anual** além da mensal, com **2 meses grát
 
 ### Validação
 
-`next build` exit 0 e `eslint .` sem erros; `/` e `/login` seguem estáticas. Conferido por HTML: toggle Mensal/Anual na landing, preços anuais (R$1.470/2.970/5.970) e badge "2 meses grátis", e o login carregando `plan`+`cycle` como campos ocultos. **Falta testar ponta a ponta** (checkout YEARLY → webhook soma 365) — só é possível **depois de aplicar a migration** e no Sandbox do Asaas.
+`next build` exit 0 e `eslint .` sem erros; `/` e `/login` seguem estáticas. Conferido por HTML: toggle Mensal/Anual na landing, preços anuais (R$1.470/2.970/5.970) e badge "2 meses grátis", e o login carregando `plan`+`cycle` como campos ocultos. **Falta testar ponta a ponta** (checkout YEARLY → webhook soma 365) — só é possível **depois de aplicar a migration** e no Sandbox do Asaas. **(Atualização: migration aplicada e testada com sucesso pelo dono em 2026-08-20 — planos anuais em produção.)**
+
+## 43. Favicon `.ico` — logo aparecendo nos previews de link (sessão de 2026-08-20)
+
+Nos previews de link (busca do Google, cards de chat) o site aparecia com um **globo genérico** em vez da logo. Causa: a home só declarava `<link rel="icon" href="/favicon.png">` e **`/favicon.ico` dava 404** — muitos crawlers pedem `/favicon.ico` direto por padrão e, sem ele, caem no globo. O `favicon.png` (a logo barco+onda de [public/favicon.png](public/favicon.png)) estava certo, só faltava o `.ico`.
+
+- Gerado **`public/favicon.ico`** de verdade (container ICO com PNGs 16/32/48px) a partir do `favicon.png`, usando o `sharp` que já vem com o Next (script temporário, apagado depois). Também **`public/apple-icon.png`** 180×180 (fundo branco, iOS não curte transparência).
+- [src/app/layout.tsx](src/app/layout.tsx): `metadata.icons` ampliado pra `icon: [/favicon.ico (sizes any), /favicon.png]` + `apple: /apple-icon.png`. HTML passou a emitir os 3 `<link>` e `/favicon.ico` serve 200.
+- **Observação:** aba do navegador atualiza na hora; previews de Google/apps de chat têm **cache** e podem demorar a re-buscar o favicon (dá pra forçar re-scan em ferramentas de teste de link, mas o normal é atualizar sozinho em alguns dias).
