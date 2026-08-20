@@ -803,3 +803,18 @@ Nos previews de link (busca do Google, cards de chat) o site aparecia com um **g
 - **Observação:** aba do navegador atualiza na hora; previews de Google/apps de chat têm **cache** e podem demorar a re-buscar o favicon (dá pra forçar re-scan em ferramentas de teste de link, mas o normal é atualizar sozinho em alguns dias).
 
 **De quebra — `robots.txt` + `sitemap.xml` (mesma investigação):** ao checar por que o Google não atualizava, descobri que **`/robots.txt` retornava 307** (o `proxy` de auth redirecionava pro `/login`) e **não havia sitemap**. Isso não bloqueia o Google, mas atrapalha o rastreio. Corrigido: `src/proxy.ts` passou a excluir `robots.txt`/`sitemap.xml` do matcher, e criados `src/app/robots.ts` (allow all + link do sitemap) e `src/app/sitemap.ts` (home). Confirmado que servem 200. **Nota:** o Google mostrar dado antigo (título "NauticFlow" / "Gestão inteligente para o turismo náutico", de antes da landing) é sinal de que ele ainda não re-rastreou — quando re-rastrear, favicon + título + descrição atualizam juntos. Acelera via Search Console → Inspecionar URL → Solicitar indexação.
+
+## 43. Painel `/admin` não tinha acompanhado os planos anuais da seção 42 (sessão de 2026-08-20)
+
+A seção 42 colocou o ciclo anual em todo o fluxo de cobrança (checkout, webhook, RPC), mas o painel `/admin` ficou pra trás — auditoria pedida pelo dono do produto depois de revisar o que tinha mudado no dia. Três problemas achados:
+
+1. **MRR inflado**: o card "MRR" somava `plans.price_cents` (preço mensal cheio) pra qualquer assinatura paga, inclusive as anuais. Um cliente anual de R$5.970/ano contava como se pagasse R$597/**mês**, em vez do equivalente real (~R$497,50/mês).
+2. **Ciclo invisível**: nem a lista de empresas nem a página de detalhe mostravam se o cliente era mensal ou anual — só dava pra saber olhando o banco direto.
+3. **Renovação manual sem opção de ciclo**: o botão "Renovar assinatura" (usado quando o dono recebe pagamento fora do Asaas, ex: PIX) só sabia renovar mensal; pra um cliente anual pagando fora do fluxo automático, a renovação gravaria o ciclo errado.
+
+Corrigido em [src/app/admin/page.tsx](src/app/admin/page.tsx), [src/app/admin/[id]/page.tsx](src/app/admin/[id]/page.tsx), [src/app/admin/actions.ts](src/app/admin/actions.ts) e [src/app/admin/renew-button.tsx](src/app/admin/renew-button.tsx):
+- MRR normaliza anual pelo valor mensal equivalente (`price_cents_yearly / 12`).
+- Lista de empresas e ficha da empresa mostram "(mensal)"/"(anual)" ao lado do plano; histórico de assinaturas ganhou coluna "Ciclo".
+- `RenewButton` ganhou seletor de ciclo (padrão = ciclo atual da assinatura), preço exibido no botão já reflete a escolha, e `renewSubscription` grava o `billing_cycle` certo.
+
+`tsc --noEmit` e `next build` passaram limpos. Subido direto pro `main` (correção só do painel interno, não afeta cliente final).
