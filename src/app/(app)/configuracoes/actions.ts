@@ -49,9 +49,24 @@ export async function updateSettings(_prev: unknown, formData: FormData) {
 // + todos os dados, via cascade no banco); staff/super_admin apaga so a propria
 // conta. Usa o client admin (service_role) porque deletar outros usuarios exige
 // privilegio que a sessao normal nao tem.
+//
+// Exige a SENHA da conta antes de apagar qualquer coisa -- so digitar o nome da
+// empresa nao bastava como barreira de verdade, porque o nome da empresa aparece
+// em varios lugares da tela (sidebar, cabecalho) pra qualquer um ver. Reautenticar
+// com a senha protege contra clique acidental e contra alguem que tenha acesso ao
+// computador do dono já logado, mas não sabe a senha da conta.
 export async function deleteMyAccount(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
   if (!profile) return { error: "Sessão inválida." };
+
+  const password = String(formData.get("password") || "");
+  if (!password) return { error: "Digite sua senha para confirmar." };
+  const email = profile.email;
+  if (!email) return { error: "Conta sem e-mail cadastrado — não é possível confirmar a senha." };
+
+  const supabaseAuth = createClient();
+  const { error: authError } = await supabaseAuth.auth.signInWithPassword({ email, password });
+  if (authError) return { error: "Senha incorreta." };
 
   const confirmText = String(formData.get("confirm") || "").trim();
   const admin = createAdminClient();
@@ -87,7 +102,6 @@ export async function deleteMyAccount(_prev: unknown, formData: FormData) {
     if (error) return { error: "Não foi possível excluir a conta: " + error.message };
   }
 
-  const supabase = createClient();
-  await supabase.auth.signOut();
+  await supabaseAuth.auth.signOut();
   redirect("/login");
 }
