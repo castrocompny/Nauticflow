@@ -19,6 +19,7 @@ export const MKT_NAV = [
   { href: "#funcionalidades", label: "Funcionalidades" },
   { href: "#como-funciona", label: "Como funciona" },
   { href: "#planos", label: "Planos" },
+  { href: "#faq", label: "Perguntas" },
   { href: "#contato", label: "Contato" },
 ] as const;
 

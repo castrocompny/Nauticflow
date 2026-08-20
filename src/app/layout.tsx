@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Poppins } from "next/font/google";
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -40,7 +41,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           `}
         </Script>
       </head>
-      <body className="font-sans">{children}</body>
+      <body className="font-sans">
+        {children}
+        {/* Vercel Web Analytics -- cookieless e sem coletar PII (não precisa de banner
+            de consentimento). Só coleta de verdade depois de ativar "Web Analytics" no
+            painel da Vercel; sem isso, é inofensivo. Endpoints same-origin (/_vercel),
+            compatível com a CSP atual. */}
+        <Analytics />
+      </body>
     </html>
   );
 }

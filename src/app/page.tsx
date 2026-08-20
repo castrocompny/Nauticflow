@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { Hero } from "@/components/marketing/hero";
+import { Audience } from "@/components/marketing/audience";
 import { Features } from "@/components/marketing/features";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 import { Pricing } from "@/components/marketing/pricing";
 import { Trust } from "@/components/marketing/trust";
+import { Faq } from "@/components/marketing/faq";
 import { FinalCta } from "@/components/marketing/final-cta";
 import { SiteFooter } from "@/components/marketing/site-footer";
+import { WhatsAppButton } from "@/components/marketing/whatsapp-button";
 import { MKT_PLANS } from "@/components/marketing/plans";
 
 export const metadata: Metadata = {
@@ -73,13 +76,16 @@ export default function Home() {
       <SiteHeader />
       <main>
         <Hero />
+        <Audience />
         <Features />
         <HowItWorks />
         <Pricing />
         <Trust />
+        <Faq />
         <FinalCta />
       </main>
       <SiteFooter />
+      <WhatsAppButton />
     </>
   );
 }

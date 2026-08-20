@@ -749,3 +749,21 @@ A pedido do dono, os três cards de planos deixaram de ter cada um o botão "Com
 - **`src/app/(app)/planos/page.tsx`** — passou a receber `searchParams` (assíncrono no Next 16, `await props.searchParams`) e **destaca** o card do plano escolhido (borda + `ring` + selo "PLANO ESCOLHIDO NO SITE"), onde o usuário conclui o pagamento com o `PayPlanButton` que já existia.
 
 Como não existe pagamento sem conta (checkout real é interno, via Asaas), o "Assinar" da landing continua passando pelo cadastro — só que agora carrega qual plano foi escolhido até a tela de planos. `next build` sem erros; `/` e `/login` estáticas, `/planos` dinâmica. Validado por HTML servido: botões "Assinar por…", `href` com `&plan=` codificado, `<input hidden name="plan">` presente pra plano válido e ausente pra valor inválido.
+
+## 41. Landing: FAQ, "pra quem é", botão de WhatsApp e analytics (sessão de 2026-08-20)
+
+Rodada de melhorias na landing pra aumentar conversão e confiança, depois de decidir remover os depoimentos (não ter nada falso, ver seção 40). Tudo com conteúdo verdadeiro, baseado no produto real.
+
+- **FAQ** (`src/components/marketing/faq.tsx`, seção `#faq`, novo item "Perguntas" no menu) — 9 perguntas que derrubam as objeções típicas do público (precisa saber mexer em computador?, funciona no celular?, precisa de cartão pra testar?, como o cliente recebe o voucher?, posso cancelar?, cobram comissão por reserva?, serve pro meu tipo de embarcação?, meus dados ficam seguros?, como é o suporte?). Acordeão nativo com `<details>/<summary>` (zero JS). Emite **FAQPage JSON-LD** pra o Google poder mostrar as perguntas na busca.
+- **"Pra quem é"** (`src/components/marketing/audience.tsx`) — faixa logo abaixo do hero com os tipos de operação atendidos (escuna, lancha, jet-ski, catamarã, marinas/operadores), pro visitante se reconhecer de cara.
+- **Botão flutuante de WhatsApp** (`src/components/marketing/whatsapp-button.tsx`) — canto inferior direito, cor da marca do WhatsApp, com mensagem pré-preenchida, `target="_blank"` + `rel="noopener noreferrer"`. Usa o número real já configurado em `MKT_CONTACT`.
+- **Vercel Web Analytics** — adicionado `@vercel/analytics` (v2) e `<Analytics/>` no layout raiz (`src/app/layout.tsx`). É **cookieless e não coleta PII**, então não exige banner de consentimento (LGPD ok). Endpoints são same-origin (`/_vercel/insights`), compatível com a CSP atual. **⚠️ Pendência**: só coleta de verdade depois de **ativar "Web Analytics" no painel da Vercel** (projeto → aba Analytics → Enable); sem isso o `<Analytics/>` é inofensivo/no-op.
+
+### Ainda pendente (precisa de ação do dono)
+
+- **Prints reais do produto no hero** — hoje o hero usa um mockup ilustrativo (`dashboard-mockup.tsx`) com dados de exemplo. Trocar por prints reais da agenda/reserva/dashboard aumenta muito a confiança. Falta um **login de teste** pra capturar as telas do app rodando.
+- **Ativar o Web Analytics na Vercel** (ver acima).
+
+### Validação
+
+`eslint .` (0 erros, só os warnings de `<img>` já existentes) e `next build` exit 0 — `/` continua prerenderizada estática. Conferido por HTML servido: seção FAQ + FAQPage JSON-LD, faixa "pra quem é", botão de WhatsApp e o item "Perguntas" no menu, todos presentes.
