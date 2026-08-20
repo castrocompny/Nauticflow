@@ -56,8 +56,7 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 ## 6. Pendências conhecidas (lista do que fazer depois)
 
 - **Trocar o Asaas de Sandbox pra produção antes de vender de verdade** (sessão de 2026-08-18/19, esclarecido em 2026-08-19): confirmado com o dono do produto que o sistema em produção (`nauticflow.com.br`) está usando o **Sandbox do Asaas de propósito** — decisão consciente, pra poder testar todo o fluxo de pagamento (checkout, webhook, atualização de `paid_until`) sem cobrar ninguém de verdade, antes de abrir o sistema pra clientes reais. Não é bug nem pendência de segurança — é a etapa de testes antes do lançamento comercial. O `asaas_subscription_id` (`sub_klqdrpcxesksrn3c`) salvo na empresa do dono é dessas assinaturas de teste, sem cobrança real associada; as 3 assinaturas de teste que apareceram no Sandbox (`castro compny` + 2× `Minha empresa` duplicada) já foram canceladas por ele. **Quando for lançar de verdade**: trocar `ASAAS_API_URL`/`ASAAS_API_KEY` na Vercel pras credenciais de produção do Asaas (hoje marcadas "Sensitive", só o João consegue ver/editar).
-- **Testar pagamento de ponta a ponta no Sandbox antes de trocar pra produção** — o checkout (`/planos`) já foi testado e funciona (ver seção 21), falta simular um pagamento completo no Sandbox e confirmar que o webhook dispara e atualiza `paid_until` de verdade (não só a criação da cobrança). Combinado com o dono do produto fazer isso numa próxima sessão, antes de trocar as chaves pra produção.
-- **Testar o webhook do Asaas com domínio real** — apontar a URL do webhook no painel do Asaas pra `https://nauticflow.com.br/api/webhooks/asaas` (ver seção 20) e testar de verdade.
+- ~~Testar pagamento de ponta a ponta no Sandbox~~ / ~~Testar o webhook do Asaas com domínio real~~ — **resolvido** (ver seção 39). Webhook cadastrado no painel do Asaas, token novo gerado e sincronizado com a Vercel, pagamento de teste confirmado via "Ações de Sandbox" → "Confirmar pagamento", e o `paid_until` da empresa de teste atualizou sozinho.
 - ~~Aplicar a migration `0019_valida_dono_fk_saidas.sql`~~ — **resolvido**, aplicada no Supabase pelo dono do produto.
 - ~~Rate limiting no login~~ — **resolvido** (ver seção 31). CAPTCHA (hCaptcha/Turnstile) fica como melhoria futura opcional, só se houver sinal de abuso real (dá pra acompanhar em Authentication → Audit Logs no Supabase).
 - ~~Validar valor/quantidade da reserva~~ — **resolvido** (ver seção 31). Bloqueia valor negativo/inválido e quantidade de passageiros inválida; não trava contra o preço base do passeio de propósito (desconto/preço combinado continua livre, é uso legítimo do negócio).
@@ -679,3 +678,23 @@ Feito logo no início da sessão, antes do trabalho de responsividade (seção 3
 ### Validação
 
 `tsc --noEmit`, `eslint .`, `next build` sem erros. Confirmado em produção via `curl -I` que o site continuou respondendo normalmente depois do deploy.
+
+## 39. Webhook do Asaas cadastrado e teste de pagamento de ponta a ponta confirmado (sessão de 2026-08-19)
+
+Descoberta ao checar o painel do Asaas (Integrações → Webhooks): **nenhum webhook tinha sido cadastrado ainda** — era um item pendente desde a seção 20/21, nunca tinha sido feito de verdade (só documentado como "falta fazer").
+
+### O que foi feito
+
+1. Gerado um token novo pro webhook (`crypto.randomBytes(32).toString('hex')`) e sincronizado nos dois lados:
+   - Removido o `ASAAS_WEBHOOK_TOKEN` antigo da Vercel (`vercel env rm`) e adicionado o novo (`vercel env add`), ambiente Production.
+   - Disparado um redeploy (`vercel --prod`) — variável de ambiente só entra em vigor num deploy novo, não é aplicada em quente nos deploys já no ar.
+2. Cadastrado o webhook no painel do Asaas Sandbox: URL `https://nauticflow.com.br/api/webhooks/asaas`, eventos `PAYMENT_CONFIRMED` e `PAYMENT_RECEIVED` (os dois que `src/app/api/webhooks/asaas/route.ts` já tratava, mas nunca recebia porque não tinha webhook nenhum configurado), webhook habilitado e fila de sincronização ativada.
+3. **Teste de ponta a ponta**: criada uma conta nova no site (simulando um cliente real), escolhido um plano em `/planos` → abriu a fatura de verdade no Asaas Sandbox (checkout já confirmado funcionando desde a seção 21) → confirmado o pagamento usando a faixa **"Ações de Sandbox" → "Confirmar pagamento"** (um recurso do próprio Asaas Sandbox pra simular pagamento sem precisar de número de cartão de teste) → voltado pro `/planos` da conta de teste e confirmado que o plano apareceu como **"Plano contratado: Premium, ativa até [30 dias à frente]"**, sem nenhuma ação manual no nosso sistema — confirma que o webhook recebeu o evento, achou a assinatura certa pelo `externalReference` (`company_id`) e atualizou `paid_until`/`status` sozinho.
+
+### Importante
+
+O token novo do webhook **não está escrito neste arquivo de propósito** (é versionado/público) — está salvo só na Vercel (env var, "Sensitive") e no painel do Asaas. Se precisar recadastrar o webhook (ex: perdeu o valor), é preciso gerar um token novo e sincronizar os dois lados de novo, do mesmo jeito.
+
+### Validação
+
+Teste real, não só automatizado: pagamento confirmado no Asaas, webhook recebido, `subscriptions.paid_until` atualizado no banco, tudo refletido na UI sem intervenção manual. Essa era a última verificação que faltava antes de trocar as chaves do Asaas pra produção (ver seção 6, pendência de trocar pra produção quando for lançar de verdade).
