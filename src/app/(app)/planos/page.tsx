@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/profile";
 import { PageHeader, Card } from "@/components/ui";
 import { PlanCards } from "./plan-cards";
+import { CancelSubscriptionButton } from "./cancel-subscription-button";
 
 const DIAS_PARA_AVISAR_VENCIMENTO = 7;
 
@@ -27,25 +29,31 @@ export default async function PlanosPage(props: {
   const supabase = createClient();
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
-  const [{ data: plansData }, { data: subData }, vesselsCount, reservasMes] = await Promise.all([
+  const [{ data: plansData }, { data: subData }, vesselsCount, reservasMes, profile] = await Promise.all([
     supabase
       .from("plans")
       .select("code, name, price_cents, price_cents_yearly, max_vessels, max_users")
       .order("price_cents"),
     supabase
       .from("subscriptions")
-      .select("paid_until, plans(code)")
+      .select("paid_until, status, asaas_subscription_id, plans(code)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
     supabase.from("vessels").select("id", { count: "exact", head: true }),
     supabase.from("reservations").select("id", { count: "exact", head: true }).gte("created_at", monthStart),
+    getProfile(),
   ]);
 
   const plans = (plansData ?? []) as Plan[];
   const currentPlanCode = (subData as any)?.plans?.code as string | undefined;
   const currentPlan = plans.find((p) => p.code === currentPlanCode);
   const paidUntil = (subData as any)?.paid_until ? new Date((subData as any).paid_until) : null;
+  const canCancel =
+    (profile?.role === "company_admin" || profile?.role === "super_admin") &&
+    !!(subData as any)?.asaas_subscription_id &&
+    (subData as any)?.status !== "cancelada";
+  const isCancelada = (subData as any)?.status === "cancelada";
   // Server Component: roda de novo a cada requisicao, sem memoizacao do React Compiler
   // envolvida -- Date.now() aqui e seguro, so a regra de pureza nao distingue RSC.
   // eslint-disable-next-line react-hooks/purity
@@ -76,6 +84,15 @@ export default async function PlanosPage(props: {
         precisaRenovarLogo={precisaRenovarLogo}
         paidUntilISO={paidUntil ? paidUntil.toISOString() : null}
       />
+
+      {isCancelada && (
+        <Card className="mt-4 text-sm text-muted">
+          Sua assinatura está <strong className="text-heading">cancelada</strong> — você não será cobrado de novo.
+          {paidUntil && <> Acesso liberado até <strong className="text-heading">{paidUntil.toLocaleDateString("pt-BR")}</strong>.</>}{" "}
+          Pra continuar depois disso, escolha um plano acima quando quiser.
+        </Card>
+      )}
+      {canCancel && <CancelSubscriptionButton />}
     </>
   );
 }

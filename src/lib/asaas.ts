@@ -2,9 +2,9 @@
 
 const BASE_URL = process.env.ASAAS_API_URL ?? "https://api-sandbox.asaas.com/v3";
 
-type AsaasResult<T> = { ok: true; data: T } | { ok: false; error: string };
+type AsaasResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
-async function asaasFetch<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<AsaasResult<T>> {
+async function asaasFetch<T>(path: string, method: "GET" | "POST" | "DELETE", body?: unknown): Promise<AsaasResult<T>> {
   const apiKey = process.env.ASAAS_API_KEY;
   if (!apiKey) return { ok: false, error: "Integração com Asaas ainda não configurada." };
 
@@ -20,7 +20,7 @@ async function asaasFetch<T>(path: string, method: "GET" | "POST", body?: unknow
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     const message = json?.errors?.[0]?.description ?? `Erro ${res.status} na API do Asaas.`;
-    return { ok: false, error: message };
+    return { ok: false, error: message, status: res.status };
   }
   return { ok: true, data: json as T };
 }
@@ -70,6 +70,17 @@ export async function createSubscription(params: {
     description: `NauticFlow — Plano ${params.planName}`,
     externalReference: params.companyId,
   });
+}
+
+// Cancela a assinatura no Asaas -- para as cobranças futuras (nenhuma fatura nova é
+// gerada). Faturas já emitidas e não pagas continuam existindo lá, mas não vencem mais
+// nada novo. Idempotente: cancelar de novo uma assinatura já cancelada/inexistente no
+// Asaas retorna erro 404, tratado como sucesso (o efeito desejado -- "não cobra mais" --
+// já está garantido).
+export async function cancelSubscription(subscriptionId: string): Promise<AsaasResult<true>> {
+  const res = await asaasFetch<{ deleted: boolean }>(`/subscriptions/${subscriptionId}`, "DELETE");
+  if (!res.ok && res.status !== 404) return res;
+  return { ok: true, data: true };
 }
 
 type AsaasPaymentsList = { data: { invoiceUrl: string }[] };

@@ -1,9 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
-import { findOrCreateCustomer, createSubscription, getFirstInvoiceUrl } from "@/lib/asaas";
+import { findOrCreateCustomer, createSubscription, getFirstInvoiceUrl, cancelSubscription } from "@/lib/asaas";
+import { fmtDate } from "@/lib/format";
 
 export async function startAsaasCheckout(planCode: string, billingCycle: string = "mensal") {
   const profile = await getProfile();
@@ -69,4 +72,46 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
   if (!invoiceRes.ok) return { error: invoiceRes.error };
 
   redirect(invoiceRes.data);
+}
+
+// Cancela a assinatura no Asaas -- pra quem não quer mais usar o NauticFlow e não quer
+// continuar sendo cobrado. Não apaga nada nem suspende a empresa na hora: a assinatura
+// já paga continua valendo até "paid_until" (a empresa não perde o que já pagou), só não
+// renova mais sozinha depois disso, porque não sobra assinatura ativa no Asaas pra gerar
+// cobrança nova. Só quem administra a empresa pode cancelar -- mesma regra de quem pode
+// excluir a conta (ver configuracoes/actions.ts).
+export async function cancelAsaasSubscription() {
+  const profile = await getProfile();
+  if (!profile?.company_id) return { error: "Sessão inválida." };
+  if (profile.role !== "company_admin" && profile.role !== "super_admin") {
+    return { error: "Só o administrador da empresa pode cancelar a assinatura." };
+  }
+
+  const supabase = createClient();
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("id, status, paid_until, asaas_subscription_id")
+    .eq("company_id", profile.company_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!sub) return { error: "Nenhuma assinatura encontrada." };
+  if (!sub.asaas_subscription_id) return { error: "Você está no período de teste — não há cobrança recorrente pra cancelar." };
+  if (sub.status === "cancelada") return { error: "Essa assinatura já está cancelada." };
+
+  const cancelRes = await cancelSubscription(sub.asaas_subscription_id);
+  if (!cancelRes.ok) return { error: cancelRes.error };
+
+  // update via client admin (service_role): RLS só deixa super_admin escrever em
+  // subscriptions (ver migration 0007), então a sessão normal do cliente não conseguiria
+  const admin = createAdminClient();
+  const { error } = await admin.from("subscriptions").update({ status: "cancelada" }).eq("id", sub.id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/planos");
+  revalidatePath("/dashboard", "layout");
+
+  const ateQuando = sub.paid_until ? ` Você continua com acesso normal até ${fmtDate(sub.paid_until)}.` : "";
+  return { ok: true, message: `Assinatura cancelada. Não haverá mais cobranças.${ateQuando}` };
 }
