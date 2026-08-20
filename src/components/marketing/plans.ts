@@ -9,10 +9,10 @@ export const MKT_LINKS = {
 } as const;
 
 export const MKT_CONTACT = {
-  // Placeholders — trocar pelos canais reais antes de divulgar.
-  whatsapp: "https://wa.me/5500000000000",
-  whatsappLabel: "(00) 00000-0000",
-  email: "contato@nauticflow.com.br",
+  // wa.me exige o numero completo com codigo do pais (55) + DDD, sem simbolos.
+  whatsapp: "https://wa.me/5565992407699",
+  whatsappLabel: "(65) 99240-7699",
+  email: "castrocompny@gmail.com",
 } as const;
 
 export const MKT_NAV = [
