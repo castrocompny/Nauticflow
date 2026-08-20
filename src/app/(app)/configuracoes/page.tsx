@@ -85,10 +85,10 @@ export default async function ConfiguracoesPage() {
           )}
           <Link
             href="/planos"
-            className="mt-4 flex items-center justify-between rounded-lg border border-line px-3 py-2.5 text-sm font-medium text-heading transition hover:bg-surfaceHover"
+            className="mt-4 flex items-center justify-between rounded-lg bg-brand px-3 py-2.5 text-sm font-medium text-white transition hover:bg-brand-dark"
           >
             Gerenciar plano
-            <ChevronRight size={16} className="text-muted" />
+            <ChevronRight size={16} />
           </Link>
         </Card>
 
