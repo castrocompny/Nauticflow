@@ -1,7 +1,8 @@
 import { ShieldCheck } from "lucide-react";
 
-// Sem numeros/depoimentos inventados. Enquanto nao houver dados reais, destacamos
-// garantias verificaveis do produto e deixamos o espaco de depoimentos marcado.
+// Secao de confianca baseada so em garantias verificaveis do produto. Nada de
+// depoimentos inventados -- a secao de depoimentos foi removida de proposito ate
+// existirem avaliacoes reais de clientes pra colocar aqui.
 const TRUST = [
   {
     title: "Dados isolados por empresa",
@@ -43,13 +44,6 @@ export function Trust() {
               <p className="mt-2 text-[15px] leading-relaxed text-body">{item.desc}</p>
             </div>
           ))}
-        </div>
-
-        {/* Espaco reservado para depoimentos reais (preencher depois). */}
-        <div className="mt-6 rounded-card border border-dashed border-line bg-app/40 p-8 text-center">
-          <p className="text-sm font-medium text-muted">
-            Espaço reservado para depoimentos de clientes — a ser preenchido com avaliações reais.
-          </p>
         </div>
       </div>
     </section>
