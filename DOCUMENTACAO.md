@@ -759,9 +759,12 @@ Rodada de melhorias na landing pra aumentar conversão e confiança, depois de d
 - **Botão flutuante de WhatsApp** (`src/components/marketing/whatsapp-button.tsx`) — canto inferior direito, cor da marca do WhatsApp, com mensagem pré-preenchida, `target="_blank"` + `rel="noopener noreferrer"`. Usa o número real já configurado em `MKT_CONTACT`.
 - **Vercel Web Analytics** — adicionado `@vercel/analytics` (v2) e `<Analytics/>` no layout raiz (`src/app/layout.tsx`). É **cookieless e não coleta PII**, então não exige banner de consentimento (LGPD ok). Endpoints são same-origin (`/_vercel/insights`), compatível com a CSP atual. **⚠️ Pendência**: só coleta de verdade depois de **ativar "Web Analytics" no painel da Vercel** (projeto → aba Analytics → Enable); sem isso o `<Analytics/>` é inofensivo/no-op.
 
+### Mockup do hero refeito fiel ao produto real (2026-08-20)
+
+Com base em prints reais da conta de teste (dashboard, agenda, saídas), o `dashboard-mockup.tsx` foi **reescrito pra espelhar o layout de verdade do NauticFlow** — sidebar, KPIs com os ícones/cores certos (Reservas, Receita, Ocupação, Passageiros), "Receita" com toggle de período (7/30/90 dias) que **anima o gráfico**, e "Próximas saídas". **De propósito não colamos os prints crus**: a conta de teste tinha dados vazios (R$ 700, 0%, "Sem dados ainda") e mostrava o menu "Super Admin" — ficaria feio e exporia a conta. Em vez disso é uma recriação em HTML/CSS (nítida em qualquer tela, leve, interativa) com números ilustrativos saudáveis, fixa no tema escuro (como o app real). Virou client component, mas `/` continua prerenderizada estática.
+
 ### Ainda pendente (precisa de ação do dono)
 
-- **Prints reais do produto no hero** — hoje o hero usa um mockup ilustrativo (`dashboard-mockup.tsx`) com dados de exemplo. Trocar por prints reais da agenda/reserva/dashboard aumenta muito a confiança. Falta um **login de teste** pra capturar as telas do app rodando.
 - **Ativar o Web Analytics na Vercel** (ver acima).
 
 ### Validação
