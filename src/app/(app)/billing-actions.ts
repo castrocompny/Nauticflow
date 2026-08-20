@@ -5,9 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { findOrCreateCustomer, createSubscription, getFirstInvoiceUrl } from "@/lib/asaas";
 
-export async function startAsaasCheckout(planCode: string) {
+export async function startAsaasCheckout(planCode: string, billingCycle: string = "mensal") {
   const profile = await getProfile();
   if (!profile?.company_id) return { error: "Sessão inválida." };
+
+  // só aceita ciclos válidos; qualquer outra coisa vira mensal
+  const cycle = billingCycle === "anual" ? "anual" : "mensal";
 
   const supabase = createClient();
 
@@ -17,7 +20,11 @@ export async function startAsaasCheckout(planCode: string) {
       .select("id, name, cnpj, email, phone, asaas_customer_id")
       .eq("id", profile.company_id)
       .maybeSingle(),
-    supabase.from("plans").select("code, name, price_cents").eq("code", planCode).maybeSingle(),
+    supabase
+      .from("plans")
+      .select("code, name, price_cents, price_cents_yearly")
+      .eq("code", planCode)
+      .maybeSingle(),
   ]);
   if (!company) return { error: "Empresa não encontrada." };
   if (!company.cnpj) {
@@ -26,6 +33,10 @@ export async function startAsaasCheckout(planCode: string) {
     };
   }
   if (!plan) return { error: "Plano inválido." };
+
+  // preço e ciclo do Asaas conforme mensal/anual (anual = 10x o mensal, "2 meses grátis")
+  const valueCents =
+    cycle === "anual" ? (plan.price_cents_yearly ?? plan.price_cents * 10) : plan.price_cents;
 
   const customerRes = await findOrCreateCustomer({
     existingCustomerId: company.asaas_customer_id,
@@ -39,9 +50,10 @@ export async function startAsaasCheckout(planCode: string) {
 
   const subRes = await createSubscription({
     customerId: customerRes.data,
-    valueCents: plan.price_cents,
+    valueCents,
     planName: plan.name,
     companyId: company.id,
+    cycle: cycle === "anual" ? "YEARLY" : "MONTHLY",
   });
   if (!subRes.ok) return { error: subRes.error };
 
@@ -49,6 +61,7 @@ export async function startAsaasCheckout(planCode: string) {
     p_customer_id: customerRes.data,
     p_subscription_id: subRes.data.id,
     p_plan_code: plan.code,
+    p_billing_cycle: cycle,
   });
   if (linkError) return { error: "Cobrança criada, mas houve um erro ao vincular: " + linkError.message };
 

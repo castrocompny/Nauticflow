@@ -44,15 +44,18 @@ export async function renewSubscription(companyId: string, planCode: string) {
 
   const { data: sub } = await supabase
     .from("subscriptions")
-    .select("id, paid_until")
+    .select("id, paid_until, billing_cycle")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (!sub) return { ok: false, message: "Assinatura não encontrada pra esta empresa." };
 
+  // renova pelo tamanho do ciclo da assinatura: 1 ano (anual) ou 30 dias (mensal)
+  const isAnual = sub.billing_cycle === "anual";
+  const days = isAnual ? 365 : 30;
   const base = sub.paid_until && new Date(sub.paid_until) > new Date() ? new Date(sub.paid_until) : new Date();
-  base.setDate(base.getDate() + 30);
+  base.setDate(base.getDate() + days);
 
   const { error } = await supabase
     .from("subscriptions")
@@ -62,10 +65,14 @@ export async function renewSubscription(companyId: string, planCode: string) {
 
   await logAction(supabase, adminId, adminName, "renovar_assinatura", companyId, {
     plano: plan.name,
+    ciclo: isAnual ? "anual" : "mensal",
     novo_vencimento: base.toISOString(),
   });
   revalidateAffectedCompany(companyId);
-  return { ok: true, message: `Renovado por mais 30 dias no plano ${plan.name}.` };
+  return {
+    ok: true,
+    message: `Renovado por mais ${isAnual ? "1 ano" : "30 dias"} no plano ${plan.name}.`,
+  };
 }
 
 // troca o plano sem mexer na data de vencimento -- pra quando so quer mudar o

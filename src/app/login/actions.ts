@@ -22,9 +22,11 @@ export async function signUp(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
   const termsAccepted = formData.get("terms_accepted") === "on";
-  // plano vindo da landing (?plan=...) -- so aceita codigos validos
+  // plano/ciclo vindos da landing (?plan=...&cycle=...) -- so aceita valores validos
   const planParam = String(formData.get("plan") || "");
   const plan = ["start", "profissional", "premium"].includes(planParam) ? planParam : "";
+  const cycleParam = String(formData.get("cycle") || "");
+  const cycle = cycleParam === "anual" ? "anual" : "";
   if (!termsAccepted) {
     return { error: "É preciso aceitar os Termos de Uso e a Política de Privacidade para criar a conta." };
   }
@@ -48,8 +50,8 @@ export async function signUp(_prev: unknown, formData: FormData) {
   }
 
   // veio de um plano especifico na landing -> cai direto na pagina de planos com ele
-  // destacado, pronto pra pagar. Sem plano, vai pro dashboard como sempre.
-  redirect(plan ? `/planos?plan=${plan}` : "/dashboard");
+  // destacado (e no ciclo escolhido), pronto pra pagar. Sem plano, vai pro dashboard.
+  redirect(plan ? `/planos?plan=${plan}${cycle ? `&cycle=${cycle}` : ""}` : "/dashboard");
 }
 
 export async function forgotPassword(_prev: unknown, formData: FormData) {

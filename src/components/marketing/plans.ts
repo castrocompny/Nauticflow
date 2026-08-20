@@ -26,8 +26,10 @@ export const MKT_NAV = [
 export type MktPlan = {
   id: string;
   name: string;
-  price: string;
+  price: string; // mensal
   period: string;
+  priceYear: string; // anual (2 meses grátis = 10x o mensal)
+  economiaYear: string; // quanto economiza pagando anual
   boats: string;
   users: string;
   highlight?: string;
@@ -36,12 +38,15 @@ export type MktPlan = {
 };
 
 // Valores literais conforme a tabela oficial — nao estimar nem arredondar.
+// Anual = 10x o mensal (2 meses gratis).
 export const MKT_PLANS: MktPlan[] = [
   {
     id: "start",
     name: "Start",
     price: "R$147",
     period: "/mês",
+    priceYear: "R$1.470",
+    economiaYear: "R$294",
     boats: "até 2 embarcações",
     users: "1 usuário",
     features: [
@@ -57,6 +62,8 @@ export const MKT_PLANS: MktPlan[] = [
     name: "Profissional",
     price: "R$297",
     period: "/mês",
+    priceYear: "R$2.970",
+    economiaYear: "R$594",
     boats: "até 10 embarcações",
     users: "5 usuários",
     highlight: "Mais popular",
@@ -74,6 +81,8 @@ export const MKT_PLANS: MktPlan[] = [
     name: "Premium",
     price: "R$597",
     period: "/mês",
+    priceYear: "R$5.970",
+    economiaYear: "R$1.194",
     boats: "embarcações ilimitadas",
     users: "usuários ilimitados",
     features: [

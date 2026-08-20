@@ -33,10 +33,12 @@ function AuthForm({
   mode,
   onForgot,
   plan,
+  cycle,
 }: {
   mode: "in" | "up" | "forgot";
   onForgot: () => void;
   plan?: string;
+  cycle?: string;
 }) {
   const action = (mode === "in" ? signIn : mode === "up" ? signUp : forgotPassword) as (
     prevState: { error: string; info?: string },
@@ -60,9 +62,10 @@ function AuthForm({
       <form action={formAction} className="space-y-3">
         {mode === "up" && (
           <>
-            {/* plano escolhido na landing (?plan=...) -- vai junto pro cadastro pra
-                mandar o usuario direto pro checkout do plano certo depois de criar a conta */}
+            {/* plano/ciclo escolhidos na landing (?plan=...&cycle=...) -- vao junto pro
+                cadastro pra mandar o usuario direto pro checkout certo depois de criar a conta */}
             {plan && <input type="hidden" name="plan" value={plan} />}
+            {cycle && <input type="hidden" name="cycle" value={cycle} />}
             <div>
               <label>Seu nome</label>
               <input name="name" required className="mt-1" />
@@ -143,6 +146,9 @@ function LoginPage() {
   const plan = ["start", "profissional", "premium"].includes(planParam ?? "")
     ? (planParam as string)
     : undefined;
+  // ciclo escolhido na landing (?cycle=anual) -- so aceita valores validos
+  const cycleParam = searchParams.get("cycle");
+  const cycle = cycleParam === "anual" ? "anual" : undefined;
 
   return (
     <div className="grid min-h-screen place-items-center bg-app p-6">
@@ -154,7 +160,7 @@ function LoginPage() {
           <p className="text-sm text-muted">{titles[mode]}</p>
         </div>
 
-        <AuthForm key={mode} mode={mode} onForgot={() => setMode("forgot")} plan={plan} />
+        <AuthForm key={mode} mode={mode} onForgot={() => setMode("forgot")} plan={plan} cycle={cycle} />
 
         {mode === "forgot" ? (
           <button onClick={() => setMode("in")} className="mt-4 w-full text-center text-sm text-brand">

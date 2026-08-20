@@ -13,7 +13,9 @@ export function RenewButton({ companyId, plans }: { companyId: string; plans: Pl
 
   function onClick() {
     const plan = plans.find((p) => p.code === planCode);
-    if (!window.confirm(`Confirma que o pagamento do plano ${plan?.name ?? planCode} foi recebido e quer renovar por mais 30 dias?`))
+    // o prazo somado (30 dias ou 1 ano) depende do ciclo da assinatura e é resolvido no
+    // servidor; a mensagem de retorno confirma quanto foi renovado
+    if (!window.confirm(`Confirma que o pagamento do plano ${plan?.name ?? planCode} foi recebido e quer renovar a assinatura?`))
       return;
     startTransition(async () => {
       const res = await renewSubscription(companyId, planCode);
@@ -41,7 +43,7 @@ export function RenewButton({ companyId, plans }: { companyId: string; plans: Pl
           disabled={pending}
           className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-dark disabled:opacity-60"
         >
-          {pending ? "Renovando..." : "Renovar +30 dias"}
+          {pending ? "Renovando..." : "Renovar assinatura"}
         </button>
       </div>
       {msg && <span className="text-[11px] text-muted">{msg}</span>}

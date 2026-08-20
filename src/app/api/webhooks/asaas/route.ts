@@ -43,15 +43,17 @@ export async function POST(request: Request) {
 
   const { data: sub } = await supabase
     .from("subscriptions")
-    .select("id, paid_until")
+    .select("id, paid_until, billing_cycle")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (!sub) return NextResponse.json({ ok: true });
 
+  // renova pelo tamanho do ciclo: 1 ano (anual) ou 30 dias (mensal)
+  const days = sub.billing_cycle === "anual" ? 365 : 30;
   const base = sub.paid_until && new Date(sub.paid_until) > new Date() ? new Date(sub.paid_until) : new Date();
-  base.setDate(base.getDate() + 30);
+  base.setDate(base.getDate() + days);
 
   await supabase
     .from("subscriptions")

@@ -7,10 +7,12 @@ export function PayPlanButton({
   planCode,
   label,
   compact,
+  billingCycle = "mensal",
 }: {
   planCode: string;
   label?: string;
   compact?: boolean;
+  billingCycle?: "mensal" | "anual";
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
@@ -18,7 +20,7 @@ export function PayPlanButton({
   function onClick() {
     setError("");
     startTransition(async () => {
-      const res = await startAsaasCheckout(planCode);
+      const res = await startAsaasCheckout(planCode, billingCycle);
       if (res?.error) setError(res.error);
     });
   }

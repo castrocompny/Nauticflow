@@ -59,13 +59,14 @@ export async function createSubscription(params: {
   valueCents: number;
   planName: string;
   companyId: string;
+  cycle?: "MONTHLY" | "YEARLY"; // ciclo de cobrança recorrente no Asaas
 }): Promise<AsaasResult<AsaasSubscription>> {
   return asaasFetch<AsaasSubscription>("/subscriptions", "POST", {
     customer: params.customerId,
     billingType: "UNDEFINED", // deixa o pagador escolher Pix, boleto ou cartão na fatura
     value: params.valueCents / 100,
     nextDueDate: new Date().toISOString().slice(0, 10),
-    cycle: "MONTHLY",
+    cycle: params.cycle ?? "MONTHLY",
     description: `NauticFlow — Plano ${params.planName}`,
     externalReference: params.companyId,
   });

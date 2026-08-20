@@ -79,6 +79,7 @@ Segurança: `profiles` só permite UPDATE nas colunas `name`/`email` (via GRANT 
 - **Melhorias futuras no `/admin`** (ver seção 33): impersonar empresa pra dar suporte, exportar lista de empresas em CSV, indicador de risco de churn. Não urgente com a base de clientes ainda pequena.
 - ~~Landing: contato real~~ — **resolvido** (2026-08-20): `MKT_CONTACT` em `src/components/marketing/plans.ts` preenchido com WhatsApp `(65) 99240-7699` (`https://wa.me/5565992407699`) e e-mail `castrocompny@gmail.com`.
 - **Landing: depoimentos** — seção de depoimentos **removida de propósito** (decisão de 2026-08-20): nada de depoimento falso num site comercial no ar. A landing mostra só garantias verificáveis (cartões de "Confiança e segurança"). Quando houver avaliações reais de clientes, reativar a seção com elas (ver seção 40).
+- 🔴 **Aplicar a migration `0020_planos_anuais.sql` no Supabase** (planos anuais, ver seção 42) — sem ela, `subscriptions.billing_cycle` e `plans.price_cents_yearly` não existem e o fluxo anual não funciona (o toggle da landing aparece, mas o checkout/renovação anual quebra). Depois de aplicar, **testar o fluxo anual no Sandbox do Asaas**: assinar anual → checkout YEARLY → confirmar pagamento → conferir que o `paid_until` somou ~365 dias.
 - Itens já resolvidos: índices de performance, sanitização de HTML no e-mail de voucher, monitoramento de erros via Sentry, **convidar colaborador / equipe** (tela `/equipe`, construída — ver seção 8), **dashboard e agenda reformulados** (ver seção 10), **migration `0014_horario_saida_no_banco.sql` aplicada no Supabase** (trava de horário de saída também no banco), **modo escuro** (ver seção 11), **gráficos no financeiro e botão de renovar condicional em `/planos`** (ver seção 11), **deduplicação de `auth.getUser()` e queries repetidas** (ver seção 12), **auditoria de segurança — IDOR entre empresas e dependências vulneráveis** (ver seção 13), **migration `0015` aplicada** (trava de IDOR também no banco), **Supabase CLI instalado no projeto** (ver seção 14), **painel /admin melhorado** (ver seção 15, migration `0016` aplicada), **controle manual de notas fiscais** (ver seção 16, migration `0017` aplicada), **gráficos/funil/onboarding travado/filtro por plano no /admin** (ver seção 17), **deploy em produção com domínio próprio no ar** (`nauticflow.com.br`, ver seções 19 e 20), **2 commits de segurança/admin/performance que estavam sem push finalmente publicados** (ver seção 20), **senha forte no cadastro/reset e botão de excluir conta** (ver seção 22), **domínio verificado no Resend** (ver seção 23), **bug de timezone (UTC vs Brasília) corrigido** (ver seção 24), **fluxo de "esqueci minha senha" corrigido de ponta a ponta** (ver seção 25), **falha crítica de escalação de privilégio no cadastro corrigida** (migration `0018`, ver seção 26), **favicon adicionado/ajustado** (ver seção 27), **varredura de segurança passiva e cabeçalhos HTTP de segurança (CSP/HSTS/X-Frame-Options/etc.)** (ver seção 28), **hidratação pesada das linhas de tabela corrigida** (ver seção 29).
 
 ## 7. Ambiente de desenvolvimento — cuidado com múltiplos servidores
@@ -770,3 +771,25 @@ Com base em prints reais da conta de teste (dashboard, agenda, saídas), o `dash
 ### Validação
 
 `eslint .` (0 erros, só os warnings de `<img>` já existentes) e `next build` exit 0 — `/` continua prerenderizada estática. Conferido por HTML servido: seção FAQ + FAQPage JSON-LD, faixa "pra quem é", botão de WhatsApp e o item "Perguntas" no menu, todos presentes.
+
+## 42. Planos anuais (toggle Mensal/Anual, ciclo YEARLY no Asaas) — sessão de 2026-08-20
+
+Adicionada a opção de **cobrança anual** além da mensal, com **2 meses grátis** (anual = 10× o mensal): Start **R$1.470/ano**, Profissional **R$2.970/ano**, Premium **R$5.970/ano** (~17% de desconto).
+
+**Por que mexeu em tanta coisa:** todo o billing era mensal e três pontos somavam prazo fixo em +30 dias (webhook do Asaas, renovação do admin, trial). O Asaas fixava `cycle: "MONTHLY"`. Como o webhook descobre a assinatura pela empresa (não sabe o ciclo do pagamento), o ciclo precisou virar coluna **na subscription** pra ele somar 30 ou 365 dias.
+
+- **Migration `0020_planos_anuais.sql`** (⚠️ **precisa ser aplicada no Supabase pelo dono**):
+  - `subscriptions.billing_cycle` (`mensal|anual`, default `mensal`) — fonte da verdade do prazo.
+  - `plans.price_cents_yearly` + seed 147000/297000/597000.
+  - `link_asaas_subscription` recriada com 4º arg `p_billing_cycle` (grava o ciclo na subscription).
+- **`src/lib/asaas.ts`** — `createSubscription` aceita `cycle: MONTHLY|YEARLY`.
+- **`billing-actions.ts`** — `startAsaasCheckout(planCode, billingCycle)`: escolhe preço mensal/anual, manda YEARLY/MONTHLY pro Asaas, passa o ciclo pra RPC.
+- **Webhook (`api/webhooks/asaas/route.ts`)** e **renovação do admin (`admin/actions.ts`)** — leem `billing_cycle` e somam **365** (anual) ou **30** (mensal). Botão do admin virou "Renovar assinatura" (o prazo é resolvido no servidor).
+- **`/planos` do app** — extraído `plan-cards.tsx` (client) com toggle **Mensal/Anual**; preço e ciclo certos; `PayPlanButton` repassa o ciclo. Respeita `?cycle=` vindo do cadastro.
+- **Landing** — `pricing.tsx` virou client com toggle Mensal/Anual (mostra 1.470/2.970/5.970 + "2 meses grátis · economize X"); "Assinar" leva `/login?mode=up&plan=X&cycle=anual`. `login/page.tsx` + `signUp` carregam `?cycle=` (validado) até `/planos?plan=X&cycle=anual`. `MKT_PLANS` ganhou `priceYear`/`economiaYear`.
+
+**Nota (gap pré-existente):** trocar de plano/ciclo cria uma assinatura NOVA no Asaas sem cancelar a antiga — já acontecia ao trocar entre planos mensais. Fica pra tratar depois (cancelar a `asaas_subscription_id` antiga ao criar a nova), fora do escopo do anual.
+
+### Validação
+
+`next build` exit 0 e `eslint .` sem erros; `/` e `/login` seguem estáticas. Conferido por HTML: toggle Mensal/Anual na landing, preços anuais (R$1.470/2.970/5.970) e badge "2 meses grátis", e o login carregando `plan`+`cycle` como campos ocultos. **Falta testar ponta a ponta** (checkout YEARLY → webhook soma 365) — só é possível **depois de aplicar a migration** e no Sandbox do Asaas.

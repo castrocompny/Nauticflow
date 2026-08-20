@@ -1,40 +1,37 @@
-import { Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Card } from "@/components/ui";
-import { brl, fmtDate } from "@/lib/format";
-import { PayPlanButton } from "../pay-plan-button";
+import { PlanCards } from "./plan-cards";
 
 const DIAS_PARA_AVISAR_VENCIMENTO = 7;
 
-const commonFeatures = [
-  "Dashboard com indicadores do dia",
-  "Reservas com controle de vagas em tempo real",
-  "Agenda e saídas programadas",
-  "Cadastro de clientes e parceiros",
-  "Financeiro e relatórios",
-  "Manifesto de passageiros e voucher automático por e-mail",
-];
-
-const planExtras: Record<string, string[]> = {
-  start: [],
-  profissional: ["Suporte prioritário"],
-  premium: ["Suporte prioritário"],
+type Plan = {
+  code: string;
+  name: string;
+  price_cents: number;
+  price_cents_yearly: number | null;
+  max_vessels: number | null;
+  max_users: number | null;
 };
 
-type Plan = { code: string; name: string; price_cents: number; max_vessels: number | null; max_users: number | null };
-
-export default async function PlanosPage(props: { searchParams: Promise<{ plan?: string }> }) {
-  // ?plan=... vem do cadastro quando o usuario escolheu um plano na landing --
-  // destaca o card certo. searchParams e assincrono no Next 16.
-  const { plan: planParam } = await props.searchParams;
+export default async function PlanosPage(props: {
+  searchParams: Promise<{ plan?: string; cycle?: string }>;
+}) {
+  // ?plan=... e ?cycle=... vem do cadastro quando o usuario escolheu plano/ciclo na
+  // landing -- destaca o card certo e ja abre o toggle no ciclo escolhido.
+  const { plan: planParam, cycle: cycleParam } = await props.searchParams;
   const preselected = ["start", "profissional", "premium"].includes(planParam ?? "")
     ? planParam
     : undefined;
+  const initialCycle = cycleParam === "anual" ? "anual" : "mensal";
+
   const supabase = createClient();
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
   const [{ data: plansData }, { data: subData }, vesselsCount, reservasMes] = await Promise.all([
-    supabase.from("plans").select("code, name, price_cents, max_vessels, max_users").order("price_cents"),
+    supabase
+      .from("plans")
+      .select("code, name, price_cents, price_cents_yearly, max_vessels, max_users")
+      .order("price_cents"),
     supabase
       .from("subscriptions")
       .select("paid_until, plans(code)")
@@ -71,62 +68,14 @@ export default async function PlanosPage(props: { searchParams: Promise<{ plan?:
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {plans.map((p) => {
-          const isCurrent = p.code === currentPlanCode;
-          const isPreselected = !isCurrent && p.code === preselected;
-          return (
-            <Card
-              key={p.code}
-              className={isCurrent || isPreselected ? "border-brand ring-2 ring-brand/25" : ""}
-            >
-              {isCurrent && <p className="mb-1 text-xs font-semibold text-brand">SEU PLANO ATUAL</p>}
-              {isPreselected && (
-                <p className="mb-1 text-xs font-semibold text-brand">PLANO ESCOLHIDO NO SITE</p>
-              )}
-              <p className="font-display text-lg font-semibold text-heading">{p.name}</p>
-              <p className="mt-1 font-display text-3xl font-semibold text-brand">
-                {brl(p.price_cents)}
-                <span className="text-sm font-normal text-muted">/mês</span>
-              </p>
-
-              <ul className="mt-4 space-y-2 text-sm text-body">
-                <li className="flex items-center gap-2">
-                  <Check size={16} className="shrink-0 text-ok" />
-                  {p.max_vessels != null ? `até ${p.max_vessels} embarcação(ões)` : "embarcações ilimitadas"}
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check size={16} className="shrink-0 text-ok" />
-                  {p.max_users != null ? `até ${p.max_users} usuário(s)` : "usuários ilimitados"}
-                </li>
-                {commonFeatures.map((f) => (
-                  <li key={f} className="flex items-center gap-2">
-                    <Check size={16} className="shrink-0 text-ok" />
-                    {f}
-                  </li>
-                ))}
-                {(planExtras[p.code] ?? []).map((f) => (
-                  <li key={f} className="flex items-center gap-2">
-                    <Check size={16} className="shrink-0 text-ok" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-
-              {isCurrent && !precisaRenovarLogo ? (
-                <p className="mt-3 text-center text-xs text-muted">
-                  Ativo até <span className="font-medium text-heading">{fmtDate(paidUntil!.toISOString())}</span>
-                </p>
-              ) : (
-                <PayPlanButton
-                  planCode={p.code}
-                  label={isCurrent ? "Renovar plano" : undefined}
-                />
-              )}
-            </Card>
-          );
-        })}
-      </div>
+      <PlanCards
+        plans={plans}
+        currentPlanCode={currentPlanCode}
+        preselected={preselected}
+        initialCycle={initialCycle}
+        precisaRenovarLogo={precisaRenovarLogo}
+        paidUntilISO={paidUntil ? paidUntil.toISOString() : null}
+      />
     </>
   );
 }
