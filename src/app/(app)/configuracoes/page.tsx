@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, Badge } from "@/components/ui";
@@ -76,11 +78,18 @@ export default async function ConfiguracoesPage() {
             <Row label="Reservas no mês" value={String(monthRes.count ?? 0)} />
           </div>
           {overdue && (
-            <p className="mt-4 text-xs text-muted">
+            <p className="mt-3 text-xs text-muted">
               As opções de pagamento aparecem na faixa amarela no topo das telas enquanto a assinatura estiver
               vencida.
             </p>
           )}
+          <Link
+            href="/planos"
+            className="mt-4 flex items-center justify-between rounded-lg border border-line px-3 py-2.5 text-sm font-medium text-heading transition hover:bg-surfaceHover"
+          >
+            Gerenciar plano
+            <ChevronRight size={16} className="text-muted" />
+          </Link>
         </Card>
 
         <Card className="h-fit lg:col-span-3">

@@ -818,3 +818,13 @@ Corrigido em [src/app/admin/page.tsx](src/app/admin/page.tsx), [src/app/admin/[i
 - `RenewButton` ganhou seletor de ciclo (padrão = ciclo atual da assinatura), preço exibido no botão já reflete a escolha, e `renewSubscription` grava o `billing_cycle` certo.
 
 `tsc --noEmit` e `next build` passaram limpos. Subido direto pro `main` (correção só do painel interno, não afeta cliente final).
+
+## 44. Cliente pode cancelar a própria assinatura em `/planos` (sessão de 2026-08-20)
+
+Pedido do dono do produto: quem não quiser mais usar o NauticFlow precisa conseguir parar de ser cobrado sem ter que pedir suporte manualmente (nem continuar levando cobrança no cartão/Pix mês a mês contra a vontade).
+
+- **`src/lib/asaas.ts`** — nova `cancelSubscription(subscriptionId)`, `DELETE /subscriptions/{id}` no Asaas (para as cobranças futuras). Idempotente: se o Asaas já não tiver mais essa assinatura (404), trata como sucesso. `asaasFetch` passou a aceitar `DELETE` e a devolver o `status` HTTP no erro (antes só a mensagem), pra dar pra distinguir 404 de erro de verdade sem depender de procurar "404" dentro do texto.
+- **`billing-actions.ts`** — `cancelAsaasSubscription()`: só `company_admin`/`super_admin` pode cancelar (mesma regra de quem exclui a conta, ver seção 22/`configuracoes/actions.ts`). Busca a assinatura mais recente da empresa pelo `company_id` da sessão (sem receber id de fora — sem brecha de IDOR), cancela no Asaas, e só depois marca `status: "cancelada"` no banco usando o client `service_role` (a RLS de `subscriptions` só deixa `super_admin` escrever direto — migration `0007`). **Não mexe em `paid_until`**: a empresa mantém acesso normal até a data que já tinha pago, só não renova mais sozinha depois (porque não sobra assinatura ativa no Asaas gerando cobrança nova).
+- **`planos/cancel-subscription-button.tsx`** (novo) + `planos/page.tsx` — botão "Cancelar assinatura" com confirmação, visível só pro admin da empresa e só quando existe assinatura paga via Asaas (`asaas_subscription_id` preenchido e `status != "cancelada"`) — quem está no período de teste não vê o botão, porque não há cobrança recorrente pra cancelar. Depois de cancelada, a página mostra um aviso "cancelada, acesso até X" no lugar do botão; pra voltar, é só assinar de novo normalmente (mesmo fluxo dos outros planos).
+
+`tsc --noEmit`, `eslint` e `next build` passaram limpos. Revisão de segurança: sem novo IDOR (busca sempre pelo `company_id` da sessão), permissão checada no servidor (não só escondendo o botão no client), e o único uso do client `service_role` é a atualização final de status, depois que o cancelamento no Asaas já foi confirmado.
