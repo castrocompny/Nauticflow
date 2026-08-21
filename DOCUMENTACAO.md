@@ -773,6 +773,10 @@ Com base em prints reais da conta de teste (dashboard, agenda, saídas), o `dash
 
 `eslint .` (0 erros, só os warnings de `<img>` já existentes) e `next build` exit 0 — `/` continua prerenderizada estática. Conferido por HTML servido: seção FAQ + FAQPage JSON-LD, faixa "pra quem é", botão de WhatsApp e o item "Perguntas" no menu, todos presentes.
 
+### Seção "Veja por dentro" — 3 telas do produto recriadas (2026-08-20)
+
+Pra "mostrar" mais o produto (não só descrever com texto/ícones), adicionada a seção **"Veja por dentro"** (`src/components/marketing/showcase.tsx`), entre "Como funciona" e "Planos": 3 telas no formato **imagem + texto alternado** — **Agenda** (grade por horário), **Voucher automático** (a peça que o cliente recebe por e-mail) e **Manifesto de embarque** (lista de passageiros). São **recriações em HTML fiéis ao layout real** (opção A — não são prints da conta de teste), com **dados de exemplo fictícios e limpos** (nomes genéricos, sem dado real, sem menu de super admin). Telas do app no tema escuro (como o produto); o voucher em card claro porque é um e-mail pro cliente. `next build` exit 0 e `/` segue estática.
+
 ## 42. Planos anuais (toggle Mensal/Anual, ciclo YEARLY no Asaas) — sessão de 2026-08-20
 
 Adicionada a opção de **cobrança anual** além da mensal, com **2 meses grátis** (anual = 10× o mensal): Start **R$1.470/ano**, Profissional **R$2.970/ano**, Premium **R$5.970/ano** (~17% de desconto).

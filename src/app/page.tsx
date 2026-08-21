@@ -4,6 +4,7 @@ import { Hero } from "@/components/marketing/hero";
 import { Audience } from "@/components/marketing/audience";
 import { Features } from "@/components/marketing/features";
 import { HowItWorks } from "@/components/marketing/how-it-works";
+import { Showcase } from "@/components/marketing/showcase";
 import { Pricing } from "@/components/marketing/pricing";
 import { Trust } from "@/components/marketing/trust";
 import { Faq } from "@/components/marketing/faq";
@@ -79,6 +80,7 @@ export default function Home() {
         <Audience />
         <Features />
         <HowItWorks />
+        <Showcase />
         <Pricing />
         <Trust />
         <Faq />
