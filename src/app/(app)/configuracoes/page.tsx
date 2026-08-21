@@ -15,7 +15,7 @@ export default async function ConfiguracoesPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("name, email, company_id, companies(name, cnpj, city, phone, email)")
+    .select("name, email, company_id, companies(name, cnpj, city, phone)")
     .eq("id", user!.id)
     .single();
 
@@ -54,7 +54,6 @@ export default async function ConfiguracoesPage() {
             cnpj={company.cnpj ?? ""}
             city={company.city ?? ""}
             phone={company.phone ?? ""}
-            companyEmail={company.email ?? ""}
             adminName={p?.name ?? ""}
             adminEmail={p?.email ?? user?.email ?? ""}
           />

@@ -53,11 +53,11 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
     );
   }
 
-  const [{ data: company }, { data: subs }, { data: plansData }, vesselsRes, usersRes, { data: logs }, { data: invoicesData }] =
+  const [{ data: company }, { data: subs }, { data: plansData }, vesselsRes, usersRes, { data: logs }, { data: invoicesData }, { data: adminProfile }] =
     await Promise.all([
       supabase
         .from("companies")
-        .select("id, name, cnpj, city, phone, email, created_at, suspended_at, suspended_reason, asaas_customer_id")
+        .select("id, name, cnpj, city, phone, created_at, suspended_at, suspended_reason, asaas_customer_id")
         .eq("id", params.id)
         .maybeSingle(),
       supabase
@@ -79,6 +79,15 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
         .select("id, number, amount_cents, pdf_url, issued_at, notes")
         .eq("company_id", params.id)
         .order("issued_at", { ascending: false }),
+      // e-mail de login do administrador da empresa -- é o único e-mail que a empresa
+      // tem agora (não existe mais um "e-mail da empresa" separado)
+      supabase
+        .from("profiles")
+        .select("email")
+        .eq("company_id", params.id)
+        .eq("role", "company_admin")
+        .limit(1)
+        .maybeSingle(),
     ]);
 
   if (!company) notFound();
@@ -124,7 +133,7 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
             <BillingForm companyId={company.id} cnpj={company.cnpj ?? ""} city={company.city ?? ""} />
             <div className="mt-4 space-y-1 border-t border-line pt-3 text-xs text-muted">
               <p>Telefone: {company.phone ?? "-"}</p>
-              <p>E-mail: {company.email ?? "-"}</p>
+              <p>E-mail: {adminProfile?.email ?? "-"}</p>
               <p>Cadastro: {fmtDate(company.created_at)}</p>
               <p>Cliente Asaas: {company.asaas_customer_id ?? "ainda não vinculado"}</p>
             </div>

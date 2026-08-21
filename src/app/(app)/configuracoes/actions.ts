@@ -20,7 +20,8 @@ export async function updateSettings(_prev: unknown, formData: FormData) {
     .maybeSingle();
   if (!profile?.company_id) return { error: "Usuário sem empresa vinculada.", ok: false };
 
-  // atualiza dados da empresa (RLS permite a propria empresa)
+  // atualiza dados da empresa (RLS permite a propria empresa) -- sem campo de e-mail
+  // aqui: o e-mail de login (profiles.email) é o único e-mail da empresa agora
   const { error: cErr } = await supabase
     .from("companies")
     .update({
@@ -28,7 +29,6 @@ export async function updateSettings(_prev: unknown, formData: FormData) {
       cnpj: String(formData.get("cnpj") || "") || null,
       city: String(formData.get("city") || "") || null,
       phone: String(formData.get("phone") || "") || null,
-      email: String(formData.get("company_email") || "") || null,
     })
     .eq("id", profile.company_id);
   if (cErr) return { error: cErr.message, ok: false };

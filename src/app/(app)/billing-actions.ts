@@ -20,7 +20,7 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
   const [{ data: company }, { data: plan }] = await Promise.all([
     supabase
       .from("companies")
-      .select("id, name, cnpj, email, phone, asaas_customer_id")
+      .select("id, name, cnpj, phone, asaas_customer_id")
       .eq("id", profile.company_id)
       .maybeSingle(),
     supabase
@@ -45,7 +45,9 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
     existingCustomerId: company.asaas_customer_id,
     name: company.name,
     cpfCnpj: company.cnpj,
-    email: company.email,
+    // e-mail de login do administrador -- a empresa não tem mais um e-mail próprio
+    // separado, já que na prática é sempre o mesmo usado pra entrar no sistema
+    email: profile.email,
     phone: company.phone,
     companyId: company.id,
   });

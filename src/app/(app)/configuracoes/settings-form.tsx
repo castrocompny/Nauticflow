@@ -21,7 +21,6 @@ export function SettingsForm({
   cnpj,
   city,
   phone,
-  companyEmail,
   adminName,
   adminEmail,
 }: {
@@ -29,7 +28,6 @@ export function SettingsForm({
   cnpj: string;
   city: string;
   phone: string;
-  companyEmail: string;
   adminName: string;
   adminEmail: string;
 }) {
@@ -60,10 +58,6 @@ export function SettingsForm({
           <div>
             <label>Telefone</label>
             <input name="phone" defaultValue={phone} className="mt-1" />
-          </div>
-          <div className="col-span-2">
-            <label>E-mail da empresa</label>
-            <input name="company_email" type="email" defaultValue={companyEmail} className="mt-1" />
           </div>
         </div>
       </div>
