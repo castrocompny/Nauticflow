@@ -888,3 +888,26 @@ Pra acelerar o Google re-rastrear o site (título/descrição/favicon antigos ap
 - Verificação de propriedade via **Tag HTML**: adicionada `verification.google` no `metadata` de [src/app/layout.tsx](src/app/layout.tsx) (gera `<meta name="google-site-verification" content="...">` no `<head>` de toda página). **Não remover essa entrada** — se sumir, a propriedade perde a verificação.
 - Depois de verificado, usado "Inspecionar URL" → **"Solicitar indexação"** pra `https://nauticflow.com.br`, colocando a página numa fila de rastreamento prioritário (mais rápido que esperar o Google visitar sozinho).
 - Resultado esperado em algumas horas a poucos dias: título, descrição e favicon nos resultados de busca do Google atualizam juntos, refletindo a landing page atual.
+
+## 49. Menu da landing com efeito vidro adaptativo + bug de opacidade do Tailwind na raiz (sessão de 2026-08-20)
+
+Pedido do dono, olhando o site publicado: o menu (`site-header.tsx`) fica em cima do hero (sempre navy), e no modo claro o texto ficava com contraste ruim contra esse fundo. Foram **várias iterações** até chegar no resultado final, cada uma testada com print real enviado pelo dono direto do site — vale registrar o caminho porque no meio dele apareceu um bug de raiz que vinha sendo a causa de todas as tentativas frustradas.
+
+**Comportamento final do menu:**
+- **No topo da página** (hero visível, mas sem ter rolado): fundo branco sólido, letra escura.
+- **Rolando um pouco, ainda em cima do hero**: efeito vidro (translúcido + blur) sobre o navy, letra branca.
+- **Depois que o hero sai de vista**: efeito vidro sobre fundo claro, letra escura.
+
+Detectado com `IntersectionObserver` no próprio hero (`id="topo"`, ver [hero.tsx](src/components/marketing/hero.tsx)) combinado com a posição de scroll — não um número fixo de pixels rolados, porque o hero tem altura variável (mobile/desktop, quebra de linha do título).
+
+**🔴 Causa raiz achada no meio do processo (afeta o projeto inteiro, não só a landing):** `bg-surface` e `bg-app` — usados em praticamente toda a interface (cards, painéis, fundo de página) — **nunca deram suporte ao modificador de opacidade do Tailwind** (`bg-surface/90`, `bg-app/60` etc.). Eles apontavam direto pro hex da variável CSS (`surface: "var(--bg-surface)"`), e o Tailwind só consegue aplicar opacidade em cores que seguem o padrão `rgb(var(...) / <alpha-value>)` — sem isso, a opacidade era **silenciosamente ignorada**, sem erro nenhum. Foi por causa disso que toda tentativa de deixar o menu "quase branco e translúcido" falhava do mesmo jeito, não importa qual opacidade eu tentasse (60%, 90%, 95%, 98%) — só funcionava 100% opaco (sem modificador nenhum).
+
+**Correção na raiz** ([tailwind.config.ts](tailwind.config.ts) + [globals.css](src/app/globals.css)): criadas `--bg-app-rgb`/`--bg-surface-rgb` (formato "r g b" sem vírgula, mesmo padrão que `--bg-surface-hover-rgb` já usava corretamente) ao lado dos hex existentes (que continuam usados direto em CSS puro, ex: o box-shadow do autofill), e `app`/`surface` no Tailwind passaram a usar `rgb(var(...) / <alpha-value>)`. Não muda a aparência de nada que já usava essas cores sem opacidade — só destrava o modificador `/NN` que nunca funcionou.
+
+**Outros ajustes da mesma leva:**
+- [site-header.tsx](src/components/marketing/site-header.tsx): header virou `fixed` (antes era `sticky`) — não reserva espaço no fluxo, então o hero começa exatamente no topo, atrás do header, em vez de deixar um vão claro antes dele começar.
+- [hero.tsx](src/components/marketing/hero.tsx): padding-top do conteúdo aumentado (compensa a altura do header, que não empurra mais o conteúdo pra baixo sozinho).
+- [trust.tsx](src/components/marketing/trust.tsx): a pedido do dono, a seção "Confiança e segurança" virou um bloco navy fixo (mesma cor do hero/CTA final) — quebra a sequência de seções brancas empilhadas, dá ritmo visual à página.
+- [theme-toggle.tsx](src/components/theme-toggle.tsx): ganhou uma prop opcional `borderClassName` (mantém o padrão de sempre pra quem usa sem passar nada) — a borda padrão ficava quase invisível em cima do fundo branco do topo da landing.
+
+Validado com screenshots reais tirados localmente (Playwright, instalado só pra esse teste, não ficou como dependência do projeto) antes de mandar pro dono conferir — inclusive foi assim que a causa raiz da opacidade foi finalmente encontrada, comparando a classe CSS computada de verdade contra o que devia estar sendo aplicada. `tsc --noEmit`, `eslint` e `next build` passaram limpos. Revisão de segurança: só mudanças visuais/CSS, sem escopo de segurança.
