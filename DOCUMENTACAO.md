@@ -880,3 +880,11 @@ Dono percebeu que ao compartilhar `nauticflow.com.br` no WhatsApp, o cartão gra
 **Nota (inconsistência que sobrou, não mexida ainda):** o favicon (`favicon.ico`/`favicon.png`/`apple-icon.png`, seção 27/42) usa um **terceiro** desenho (só as ondas, sem o barco visível) — diferente tanto do logo real (`nauticflow-icon.png`) quanto do antigo ícone do `og-image.png`. Unificar fica pra quando o dono confirmar que quer.
 
 **Nota:** depois do deploy, o WhatsApp/Google podem continuar mostrando a prévia antiga por um tempo (cache do link) — tende a atualizar sozinho em alguns dias; dá pra forçar re-scan em ferramentas de teste de link (ex: o "Sharing Debugger" do próprio Facebook/Meta, que também é usado pelo WhatsApp).
+
+### Google Search Console verificado + reindexação solicitada (mesma sessão)
+
+Pra acelerar o Google re-rastrear o site (título/descrição/favicon antigos apareciam na busca, sinal de que ele não tinha visitado de novo desde a landing nova — ver seção 40), o dono criou a propriedade `https://nauticflow.com.br` no Google Search Console.
+
+- Verificação de propriedade via **Tag HTML**: adicionada `verification.google` no `metadata` de [src/app/layout.tsx](src/app/layout.tsx) (gera `<meta name="google-site-verification" content="...">` no `<head>` de toda página). **Não remover essa entrada** — se sumir, a propriedade perde a verificação.
+- Depois de verificado, usado "Inspecionar URL" → **"Solicitar indexação"** pra `https://nauticflow.com.br`, colocando a página numa fila de rastreamento prioritário (mais rápido que esperar o Google visitar sozinho).
+- Resultado esperado em algumas horas a poucos dias: título, descrição e favicon nos resultados de busca do Google atualizam juntos, refletindo a landing page atual.
