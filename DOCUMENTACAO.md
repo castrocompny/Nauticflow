@@ -828,3 +828,16 @@ Pedido do dono do produto: quem não quiser mais usar o NauticFlow precisa conse
 - **`planos/cancel-subscription-button.tsx`** (novo) + `planos/page.tsx` — botão "Cancelar assinatura" com confirmação, visível só pro admin da empresa e só quando existe assinatura paga via Asaas (`asaas_subscription_id` preenchido e `status != "cancelada"`) — quem está no período de teste não vê o botão, porque não há cobrança recorrente pra cancelar. Depois de cancelada, a página mostra um aviso "cancelada, acesso até X" no lugar do botão; pra voltar, é só assinar de novo normalmente (mesmo fluxo dos outros planos).
 
 `tsc --noEmit`, `eslint` e `next build` passaram limpos. Revisão de segurança: sem novo IDOR (busca sempre pelo `company_id` da sessão), permissão checada no servidor (não só escondendo o botão no client), e o único uso do client `service_role` é a atualização final de status, depois que o cancelamento no Asaas já foi confirmado.
+
+## 45. Botão "Gerenciar plano" em Configurações e "Zona de perigo" mais segura (sessão de 2026-08-20)
+
+Dois ajustes pedidos pelo dono depois de revisar a tela de Configurações.
+
+**Botão "Gerenciar plano"**: o card "Plano contratado" em `/configuracoes` não linkava pra lugar nenhum — só dava pra chegar em `/planos` pelo atalho do rodapé da sidebar. Adicionado um botão azul preenchido (`bg-brand`, mesmo estilo dos outros botões de ação — a primeira versão em outline ficou "apagada demais" no feedback dele) levando pra `/planos`.
+
+**"Zona de perigo" (excluir conta/empresa) — menos chamativa, mais segura**: o dono pediu pra reduzir o quanto a caixa vermelha chamava atenção na tela por padrão, e reforçar a proteção contra clique acidental ou alguém com acesso ao computador dele já logado (sem saber a senha).
+
+- [delete-account-form.tsx](src/app/(app)/configuracoes/delete-account-form.tsx): por padrão aparece só um botão vermelho compacto ("Excluir empresa e conta") — identifica que é perigoso sem ocupar a tela com a caixa/texto de aviso o tempo todo. Só ao clicar é que aparece a caixa completa com o aviso e o formulário (senha + confirmação).
+- [configuracoes/actions.ts](src/app/(app)/configuracoes/actions.ts): `deleteMyAccount` agora exige a **senha da conta** antes de apagar qualquer coisa, reautenticando via `supabase.auth.signInWithPassword(email, senha)` — antes a única barreira era digitar o nome da empresa, que aparece na sidebar/cabeçalho pra qualquer um ver, então não protegia de verdade. Sem a senha certa, a exclusão nem chega a rodar. Continua pedindo o nome da empresa (ou "EXCLUIR") como segunda confirmação, igual antes.
+
+`tsc --noEmit`, `eslint` e `next build` passaram limpos.
