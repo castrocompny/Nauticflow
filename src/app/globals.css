@@ -6,7 +6,11 @@
   color-scheme: light;
   --bg-app: #f4f6fa;
   --bg-surface: #ffffff;
-  /* rgb "r g b" (sem virgula): permite o modificador de opacidade do Tailwind, ex: bg-surfaceHover/60 */
+  /* rgb "r g b" (sem virgula): permite o modificador de opacidade do Tailwind, ex: bg-surfaceHover/60.
+     "-rgb" separado do hex acima porque o hex continua usado direto em CSS puro (ex: box-shadow
+     do autofill mais abaixo) -- os dois precisam existir lado a lado. */
+  --bg-app-rgb: 244 246 250;
+  --bg-surface-rgb: 255 255 255;
   --bg-surface-hover-rgb: 248 250 252;
   --text-heading: #0d1b3e;
   --text-body: #475569;
@@ -20,6 +24,8 @@
      central precisa de um tom bem distinto pra nao "grudar" visualmente nele. */
   --bg-app: #0b0c0f;
   --bg-surface: #16181d;
+  --bg-app-rgb: 11 12 15;
+  --bg-surface-rgb: 22 24 29;
   --bg-surface-hover-rgb: 30 33 40;
   --text-heading: #f5f6f7;
   --text-body: #c7cbd1;

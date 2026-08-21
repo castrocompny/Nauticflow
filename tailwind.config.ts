@@ -30,10 +30,13 @@ const config: Config = {
         // uso: fundo de pagina, fundo de cartao/painel, texto de titulo/corpo/legenda, borda.
         // bg-navy/bg-brand/etc continuam fixos de proposito (identidade visual do menu
         // lateral e de acentos coloridos nao deve inverter com o tema).
-        app: "var(--bg-app)",
-        surface: "var(--bg-surface)",
         // rgb(var / <alpha-value>): unico jeito do modificador de opacidade do Tailwind
-        // (ex: bg-surfaceHover/60) funcionar numa cor vinda de variavel CSS.
+        // (ex: bg-app/60, bg-surface/90) funcionar numa cor vinda de variavel CSS -- antes
+        // "app"/"surface" apontavam direto pro hex (var(--bg-app)) e QUALQUER classe com
+        // "/NN" (bg-surface/90 etc.) silenciosamente nao aplicava opacidade nenhuma (bug
+        // achado tentando o efeito vidro do menu da landing).
+        app: "rgb(var(--bg-app-rgb) / <alpha-value>)",
+        surface: "rgb(var(--bg-surface-rgb) / <alpha-value>)",
         surfaceHover: "rgb(var(--bg-surface-hover-rgb) / <alpha-value>)",
         heading: "var(--text-heading)",
         body: "var(--text-body)",

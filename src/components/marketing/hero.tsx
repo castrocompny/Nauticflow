@@ -12,7 +12,10 @@ export function Hero() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(45,156,255,0.12),transparent_55%)]" />
       </div>
 
-      <div className="relative mx-auto grid w-full max-w-6xl items-center gap-12 px-5 py-16 sm:px-6 sm:py-20 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:px-8 lg:py-28">
+      {/* padding-top 16 unidades (4rem = altura do header, que agora e "fixed" e nao
+          reserva espaco no fluxo) a mais que o padding-bottom -- compensa o header
+          flutuando por cima, mantendo o conteudo na mesma posicao vertical de antes */}
+      <div className="relative mx-auto grid w-full max-w-6xl items-center gap-12 px-5 pb-16 pt-32 sm:px-6 sm:pb-20 sm:pt-36 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:px-8 lg:pb-28 lg:pt-44">
         <div>
           <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-brand-light">
             Sistema de gestão para turismo náutico

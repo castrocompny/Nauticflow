@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 
-export function ThemeToggle() {
+export function ThemeToggle({ borderClassName = "border-line" }: { borderClassName?: string } = {}) {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function ThemeToggle() {
     <button
       onClick={toggle}
       title={dark ? "Mudar para modo claro" : "Mudar para modo escuro"}
-      className="grid h-9 w-9 place-items-center rounded-lg border border-line text-muted transition hover:bg-surfaceHover"
+      className={`grid h-9 w-9 place-items-center rounded-lg border ${borderClassName} text-muted transition hover:bg-surfaceHover`}
     >
       {dark ? <Sun size={18} /> : <Moon size={18} />}
     </button>
