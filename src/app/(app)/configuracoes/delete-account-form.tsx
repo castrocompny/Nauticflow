@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useActionState } from "react";
+import { useEffect, useState, useActionState } from "react";
+import { createPortal } from "react-dom";
 import { useFormStatus } from "react-dom";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { deleteMyAccount } from "./actions";
 
 function Submit({ disabled }: { disabled: boolean }) {
@@ -21,15 +22,29 @@ export function DeleteAccountForm({ isCompanyAdmin, companyName }: { isCompanyAd
   const [state, formAction] = useActionState(deleteMyAccount, { error: "" });
   const [confirmText, setConfirmText] = useState("");
   const [password, setPassword] = useState("");
-  // por padrao so o botao vermelho aparece (identifica que é perigoso sem ocupar a
-  // tela); só ao clicar nele é que aparece o aviso + formulario com senha+confirmacao
   const [open, setOpen] = useState(false);
 
   const expected = isCompanyAdmin ? companyName : "EXCLUIR";
   const canSubmit = confirmText === expected && password.length > 0;
 
-  if (!open) {
-    return (
+  function close() {
+    setOpen(false);
+    setConfirmText("");
+    setPassword("");
+  }
+
+  // Esc fecha o modal -- mesmo padrao de teclado que qualquer dialog nativo
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") close();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <>
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -37,64 +52,79 @@ export function DeleteAccountForm({ isCompanyAdmin, companyName }: { isCompanyAd
       >
         Excluir {isCompanyAdmin ? "empresa e conta" : "minha conta"}
       </button>
-    );
-  }
 
-  return (
-    <div className="rounded-card border border-red-200 bg-red-50/50 p-5">
-      <div className="mb-2 flex items-center gap-2 text-red-700">
-        <AlertTriangle size={16} />
-        <h2 className="font-display font-semibold">Zona de perigo</h2>
-      </div>
-      <p className="mb-3 text-sm text-red-700/90">
-        {isCompanyAdmin
-          ? "Excluir sua conta apaga permanentemente a empresa: todos os usuários, embarcações, passeios, clientes, reservas e notas fiscais. Não tem como desfazer."
-          : "Excluir sua conta remove seu acesso permanentemente. Não tem como desfazer."}
-      </p>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={close}>
+            <div
+              className="w-full max-w-sm rounded-xl border border-line bg-surface p-5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-display text-base font-semibold text-heading">
+                  Excluir {isCompanyAdmin ? "empresa" : "conta"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={close}
+                  className="grid h-7 w-7 place-items-center rounded-lg text-muted transition hover:bg-surfaceHover hover:text-heading"
+                >
+                  <X size={16} />
+                </button>
+              </div>
 
-      <form action={formAction} className="space-y-3">
-        {state?.error && <p className="text-xs text-red-700">{state.error}</p>}
+              <div className="mb-4 flex gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700 dark:border-red-500/20 dark:bg-red-500/10">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                <p>
+                  {isCompanyAdmin
+                    ? "Isso apaga permanentemente a empresa: todos os usuários, embarcações, passeios, clientes, reservas e notas fiscais. Não tem como desfazer."
+                    : "Isso remove seu acesso permanentemente. Não tem como desfazer."}
+                </p>
+              </div>
 
-        <div>
-          <label className="mb-1 block text-sm text-red-700/90">Digite sua senha pra confirmar:</label>
-          <input
-            type="password"
-            name="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full max-w-sm border-red-300"
-            autoComplete="current-password"
-          />
-        </div>
+              <form action={formAction} className="space-y-3">
+                {state?.error && <p className="text-xs text-danger">{state.error}</p>}
 
-        <div>
-          <label className="mb-1 block text-sm text-red-700/90">
-            E digite <span className="font-mono font-semibold">{expected}</span> abaixo:
-          </label>
-          <input
-            name="confirm"
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            className="w-full max-w-sm border-red-300"
-            autoComplete="off"
-          />
-        </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted">Senha</label>
+                  <input
+                    type="password"
+                    name="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    autoFocus
+                  />
+                </div>
 
-        <div className="flex gap-2">
-          <Submit disabled={!canSubmit} />
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              setConfirmText("");
-              setPassword("");
-            }}
-            className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-heading transition hover:bg-surface"
-          >
-            Cancelar
-          </button>
-        </div>
-      </form>
-    </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted">
+                    Digite <span className="font-mono font-semibold text-heading">{expected}</span> pra confirmar
+                  </label>
+                  <input
+                    name="confirm"
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={close}
+                    className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-heading transition hover:bg-surfaceHover"
+                  >
+                    Cancelar
+                  </button>
+                  <Submit disabled={!canSubmit} />
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
