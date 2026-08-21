@@ -29,6 +29,12 @@ export const metadata: Metadata = {
     ],
     apple: "/apple-icon.png",
   },
+  // confirma pro Google Search Console que o dono do produto é dono do domínio --
+  // gera exatamente a <meta name="google-site-verification" content="..."> pedida
+  // no passo "Tag HTML" da verificação. Não remover, mesmo depois de verificado.
+  verification: {
+    google: "dwg3ZYc1M1X51jY8nDRd-GFlbwiQXb2SI0E9LIYivpI",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
