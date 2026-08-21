@@ -840,4 +840,16 @@ Dois ajustes pedidos pelo dono depois de revisar a tela de Configurações.
 - [delete-account-form.tsx](src/app/(app)/configuracoes/delete-account-form.tsx): por padrão aparece só um botão vermelho compacto ("Excluir empresa e conta") — identifica que é perigoso sem ocupar a tela com a caixa/texto de aviso o tempo todo. Só ao clicar é que aparece a caixa completa com o aviso e o formulário (senha + confirmação).
 - [configuracoes/actions.ts](src/app/(app)/configuracoes/actions.ts): `deleteMyAccount` agora exige a **senha da conta** antes de apagar qualquer coisa, reautenticando via `supabase.auth.signInWithPassword(email, senha)` — antes a única barreira era digitar o nome da empresa, que aparece na sidebar/cabeçalho pra qualquer um ver, então não protegia de verdade. Sem a senha certa, a exclusão nem chega a rodar. Continua pedindo o nome da empresa (ou "EXCLUIR") como segunda confirmação, igual antes.
 
+**Iterações de visual feitas depois, no mesmo dia** (feedback direto do dono a cada print): o botão fechado perdeu o ícone de alerta e a borda vermelha (só texto vermelho, borda neutra — "mais profissional"); e o formulário de senha+confirmação virou um **modal de verdade** (fundo escurecido, `createPortal` pro `document.body`, título com X, fecha com X/clique fora/Esc), inspirado no modal de exclusão de conta do Discord que o dono mostrou como referência.
+
+`tsc --noEmit`, `eslint` e `next build` passaram limpos.
+
+## 46. E-mail da empresa unificado com o e-mail de login (sessão de 2026-08-20)
+
+A tela de Configurações tinha dois campos de e-mail: "E-mail da empresa" (`companies.email`, praticamente sempre vazio) e o e-mail de login do administrador (`profiles.email`, o que a empresa realmente usa todo dia). O dono achou os dois campos confusos e pediu pra unificar, usando o e-mail de login como o único e-mail da empresa.
+
+- [settings-form.tsx](src/app/(app)/configuracoes/settings-form.tsx) + [configuracoes/actions.ts](src/app/(app)/configuracoes/actions.ts): campo "E-mail da empresa" removido do formulário; `updateSettings` parou de escrever em `companies.email` (a coluna continua existindo no banco, só não é mais lida/editada pelo app).
+- [billing-actions.ts](src/app/(app)/billing-actions.ts): `startAsaasCheckout` agora manda `profile.email` (login) como e-mail do cliente pro Asaas, em vez de `company.email` — é o e-mail que efetivamente recebe as notificações de cobrança agora.
+- [admin/[id]/page.tsx](src/app/admin/[id]/page.tsx): a ficha da empresa no painel admin mostra o e-mail de login do administrador (busca `profiles.email` do `company_admin` da empresa) em vez do campo `companies.email`, que ficava vazio na maioria dos casos.
+
 `tsc --noEmit`, `eslint` e `next build` passaram limpos.
