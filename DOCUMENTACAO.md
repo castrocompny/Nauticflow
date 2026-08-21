@@ -788,7 +788,7 @@ Adicionada a opção de **cobrança anual** além da mensal, com **2 meses grát
 - **`/planos` do app** — extraído `plan-cards.tsx` (client) com toggle **Mensal/Anual**; preço e ciclo certos; `PayPlanButton` repassa o ciclo. Respeita `?cycle=` vindo do cadastro.
 - **Landing** — `pricing.tsx` virou client com toggle Mensal/Anual (mostra 1.470/2.970/5.970 + "2 meses grátis · economize X"); "Assinar" leva `/login?mode=up&plan=X&cycle=anual`. `login/page.tsx` + `signUp` carregam `?cycle=` (validado) até `/planos?plan=X&cycle=anual`. `MKT_PLANS` ganhou `priceYear`/`economiaYear`.
 
-**Nota (gap pré-existente):** trocar de plano/ciclo cria uma assinatura NOVA no Asaas sem cancelar a antiga — já acontecia ao trocar entre planos mensais. Fica pra tratar depois (cancelar a `asaas_subscription_id` antiga ao criar a nova), fora do escopo do anual.
+**Nota (gap pré-existente):** trocar de plano/ciclo cria uma assinatura NOVA no Asaas sem cancelar a antiga — já acontecia ao trocar entre planos mensais. **Resolvido em 2026-08-20, ver seção 47.**
 
 ### Validação
 
@@ -851,5 +851,15 @@ A tela de Configurações tinha dois campos de e-mail: "E-mail da empresa" (`com
 - [settings-form.tsx](src/app/(app)/configuracoes/settings-form.tsx) + [configuracoes/actions.ts](src/app/(app)/configuracoes/actions.ts): campo "E-mail da empresa" removido do formulário; `updateSettings` parou de escrever em `companies.email` (a coluna continua existindo no banco, só não é mais lida/editada pelo app).
 - [billing-actions.ts](src/app/(app)/billing-actions.ts): `startAsaasCheckout` agora manda `profile.email` (login) como e-mail do cliente pro Asaas, em vez de `company.email` — é o e-mail que efetivamente recebe as notificações de cobrança agora.
 - [admin/[id]/page.tsx](src/app/admin/[id]/page.tsx): a ficha da empresa no painel admin mostra o e-mail de login do administrador (busca `profiles.email` do `company_admin` da empresa) em vez do campo `companies.email`, que ficava vazio na maioria dos casos.
+
+`tsc --noEmit`, `eslint` e `next build` passaram limpos.
+
+## 47. 🔴 Corrigido bug de cobrança dupla ao trocar de plano com assinatura ativa (sessão de 2026-08-20)
+
+Pedido do dono pra verificar: "quando um cliente no plano Start troca pro Profissional já assinando, dá algum erro?" **Não dava erro nenhum visível — o problema era pior, silencioso.**
+
+**O que acontecia:** `startAsaasCheckout` sempre criava uma assinatura **nova** no Asaas e sobrescrevia a única linha de `subscriptions` da empresa com o novo `asaas_subscription_id`. A assinatura **antiga nunca era cancelada** — ficava lá, ativa, cobrando sozinha por fora, e como o banco só guarda 1 assinatura por empresa (a referência da antiga se perde na hora do `update`), não tinha mais como localizar/cancelar ela nem pelo painel admin. Resultado possível: cliente pagando **dois planos ao mesmo tempo** sem ninguém perceber até olhar o extrato. Esse gap já tinha sido anotado na seção 42 mas nunca corrigido.
+
+**Correção em [billing-actions.ts](src/app/(app)/billing-actions.ts):** `startAsaasCheckout` agora busca a assinatura atual da empresa antes de criar a nova; se existir uma `asaas_subscription_id` ainda não cancelada, chama `cancelSubscription()` (mesma função da seção 44) **antes** de criar a nova assinatura no Asaas. Se o cancelamento falhar, a troca de plano é abortada com erro em vez de seguir e criar a cobrança duplicada. Vale tanto pra trocar de plano quanto pra trocar de ciclo (mensal↔anual) ou renovar manualmente pagando de novo.
 
 `tsc --noEmit`, `eslint` e `next build` passaram limpos.

@@ -17,7 +17,7 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
 
   const supabase = createClient();
 
-  const [{ data: company }, { data: plan }] = await Promise.all([
+  const [{ data: company }, { data: plan }, { data: currentSub }] = await Promise.all([
     supabase
       .from("companies")
       .select("id, name, cnpj, phone, asaas_customer_id")
@@ -27,6 +27,13 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
       .from("plans")
       .select("code, name, price_cents, price_cents_yearly")
       .eq("code", planCode)
+      .maybeSingle(),
+    supabase
+      .from("subscriptions")
+      .select("asaas_subscription_id, status")
+      .eq("company_id", profile.company_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
   ]);
   if (!company) return { error: "Empresa não encontrada." };
@@ -52,6 +59,17 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
     companyId: company.id,
   });
   if (!customerRes.ok) return { error: customerRes.error };
+
+  // se já existe uma assinatura ativa (trocando de plano ou de ciclo), cancela ela no
+  // Asaas ANTES de criar a nova -- sem isso, a antiga ficava esquecida lá, ainda cobrando
+  // sozinha por fora, e o cliente pagava as duas ao mesmo tempo sem ninguém perceber
+  // (nosso banco só guarda 1 assinatura por empresa, então a referência da antiga se perdia)
+  if (currentSub?.asaas_subscription_id && currentSub.status !== "cancelada") {
+    const cancelOldRes = await cancelSubscription(currentSub.asaas_subscription_id);
+    if (!cancelOldRes.ok) {
+      return { error: "Não foi possível cancelar sua assinatura atual pra trocar de plano: " + cancelOldRes.error };
+    }
+  }
 
   const subRes = await createSubscription({
     customerId: customerRes.data,
