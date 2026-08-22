@@ -3,6 +3,7 @@
 import { useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { createDeparture } from "./actions";
+import { PasseioPicker } from "./passeio-picker";
 import type { Tour, Vessel } from "@/lib/types";
 
 function Save() {
@@ -63,14 +64,7 @@ export function NewDepartureForm({ vessels, tours }: { vessels: Vessel[]; tours:
           </div>
           <div>
             <label>Passeio</label>
-            <select name="tour_id" className="mt-1" defaultValue="">
-              <option value="">Novo passeio...</option>
-              {tours.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+            <PasseioPicker tours={tours} />
           </div>
           <div>
             <label>Nome do novo passeio (se aplicável)</label>
