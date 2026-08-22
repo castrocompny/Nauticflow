@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, EmptyState, Pager } from "@/components/ui";
 import { NewDepartureForm } from "./new-departure-form";
+import { ToursPanel } from "./tours-panel";
 import { DepartureRow } from "./departure-row";
 import type { Tour, Vessel } from "@/lib/types";
 
@@ -47,6 +48,8 @@ export default async function DeparturesPage(props: { searchParams: Promise<{ pa
     <>
       <PageHeader title="Saídas" subtitle="Cada saída é uma embarcação em uma data e hora, com sua capacidade." />
       <NewDepartureForm vessels={vessels} tours={(tours ?? []) as Tour[]} />
+
+      <ToursPanel tours={(tours ?? []) as Tour[]} />
 
       {rows.length === 0 ? (
         <EmptyState

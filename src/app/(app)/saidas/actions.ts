@@ -6,6 +6,16 @@ import { getProfile } from "@/lib/profile";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { saoPauloToUTC } from "@/lib/format";
 
+// normaliza nome de passeio pra comparar sem diferenciar maiúscula/minúscula nem acento
+// (ex: "Geribá", "geriba" e "GERIBA" viram a mesma coisa) -- evita passeios duplicados
+function normalizeTourName(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
 export async function createDeparture(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
   if (!profile?.company_id) return { error: "Sessão inválida." };
@@ -37,14 +47,28 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   const newTour = String(formData.get("new_tour") || "").trim();
   let tourJustCreated = false;
   if (!tour_id && newTour) {
-    const { data, error } = await supabase
+    // evita duplicata: se ja existe um passeio ativo com o mesmo nome (ignorando
+    // maiuscula/acento), reaproveita ele em vez de criar outro igual
+    const target = normalizeTourName(newTour);
+    const { data: existingTours } = await supabase
       .from("tours")
-      .insert({ company_id, name: newTour })
-      .select("id")
-      .single();
-    if (error) return { error: error.message };
-    tour_id = data!.id;
-    tourJustCreated = true;
+      .select("id, name")
+      .eq("company_id", company_id)
+      .eq("active", true);
+    const match = (existingTours ?? []).find((t) => normalizeTourName(t.name) === target);
+
+    if (match) {
+      tour_id = match.id;
+    } else {
+      const { data, error } = await supabase
+        .from("tours")
+        .insert({ company_id, name: newTour })
+        .select("id")
+        .single();
+      if (error) return { error: error.message };
+      tour_id = data!.id;
+      tourJustCreated = true;
+    }
   }
   if (!tour_id) return { error: "Selecione ou crie um passeio." };
   if (!tourJustCreated) {
@@ -205,6 +229,42 @@ export async function deleteDeparture(formData: FormData) {
   if (error) return { error: "Não é possível excluir porque existem registros vinculados." };
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
+  revalidatePath("/agenda");
+  return { error: "" };
+}
+
+// Exclui um passeio da lista. Se ele já foi usado em alguma saída, não dá pra apagar
+// de vez (a FK departures.tour_id é "on delete restrict" e apagaria/quebraria o
+// histórico), então nesse caso ele é só DESATIVADO (active=false): some do dropdown e
+// deste painel, mas as saídas antigas continuam intactas. Sem nenhuma saída, apaga mesmo.
+export async function deleteTour(formData: FormData) {
+  const id = String(formData.get("id"));
+  const { supabase, id: company_id } = await companyId();
+  if (!company_id) return { error: "Sessão inválida ou usuário sem empresa." };
+
+  const { data: tour } = await supabase.from("tours").select("company_id").eq("id", id).maybeSingle();
+  if (!tour || tour.company_id !== company_id) return { error: "Passeio inválido." };
+
+  const { count } = await supabase
+    .from("departures")
+    .select("id", { count: "exact", head: true })
+    .eq("tour_id", id)
+    .eq("company_id", company_id);
+
+  if (count && count > 0) {
+    // tem histórico -> desativa em vez de apagar (preserva as saídas)
+    const { error } = await supabase
+      .from("tours")
+      .update({ active: false })
+      .eq("id", id)
+      .eq("company_id", company_id);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await supabase.from("tours").delete().eq("id", id).eq("company_id", company_id);
+    if (error) return { error: "Não foi possível excluir o passeio. " + error.message };
+  }
+
+  revalidatePath("/saidas");
   revalidatePath("/agenda");
   return { error: "" };
 }

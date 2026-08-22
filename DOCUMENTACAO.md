@@ -924,3 +924,13 @@ A pedido do dono, adicionado **Táxi marítimo** aos tipos de embarcação (apar
 - Código: `src/lib/types.ts` (`VesselType`), os dois selects (`new-vessel-form.tsx`, `vessel-edit-form.tsx`) e os dois mapas de rótulo (`vessel-row.tsx`, `embarcacoes/[id]/page.tsx`). A server action de embarcação não valida `type` contra whitelist — o único gate é o constraint do banco.
 
 `next build` exit 0. Ordem de deploy: **migration primeiro**, depois o push do código.
+
+## 51. Passeios: fim das duplicatas + botão de excluir (sessão de 2026-08-20)
+
+O dropdown "Passeio" (form de nova saída) enchia de duplicatas porque criar saída com "Novo passeio..." + nome digitado **sempre inseria um tour novo**, sem checar se já existia igual (ex.: "ilha do japa" e "Manguinhos" apareciam 2× cada). Isso também dividia o ranking de "passeios mais vendidos". Três correções:
+
+- **Evita novas duplicatas** — `src/app/(app)/saidas/actions.ts`: antes de inserir um passeio novo, procura um passeio **ativo** da empresa com o mesmo nome ignorando maiúsculas/acento (`normalizeTourName`) e **reaproveita** em vez de duplicar.
+- **Botão de excluir passeio** — novo painel "Passeios cadastrados" na página de Saídas (`saidas/tours-panel.tsx`) listando os passeios ativos, cada um com o `DeleteButton`. A action `deleteTour`: se o passeio **não tem saídas**, apaga de vez; se **tem** (a FK `departures.tour_id` é `on delete restrict`), **desativa** (`active=false`) — some da lista e do dropdown, mas o histórico das saídas fica intacto.
+- **Migration `0022_passeios_dedup.sql`** (⚠️ **rodar no Supabase** pra limpar o que já existe): junta os duplicados por empresa (mesmo nome, ignorando maiúsculas/espaços) num canônico (repointa as saídas, apaga os extras) e cria um **índice único parcial** `(company_id, lower(btrim(name))) where active` como rede de segurança. Sem dependência de ordem com o deploy do código (o código já previne dupes novas sozinho); a migration é a limpeza do backlog.
+
+`next build` exit 0, `eslint` sem erros novos.
