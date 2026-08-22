@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useFormStatus } from "react-dom";
 import { AlertTriangle, X } from "lucide-react";
 import { deleteMyAccount } from "./actions";
+import { PasswordInput } from "@/components/password-input";
 
 function Submit({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
@@ -88,8 +89,7 @@ export function DeleteAccountForm({ isCompanyAdmin, companyName }: { isCompanyAd
 
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted">Senha</label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     name="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

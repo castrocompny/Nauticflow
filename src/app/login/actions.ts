@@ -8,7 +8,8 @@ import { SITE_URL } from "@/lib/site-url";
 export async function signIn(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
-  const supabase = createClient();
+  const remember = formData.get("remember") === "on";
+  const supabase = createClient({ persistSession: remember });
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: "Email ou senha inválidos." };
   redirect("/dashboard");
@@ -27,12 +28,13 @@ export async function signUp(_prev: unknown, formData: FormData) {
   const plan = ["start", "profissional", "premium"].includes(planParam) ? planParam : "";
   const cycleParam = String(formData.get("cycle") || "");
   const cycle = cycleParam === "anual" ? "anual" : "";
+  const remember = formData.get("remember") === "on";
   if (!termsAccepted) {
     return { error: "É preciso aceitar os Termos de Uso e a Política de Privacidade para criar a conta." };
   }
   const passwordError = validatePassword(password);
   if (passwordError) return { error: passwordError };
-  const supabase = createClient();
+  const supabase = createClient({ persistSession: remember });
 
   // empresa, perfil e assinatura são criados por um gatilho no banco (on_auth_user_created),
   // disparado na própria inserção em auth.users — não depende de uma chamada autenticada

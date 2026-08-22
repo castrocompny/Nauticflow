@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { signIn, signUp, forgotPassword } from "./actions";
 import { Logo } from "@/components/logo";
+import { PasswordInput } from "@/components/password-input";
 
 function Submit({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -91,9 +92,8 @@ function AuthForm({
         {mode !== "forgot" && (
           <div>
             <label>Senha</label>
-            <input
+            <PasswordInput
               name="password"
-              type="password"
               required
               minLength={mode === "up" ? 8 : undefined}
               className="mt-1"
@@ -108,9 +108,21 @@ function AuthForm({
           </div>
         )}
         {mode === "in" && (
-          <button type="button" onClick={onForgot} className="block text-xs text-brand">
-            Esqueci minha senha
-          </button>
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-1.5 text-xs text-muted">
+              <input type="checkbox" name="remember" defaultChecked className="h-3.5 w-3.5" />
+              Lembre-me
+            </label>
+            <button type="button" onClick={onForgot} className="text-xs text-brand">
+              Esqueci minha senha
+            </button>
+          </div>
+        )}
+        {mode === "up" && (
+          <label className="flex items-center gap-1.5 text-xs text-muted">
+            <input type="checkbox" name="remember" defaultChecked className="h-3.5 w-3.5" />
+            Lembre-me
+          </label>
         )}
         {mode === "up" && (
           <label className="flex items-start gap-2 text-xs text-muted">

@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import { AlertCircle } from "lucide-react";
 import { updatePassword } from "./actions";
 import { Logo } from "@/components/logo";
+import { PasswordInput } from "@/components/password-input";
 
 function Submit() {
   const { pending } = useFormStatus();
@@ -40,7 +41,7 @@ export default function RedefinirSenhaPage() {
         <form action={formAction} className="space-y-3">
           <div>
             <label>Nova senha</label>
-            <input name="password" type="password" required minLength={8} className="mt-1" placeholder="••••••••" />
+            <PasswordInput name="password" required minLength={8} className="mt-1" placeholder="••••••••" />
             <p className="mt-1 text-[11px] text-muted">
               Mínimo 8 caracteres, com letras e números — nada de sequência (123456) ou só números (data de
               nascimento).
@@ -48,7 +49,7 @@ export default function RedefinirSenhaPage() {
           </div>
           <div>
             <label>Confirme a nova senha</label>
-            <input name="confirm" type="password" required minLength={8} className="mt-1" placeholder="••••••••" />
+            <PasswordInput name="confirm" required minLength={8} className="mt-1" placeholder="••••••••" />
           </div>
           <Submit />
         </form>
