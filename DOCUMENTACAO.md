@@ -934,3 +934,10 @@ O dropdown "Passeio" (form de nova saída) enchia de duplicatas porque criar sa�
 - **Migration `0022_passeios_dedup.sql`** (⚠️ **rodar no Supabase** pra limpar o que já existe): junta os duplicados por empresa (mesmo nome, ignorando maiúsculas/espaços) num canônico (repointa as saídas, apaga os extras) e cria um **índice único parcial** `(company_id, lower(btrim(name))) where active` como rede de segurança. Sem dependência de ordem com o deploy do código (o código já previne dupes novas sozinho); a migration é a limpeza do backlog.
 
 `next build` exit 0, `eslint` sem erros novos.
+
+## 52. Olhinho de mostrar/ocultar senha + checkbox "Lembre-me" (sessão de 2026-08-22)
+
+- **Olhinho nos campos de senha** — novo componente `src/components/password-input.tsx` (`PasswordInput`): input com botão de olho (ícone `Eye`/`EyeOff` do lucide) que alterna `type="password"`/`type="text"`. Aplicado em todo campo de senha do sistema: login, criar conta (`src/app/login/page.tsx`), redefinir senha (`src/app/redefinir-senha/page.tsx`) e confirmação de senha no modal de excluir conta (`src/app/(app)/configuracoes/delete-account-form.tsx`).
+- **Checkbox "Lembre-me"** — em login e criar conta, marcado por padrão. `src/lib/supabase/server.ts`: `createClient()` ganhou o parâmetro opcional `{ persistSession }`; quando `persistSession === false`, o `setAll` dos cookies remove `maxAge`/`expires` da opção antes de gravar, virando **cookie de sessão do navegador** (some ao fechar o navegador) em vez do cookie persistente que o `@supabase/ssr` define por padrão. `src/app/login/actions.ts` (`signIn`/`signUp`) lê o checkbox `remember` do formulário e repassa pro `createClient`. Não altera `httpOnly`/`secure`/`sameSite` nem a validade real do token no Supabase — só o tempo de vida do cookie no navegador.
+
+`tsc --noEmit` limpo. Testado visualmente com Playwright contra o dev server (login, criar conta, redefinir senha).
