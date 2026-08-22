@@ -915,3 +915,12 @@ Detectado com `IntersectionObserver` no próprio hero (`id="topo"`, ver [hero.ts
 - [theme-toggle.tsx](src/components/theme-toggle.tsx): ganhou uma prop opcional `borderClassName` (mantém o padrão de sempre pra quem usa sem passar nada) — a borda padrão ficava quase invisível em cima do fundo branco do topo da landing.
 
 Validado com screenshots reais tirados localmente (Playwright, instalado só pra esse teste, não ficou como dependência do projeto) antes de mandar pro dono conferir — inclusive foi assim que a causa raiz da opacidade foi finalmente encontrada, comparando a classe CSS computada de verdade contra o que devia estar sendo aplicada. `tsc --noEmit`, `eslint` e `next build` passaram limpos. Revisão de segurança: só mudanças visuais/CSS, sem escopo de segurança.
+
+## 50. Novo tipo de embarcação: "Táxi marítimo" (sessão de 2026-08-20)
+
+A pedido do dono, adicionado **Táxi marítimo** aos tipos de embarcação (aparece no dropdown "Tipo" do cadastro/edição, entre Catamarã e Outro).
+
+- **Migration `0021_tipo_embarcacao_taxi_maritimo.sql`** (⚠️ **aplicar no Supabase antes do deploy**): recria o `CHECK` de `vessels.type` incluindo `'taxi_maritimo'` — sem ela, cadastrar/editar como táxi marítimo falha no constraint (os outros tipos seguem funcionando).
+- Código: `src/lib/types.ts` (`VesselType`), os dois selects (`new-vessel-form.tsx`, `vessel-edit-form.tsx`) e os dois mapas de rótulo (`vessel-row.tsx`, `embarcacoes/[id]/page.tsx`). A server action de embarcação não valida `type` contra whitelist — o único gate é o constraint do banco.
+
+`next build` exit 0. Ordem de deploy: **migration primeiro**, depois o push do código.

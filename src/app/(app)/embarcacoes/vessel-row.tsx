@@ -19,6 +19,7 @@ const typeLabel: Record<string, string> = {
   lancha: "Lancha",
   jet_ski: "Jet ski",
   catamara: "Catamarã",
+  taxi_maritimo: "Táxi marítimo",
   outro: "Outro",
 };
 

@@ -61,6 +61,7 @@ export function NewVesselForm() {
               <option value="lancha">Lancha</option>
               <option value="jet_ski">Jet ski</option>
               <option value="catamara">Catamarã</option>
+              <option value="taxi_maritimo">Táxi marítimo</option>
               <option value="outro">Outro</option>
             </select>
           </div>

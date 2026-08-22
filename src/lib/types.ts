@@ -1,5 +1,5 @@
 export type UserRole = "super_admin" | "company_admin" | "staff";
-export type VesselType = "escuna" | "lancha" | "jet_ski" | "catamara" | "outro";
+export type VesselType = "escuna" | "lancha" | "jet_ski" | "catamara" | "taxi_maritimo" | "outro";
 export type VesselStatus = "ativa" | "manutencao" | "inativa";
 export type ReservationStatus = "confirmada" | "cancelada" | "pendente";
 export type PassengerStatus = "confirmado" | "embarcado" | "ausente";
