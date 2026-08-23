@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
@@ -12,6 +13,9 @@ type Invoice = { id: string; number: string | null; amount_cents: number; pdf_ur
 export default async function ConfiguracoesPage() {
   const supabase = createClient();
   const user = await getProfile();
+  // dados da empresa, assinatura e faturas nao sao coisa de operador (staff) ver
+  // nem mexer -- so quem administra a empresa (ou o super admin, testando)
+  if (user?.role === "staff") redirect("/dashboard");
 
   const { data: profile } = await supabase
     .from("profiles")

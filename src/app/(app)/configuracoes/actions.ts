@@ -15,10 +15,17 @@ export async function updateSettings(_prev: unknown, formData: FormData) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("company_id")
+    .select("company_id, role")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile?.company_id) return { error: "Usuário sem empresa vinculada.", ok: false };
+  // RLS de "companies" (propria empresa - update) deixa QUALQUER membro editar --
+  // essa checagem de cargo é a barreira de verdade contra um colaborador (staff)
+  // mudar dados da empresa (a tela já nem aparece pra ele, mas a action precisa se
+  // proteger sozinha também, nunca confiar só na UI escondida).
+  if (profile.role !== "company_admin" && profile.role !== "super_admin") {
+    return { error: "Só o administrador da empresa pode alterar essas configurações.", ok: false };
+  }
 
   // atualiza dados da empresa (RLS permite a propria empresa) -- sem campo de e-mail
   // aqui: o e-mail de login (profiles.email) é o único e-mail da empresa agora

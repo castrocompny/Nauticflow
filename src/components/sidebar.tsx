@@ -40,6 +40,9 @@ const navGroups = [
   },
   {
     label: "Gestão",
+    // so admin/super_admin -- financeiro, relatorios, gestao de equipe e conta/
+    // assinatura da empresa nao sao coisa de operador (staff) mexer nem ver
+    adminOnly: true,
     items: [
       { href: "/financeiro", label: "Financeiro", icon: Wallet },
       { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
@@ -55,6 +58,7 @@ export function Sidebar({
   planName,
   overdue,
   isSuperAdmin,
+  isStaff,
   mobileOpen = false,
   onNavigate,
 }: {
@@ -63,11 +67,13 @@ export function Sidebar({
   planName: string;
   overdue: boolean;
   isSuperAdmin?: boolean;
+  isStaff?: boolean;
   mobileOpen?: boolean;
   onNavigate?: () => void;
 }) {
   const path = usePathname();
   const initial = (company || "?").trim().charAt(0).toUpperCase();
+  const visibleGroups = navGroups.filter((g) => !g.adminOnly || !isStaff);
   return (
     <aside
       className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col bg-navy text-slate-200 transition-transform duration-200 lg:static lg:translate-x-0 ${
@@ -96,7 +102,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-3 overflow-y-auto px-3 py-2">
-        {navGroups.map((group, i) => (
+        {visibleGroups.map((group, i) => (
           <div key={group.label ?? i} className="space-y-1">
             {group.label && (
               <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-300">{group.label}</p>
@@ -133,17 +139,19 @@ export function Sidebar({
         )}
       </nav>
 
-      <Link
-        href="/planos"
-        onClick={onNavigate}
-        className="m-3 flex items-center justify-between rounded-lg bg-navy-700 px-3 py-2.5 text-sm transition hover:bg-navy-700/70"
-      >
-        <span className="truncate text-white">
-          {planName}
-          {overdue && <span className="ml-1.5 text-xs font-medium text-danger">vencida</span>}
-        </span>
-        <ChevronRight size={16} className="shrink-0 text-muted" />
-      </Link>
+      {!isStaff && (
+        <Link
+          href="/planos"
+          onClick={onNavigate}
+          className="m-3 flex items-center justify-between rounded-lg bg-navy-700 px-3 py-2.5 text-sm transition hover:bg-navy-700/70"
+        >
+          <span className="truncate text-white">
+            {planName}
+            {overdue && <span className="ml-1.5 text-xs font-medium text-danger">vencida</span>}
+          </span>
+          <ChevronRight size={16} className="shrink-0 text-muted" />
+        </Link>
+      )}
     </aside>
   );
 }

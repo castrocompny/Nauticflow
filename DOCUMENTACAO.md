@@ -1009,6 +1009,18 @@ Mesmo com a seção 56 corrigida (perfil certo criado na hora), o link do e-mail
 
 **Validado de ponta a ponta** com um convite de teste real (e-mail descartável): `generateLink` → e-mail enviado com sucesso via Resend (`{"sent":true}`) → link clicado → sessão estabelecida (cookie setado) → redireciona pra `/redefinir-senha` → perfil já correto (`staff`, empresa certa) desde a criação.
 
+## 58. Colaborador (staff) deixa de ver Configurações/Planos/Financeiro/Relatórios/Equipe (sessão de 2026-08-22)
+
+Com o convite de equipe finalmente funcionando (seções 56-57), o dono notou que um colaborador convidado (`staff`) via **tudo** no menu — inclusive Configurações (dados da empresa, cobrança, exclusão de conta) e o rodapé de plano/renovação. Pedido: colaborador só deveria ver o operacional (Reservas, Agenda, Saídas, Clientes, Embarcações, Parceiros) — nada de conta/assinatura/gestão de equipe, pra evitar mexida acidental na conta do dono.
+
+- **Menu lateral** (`src/components/sidebar.tsx`) — grupo "Gestão" (Financeiro, Relatórios, Equipe, Configurações) marcado `adminOnly` e filtrado pra sumir quando `isStaff`. Rodapé de plano/renovação (link pra `/planos`) também escondido pra staff. Prop `isStaff` propagada por `app-shell.tsx` e calculada em `src/app/(app)/layout.tsx` (`rawRole === "staff"`).
+- **Bloqueio no servidor** (defesa em profundidade — nunca confiar só em esconder botão/menu): `/configuracoes`, `/equipe`, `/planos`, `/financeiro` e `/relatorios` agora redirecionam `staff` pra `/dashboard` direto na Server Component da página, então nem digitando a URL dá pra entrar.
+- **Brecha real fechada**: a RLS de `companies` (`propria empresa - update`, migration `0000`) permite **qualquer membro** da empresa atualizar os dados dela — não só `company_admin`. A action `updateSettings` (`configuracoes/actions.ts`) não tinha checagem de cargo nenhuma; um colaborador que soubesse a URL conseguia editar nome/CNPJ/cidade/telefone da empresa mesmo com a tela escondida. Adicionada checagem `role !== "company_admin" && role !== "super_admin"` na própria action.
+
+Não mexeu em `cancelAsaasSubscription`/plano (já tinha checagem de cargo desde que foi criada) nem em `inviteTeamMember`/`removeTeamMember` (idem).
+
+**Validado** com Playwright + um convite de teste real (sessão de `staff` de verdade, via `generateLink` + cookie de sessão real, não simulado): menu lateral mostra só Operação + Cadastros, sem rodapé de plano; acesso direto às 3 URLs bloqueadas (`/configuracoes`, `/equipe`, `/planos`) redireciona pra `/dashboard`. `tsc --noEmit` e `eslint` limpos.
+
 `tsc --noEmit` e `eslint` limpos.
 
 `tsc --noEmit` e `eslint` não se aplicam aqui (mudança é só SQL/banco, aplicada via `supabase db push`, sem tocar em código TypeScript).

@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { PageHeader, Card } from "@/components/ui";
@@ -26,10 +27,14 @@ export default async function PlanosPage(props: {
     : undefined;
   const initialCycle = cycleParam === "anual" ? "anual" : "mensal";
 
+  const profile = await getProfile();
+  // plano/assinatura/cobranca da empresa nao e coisa de operador (staff) ver nem mexer
+  if (profile?.role === "staff") redirect("/dashboard");
+
   const supabase = createClient();
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
-  const [{ data: plansData }, { data: subData }, vesselsCount, reservasMes, profile] = await Promise.all([
+  const [{ data: plansData }, { data: subData }, vesselsCount, reservasMes] = await Promise.all([
     supabase
       .from("plans")
       .select("code, name, price_cents, price_cents_yearly, max_vessels, max_users")
@@ -42,7 +47,6 @@ export default async function PlanosPage(props: {
       .maybeSingle(),
     supabase.from("vessels").select("id", { count: "exact", head: true }),
     supabase.from("reservations").select("id", { count: "exact", head: true }).gte("created_at", monthStart),
-    getProfile(),
   ]);
 
   const plans = (plansData ?? []) as Plan[];

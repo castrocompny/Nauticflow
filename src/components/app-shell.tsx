@@ -16,7 +16,14 @@ export function AppShell({
   banner,
   children,
 }: {
-  sidebar: { company: string; city: string | null; planName: string; overdue: boolean; isSuperAdmin: boolean };
+  sidebar: {
+    company: string;
+    city: string | null;
+    planName: string;
+    overdue: boolean;
+    isSuperAdmin: boolean;
+    isStaff: boolean;
+  };
   topbar: { name: string; role: string; notifications: Notif[] };
   banner: ReactNode;
   children: ReactNode;

@@ -1,6 +1,8 @@
+import { redirect } from "next/navigation";
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { brl, fmtDate, startEndOfToday } from "@/lib/format";
 import { BarsChart } from "../dashboard/bars-chart";
@@ -17,6 +19,10 @@ type Res = {
 };
 
 export default async function FinanceiroPage(props: { searchParams: Promise<{ p?: string }> }) {
+  // faturamento nao e coisa de operador (staff) ver
+  const profile = await getProfile();
+  if (profile?.role === "staff") redirect("/dashboard");
+
   const searchParams = await props.searchParams;
   const p = searchParams.p === "ano" ? "ano" : "mes";
   const supabase = createClient();

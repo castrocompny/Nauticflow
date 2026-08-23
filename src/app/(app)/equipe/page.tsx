@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
@@ -17,6 +18,9 @@ type Member = { id: string; name: string | null; email: string | null; role: str
 
 export default async function EquipePage() {
   const profile = await getProfile();
+  // gestao de quem tem acesso a empresa (convidar/remover, ver e-mail de todo mundo)
+  // nao e coisa de operador (staff) mexer
+  if (profile?.role === "staff") redirect("/dashboard");
   const supabase = createClient();
 
   const [{ data: membersData }, { data: sub }] = await Promise.all([

@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { brl } from "@/lib/format";
 
@@ -31,6 +33,10 @@ function startFor(p: string): Date {
 }
 
 export default async function RelatoriosPage(props: { searchParams: Promise<{ p?: string }> }) {
+  // relatorios de faturamento/desempenho nao sao coisa de operador (staff) ver
+  const profile = await getProfile();
+  if (profile?.role === "staff") redirect("/dashboard");
+
   const searchParams = await props.searchParams;
   const p = ["hoje", "7d", "30d", "mes", "ano"].includes(searchParams.p ?? "") ? (searchParams.p as string) : "30d";
   const start = startFor(p).toISOString();

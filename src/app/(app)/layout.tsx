@@ -89,6 +89,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         planName,
         overdue: isOverdue || isSuspended,
         isSuperAdmin: rawRole === "super_admin",
+        isStaff: rawRole === "staff",
       }}
       topbar={{ name: firstName, role, notifications }}
       banner={
