@@ -979,4 +979,19 @@ A conta de teste afetada ("Minha empresa" nova, dona = e-mail convidado) precisa
 
 `tsc --noEmit` e `eslint` limpos.
 
-`tsc --noEmit` e `eslint` limpos.
+## 56. 🔴 Causa raiz real do convite quebrado: `invited_at` chega depois do gatilho de criação (sessão de 2026-08-22)
+
+Depois da seção 55, veio outro relato: convite pra um e-mail **nunca usado antes** (sem o problema de conta reaproveitada) — a pessoa clicou no link, confirmou a senha sem erro nenhum, mas **virou dona de uma empresa nova** ("Minha empresa") em vez de entrar como `staff` na empresa de quem convidou. Ou seja: o próprio gatilho de convite (`handle_new_user()`, correções anteriores nas migrations `0013`/`0018`) nunca funcionou direito em produção, nem nos casos "limpos".
+
+**Diagnóstico** (direto no banco, via `supabase db push`/CLI já linkado ao projeto — sem precisar do SQL Editor manual): reproduzido o bug com convites de teste reais (e-mails descartáveis, deletados depois) e confirmado com uma tabela de log temporária (migration `0024`, removida depois) dentro do próprio gatilho — **`new.invited_at` chega `null` no gatilho `AFTER INSERT on auth.users`**, mesmo em convites de verdade feitos via `admin.inviteUserByEmail()`. O Supabase grava a linha em `auth.users` **primeiro**, e só preenche `invited_at` numa **atualização separada** logo em seguida (confirmado: ~34ms depois, na resposta da própria API) — como o gatilho de criação dispara imediatamente no `INSERT`, ele nunca via esse campo preenchido, e a condição de segurança da migration `0018` (`if new.invited_at is not null`) nunca era verdadeira. Todo convite, desde que essa lógica existe, caiu sempre no caminho de "cadastro normal".
+
+(A migration `0023`, aplicada antes desse diagnóstico mais fundo, só reafirmava a lógica da `0018` sem mudar nada — não resolveu, porque o problema nunca foi o código da função estar desatualizado, e sim o timing de quando `invited_at` fica disponível.)
+
+**Correção definitiva** (migration `0025_conserta_gatilho_convite_timing.sql`):
+- `handle_new_user()` (dispara em `AFTER INSERT on auth.users`, sem mudança nenhuma pro cadastro normal): se o metadata tiver `invited_to_company_id`, **não decide nada ainda** — só devolve, esperando confirmação.
+- **Novo gatilho** `on_auth_user_invited`, em `AFTER UPDATE OF invited_at on auth.users`, com `WHEN (old.invited_at is null and new.invited_at is not null)` — dispara exatamente no momento em que o Supabase confirma que é um convite de verdade (só a API admin, que exige `service_role`, preenche esse campo — segue impossível de forjar via `signUp()` público, mesma garantia de segurança da `0018`). Aí sim insere o perfil como `staff` na empresa que convidou.
+- Sem impacto no cadastro normal (`Criar conta`): sem `invited_to_company_id` no metadata, `handle_new_user()` segue exatamente igual a antes.
+
+**Validado** com convites de teste reais (e-mails descartáveis via alias `+`, removidos logo depois): convite → perfil correto (`role=staff`, `company_id` da empresa que convidou) na hora, sem precisar a pessoa nem confirmar o link. Cadastro normal testado de novo também, sem regressão (`role=company_admin`, empresa própria, como sempre foi).
+
+`tsc --noEmit` e `eslint` não se aplicam aqui (mudança é só SQL/banco, aplicada via `supabase db push`, sem tocar em código TypeScript).
