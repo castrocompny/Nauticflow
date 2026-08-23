@@ -6,6 +6,61 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
 import { getSubscriptionStatus } from "@/lib/subscription";
 import { SITE_URL } from "@/lib/site-url";
+import { buildInviteEmailHtml } from "@/lib/team-invite-email";
+
+// Monta e manda o e-mail de convite pela nossa propria infraestrutura (Resend, via
+// Edge Function send-email) em vez de deixar o Supabase Auth mandar o dele.
+//
+// Motivo: o e-mail de convite padrao do Supabase usa {{ .ConfirmationURL }}, que
+// aponta pro endpoint hospedado do proprio Supabase (/auth/v1/verify). Esse endpoint
+// verifica o token no SERVIDOR DELE e redireciona pro nosso site com a sessao
+// grudada no fragmento da URL (#access_token=...) -- fragmento nunca chega no
+// servidor (o navegador nao manda), entao nosso /auth/callback nunca ve a sessao e a
+// pessoa cai em "link invalido ou expirado" mesmo com o link genuino e recem-criado.
+// Customizar o template de e-mail no painel do Supabase pra usar {{ .TokenHash }}
+// direto resolveria em teoria, mas na pratica a mudanca nao "pegava" de forma
+// confiavel (testado e confirmado nao funcionar em produção).
+//
+// generateLink() cria o usuario/token igual o inviteUserByEmail, mas NAO manda
+// e-mail nenhum -- so devolve o hashed_token pra gente montar o link do jeito que
+// quiser, direto pro nosso /auth/callback (mesmo mecanismo que ja funciona pro
+// "Esqueci minha senha", via verifyOtp).
+async function sendInviteEmail(
+  admin: ReturnType<typeof createAdminClient>,
+  params: { email: string; name: string; companyId: string; companyName: string }
+): Promise<{ error: string } | { error: "" }> {
+  const { email, name, companyId, companyName } = params;
+
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "invite",
+    email,
+    options: {
+      data: { name, role: "staff", invited_to_company_id: companyId },
+      redirectTo: `${SITE_URL}/auth/callback?next=/redefinir-senha`,
+    },
+  });
+
+  if (error) {
+    if (error.message.toLowerCase().includes("already been registered")) {
+      return { error: "already_registered" };
+    }
+    return { error: "Não foi possível gerar o convite: " + error.message };
+  }
+
+  const link = `${SITE_URL}/auth/callback?token_hash=${data.properties.hashed_token}&type=invite&next=/redefinir-senha`;
+  const html = buildInviteEmailHtml({ inviteeName: name, companyName, link });
+
+  const { data: sendResult, error: sendErr } = await admin.functions.invoke("send-email", {
+    headers: { "x-mailer-secret": process.env.MAILER_SECRET ?? "" },
+    body: { to: email, subject: "Você foi convidado para o NauticFlow", html },
+  });
+
+  if (sendErr || (sendResult as { sent?: boolean } | null)?.sent === false) {
+    return { error: "Convite criado, mas não foi possível enviar o e-mail. Tente reenviar em instantes." };
+  }
+
+  return { error: "" };
+}
 
 export async function inviteTeamMember(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
@@ -50,21 +105,10 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
     return { error: "Já existe uma conta cadastrada com esse e-mail no sistema." };
   }
 
-  const { error } = await admin.auth.admin.inviteUserByEmail(email, {
-    data: {
-      name,
-      role: "staff",
-      invited_to_company_id: profile.company_id,
-    },
-    redirectTo: `${SITE_URL}/auth/callback?next=/redefinir-senha`,
-  });
-
-  if (error) {
-    if (error.message.toLowerCase().includes("already been registered")) {
-      return { error: "Já existe uma conta com esse e-mail." };
-    }
-    return { error: "Não foi possível convidar: " + error.message };
-  }
+  const companyName = profile.companies?.name ?? "sua empresa";
+  const result = await sendInviteEmail(admin, { email, name, companyId: profile.company_id, companyName });
+  if (result.error === "already_registered") return { error: "Já existe uma conta com esse e-mail." };
+  if (result.error) return { error: result.error };
 
   revalidatePath("/equipe");
   return { error: "", info: `Convite enviado para ${email}.` };
@@ -100,21 +144,18 @@ export async function resendInvite(memberId: string) {
   // reenviar pro mesmo e-mail de um convite ainda nao confirmado gera um link novo
   // (o antigo, de uso unico, vira invalido) -- e o motivo mais comum do link "expirado"
   // reportado por quem recebe: o anterior ja tinha sido clicado/gasto ou passou de 1h.
-  const { error } = await admin.auth.admin.inviteUserByEmail(target.email, {
-    data: {
-      name: target.name,
-      role: "staff",
-      invited_to_company_id: target.company_id,
-    },
-    redirectTo: `${SITE_URL}/auth/callback?next=/redefinir-senha`,
+  const companyName = profile.companies?.name ?? "sua empresa";
+  const result = await sendInviteEmail(admin, {
+    email: target.email,
+    name: target.name ?? target.email,
+    companyId: target.company_id,
+    companyName,
   });
 
-  if (error) {
-    if (error.message.toLowerCase().includes("already been registered")) {
-      return { ok: false, message: `${target.name ?? "Esse usuário"} já confirmou o acesso — não precisa reenviar.` };
-    }
-    return { ok: false, message: "Não foi possível reenviar: " + error.message };
+  if (result.error === "already_registered") {
+    return { ok: false, message: `${target.name ?? "Esse usuário"} já confirmou o acesso — não precisa reenviar.` };
   }
+  if (result.error) return { ok: false, message: result.error };
 
   return { ok: true, message: `Convite reenviado para ${target.email}.` };
 }
