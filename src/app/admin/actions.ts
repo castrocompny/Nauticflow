@@ -147,8 +147,12 @@ export async function deleteCompanyPermanently(companyId: string, confirmName: s
 
   const { data: company } = await supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
   if (!company) return { ok: false, message: "Empresa não encontrada." };
-  if (confirmName.trim() !== company.name) {
-    return { ok: false, message: `Digite "${company.name}" exatamente para confirmar.` };
+  // .trim() nos dois lados: o nome no banco pode ter espaço sobrando no fim (dado
+  // de cadastro antigo), invisivel no <strong> da tela -- sem isso, o admin nunca
+  // consegue confirmar porque o texto digitado (sem o espaço, que ele nao ve) nunca
+  // bate com o valor cru do banco.
+  if (confirmName.trim() !== company.name.trim()) {
+    return { ok: false, message: `Digite "${company.name.trim()}" exatamente para confirmar.` };
   }
 
   // registra ANTES de apagar -- depois que a empresa some, o vínculo no audit log fica

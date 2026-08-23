@@ -25,8 +25,11 @@ export function DeleteAccountForm({ isCompanyAdmin, companyName }: { isCompanyAd
   const [password, setPassword] = useState("");
   const [open, setOpen] = useState(false);
 
-  const expected = isCompanyAdmin ? companyName : "EXCLUIR";
-  const canSubmit = confirmText === expected && password.length > 0;
+  // .trim(): o nome da empresa pode ter espaço sobrando no fim (dado de cadastro
+  // antigo), invisivel no texto em negrito abaixo -- sem isso o dono nunca consegue
+  // confirmar porque o texto digitado (sem o espaço, que ele nao ve) nunca bate.
+  const expected = (isCompanyAdmin ? companyName : "EXCLUIR").trim();
+  const canSubmit = confirmText.trim() === expected && password.length > 0;
 
   function close() {
     setOpen(false);

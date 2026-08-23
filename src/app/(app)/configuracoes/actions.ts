@@ -72,8 +72,12 @@ export async function deleteMyAccount(_prev: unknown, formData: FormData) {
   const admin = createAdminClient();
 
   if (profile.role === "company_admin") {
-    const companyName = profile.companies?.name ?? "";
-    if (!companyName || confirmText !== companyName) {
+    // .trim(): o nome da empresa pode ter espaço sobrando no fim (dado de cadastro
+    // antigo), invisivel no <strong> da tela -- sem isso o dono nunca consegue
+    // confirmar porque o texto digitado (sem o espaço, que ele nao ve) nunca bate
+    // com o valor cru do banco.
+    const companyName = (profile.companies?.name ?? "").trim();
+    if (!companyName || confirmText.trim() !== companyName) {
       return { error: `Digite "${companyName}" exatamente para confirmar.` };
     }
     if (!profile.company_id) return { error: "Empresa não encontrada." };

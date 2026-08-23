@@ -54,7 +54,7 @@ export function DeleteCompanyControls({ companyId, companyName }: { companyId: s
       <div className="flex gap-2">
         <button
           onClick={onDelete}
-          disabled={pending || confirmName.trim() !== companyName}
+          disabled={pending || confirmName.trim() !== companyName.trim()}
           className="rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-60"
         >
           {pending ? "Excluindo..." : "Excluir definitivamente"}

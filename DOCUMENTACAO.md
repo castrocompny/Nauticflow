@@ -952,3 +952,17 @@ Como não dava pra reenviar sem apagar e recriar o colaborador, adicionado:
 - **`ResendInviteButton`** (`equipe/resend-invite-button.tsx`, ícone de envelope) — ao lado do botão de remover, na tabela de Equipe (`equipe/page.tsx`), visível pra quem já podia remover aquele colaborador (admin, colaborador não-admin).
 
 `tsc --noEmit` e `eslint` limpos.
+
+## 54. Bug: exclusão de empresa/conta travava com espaço sobrando no nome (sessão de 2026-08-22)
+
+Duas empresas de teste apagadas direto pelo Supabase continuavam aparecendo no Super Admin (`/admin`) — confirmado que a query da listagem busca sempre direto do banco, sem cache: se a empresa ainda aparecia, a exclusão no Supabase não tinha ido até o fim de verdade (provável causa: `profiles.company_id` é `on delete set null`, não `cascade` — apagar só a linha de `companies` direto por SQL deixa a conta de login do dono órfã, sem apagar de fato). O caminho seguro pra apagar uma empresa já existia (botão "Excluir empresa definitivamente" na "Zona de risco" de `/admin/[id]`, usando `deleteCompanyPermanently` em `admin/actions.ts`, que apaga as contas de login via API de admin antes de apagar a empresa).
+
+Ao tentar usar esse botão numa das duas empresas ("Escuna amigos"), o dono não conseguia — o botão ficava sempre desabilitado mesmo digitando o nome certinho. Causa raiz: o nome dessa empresa no banco tem um **espaço sobrando no final** (`"Escuna amigos "`, dado de cadastro antigo) — invisível no `<strong>` da tela (HTML colapsa espaço em branco na exibição), então o dono digitava o nome exatamente como via na tela, sem esse espaço, e a comparação (`confirmName.trim() !== companyName`, sem `.trim()` do lado do nome vindo do banco) nunca batia. Mesma classe de bug encontrada e corrigida em três lugares (todos comparavam o texto digitado — trimado — contra o nome cru do banco — não trimado):
+
+- `src/app/admin/[id]/delete-company-controls.tsx` (botão do Super Admin)
+- `src/app/admin/actions.ts` (`deleteCompanyPermanently`, validação no servidor)
+- `src/app/(app)/configuracoes/actions.ts` (`deleteMyAccount`) + `configuracoes/delete-account-form.tsx` (auto-exclusão de conta pelo próprio dono da empresa)
+
+Todos agora comparam `.trim()` dos dois lados. Não enfraquece a proteção — continua exigindo o nome exato (e senha, no caso da auto-exclusão), só ignora espaço nas pontas que o usuário não consegue nem ver na tela.
+
+`tsc --noEmit` e `eslint` limpos.
