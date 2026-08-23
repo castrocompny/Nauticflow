@@ -5,6 +5,7 @@ import { Card, PageHeader, Badge } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { InviteForm } from "./invite-form";
 import { RemoveButton } from "./remove-button";
+import { ResendInviteButton } from "./resend-invite-button";
 
 const roleLabel: Record<string, string> = {
   company_admin: "Administrador",
@@ -72,7 +73,14 @@ export default async function EquipePage() {
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-muted">{fmtDate(m.created_at)}</td>
-                  <td className="px-4 py-3">{removable && <RemoveButton memberId={m.id} memberName={m.name ?? "este usuário"} />}</td>
+                  <td className="px-4 py-3">
+                    {removable && (
+                      <div className="flex justify-end gap-2">
+                        <ResendInviteButton memberId={m.id} />
+                        <RemoveButton memberId={m.id} memberName={m.name ?? "este usuário"} />
+                      </div>
+                    )}
+                  </td>
                 </tr>
               );
             })}

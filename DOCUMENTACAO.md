@@ -941,3 +941,14 @@ O dropdown "Passeio" (form de nova saída) enchia de duplicatas porque criar sa�
 - **Checkbox "Lembre-me"** — em login e criar conta, marcado por padrão. `src/lib/supabase/server.ts`: `createClient()` ganhou o parâmetro opcional `{ persistSession }`; quando `persistSession === false`, o `setAll` dos cookies remove `maxAge`/`expires` da opção antes de gravar, virando **cookie de sessão do navegador** (some ao fechar o navegador) em vez do cookie persistente que o `@supabase/ssr` define por padrão. `src/app/login/actions.ts` (`signIn`/`signUp`) lê o checkbox `remember` do formulário e repassa pro `createClient`. Não altera `httpOnly`/`secure`/`sameSite` nem a validade real do token no Supabase — só o tempo de vida do cookie no navegador.
 
 `tsc --noEmit` limpo. Testado visualmente com Playwright contra o dev server (login, criar conta, redefinir senha).
+
+## 53. Botão "Reenviar convite" na Equipe (sessão de 2026-08-22)
+
+Investigado um relato do dono: um operador convidado recebia o e-mail, clicava no link e caía num erro de "link inválido ou expirado". O fluxo de convite (`equipe/actions.ts` → `admin.inviteUserByEmail` → `/auth/callback` → `/redefinir-senha`) usa exatamente o mesmo mecanismo já validado pro "Esqueci minha senha" (seção 25) — nenhum bug de código encontrado. A causa mais provável é o link de uso único ser consumido antes da pessoa clicar de verdade (scanner de segurança de e-mail corporativo tipo Outlook/Office 365 "Safe Links", ou expirou depois de 1h, ou clicou um convite antigo de um teste anterior).
+
+Como não dava pra reenviar sem apagar e recriar o colaborador, adicionado:
+
+- **`resendInvite(memberId)`** em `equipe/actions.ts` — mesmas checagens de permissão/empresa de `removeTeamMember`, chama `admin.inviteUserByEmail` de novo pro mesmo e-mail. Isso gera um link novo (o antigo, de uso único, vira inválido) — é o "reenviar" de verdade, não só reenviar o e-mail antigo. Se o usuário já confirmou o acesso, retorna aviso amigável em vez do erro cru do Supabase ("já confirmou o acesso — não precisa reenviar").
+- **`ResendInviteButton`** (`equipe/resend-invite-button.tsx`, ícone de envelope) — ao lado do botão de remover, na tabela de Equipe (`equipe/page.tsx`), visível pra quem já podia remover aquele colaborador (admin, colaborador não-admin).
+
+`tsc --noEmit` e `eslint` limpos.

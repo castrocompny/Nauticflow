@@ -55,6 +55,55 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
   return { error: "", info: `Convite enviado para ${email}.` };
 }
 
+export async function resendInvite(memberId: string) {
+  const profile = await getProfile();
+  if (!profile?.company_id) return { ok: false, message: "Sessão inválida." };
+
+  if (profile.role !== "company_admin" && profile.role !== "super_admin") {
+    return { ok: false, message: "Só o administrador da empresa pode reenviar convites." };
+  }
+
+  const supabase = createClient();
+  const { data: target } = await supabase
+    .from("profiles")
+    .select("id, company_id, role, name, email")
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (!target || target.company_id !== profile.company_id) {
+    return { ok: false, message: "Usuário não encontrado nesta empresa." };
+  }
+  if (!target.email) {
+    return { ok: false, message: "Esse usuário não tem e-mail cadastrado." };
+  }
+  if (target.role === "company_admin" || target.role === "super_admin") {
+    return { ok: false, message: "Não é possível reenviar convite pra um administrador." };
+  }
+
+  const admin = createAdminClient();
+
+  // reenviar pro mesmo e-mail de um convite ainda nao confirmado gera um link novo
+  // (o antigo, de uso unico, vira invalido) -- e o motivo mais comum do link "expirado"
+  // reportado por quem recebe: o anterior ja tinha sido clicado/gasto ou passou de 1h.
+  const { error } = await admin.auth.admin.inviteUserByEmail(target.email, {
+    data: {
+      name: target.name,
+      role: "staff",
+      invited_to_company_id: target.company_id,
+    },
+    redirectTo: `${SITE_URL}/auth/callback?next=/redefinir-senha`,
+  });
+
+  if (error) {
+    if (error.message.toLowerCase().includes("already been registered")) {
+      return { ok: false, message: `${target.name ?? "Esse usuário"} já confirmou o acesso — não precisa reenviar.` };
+    }
+    return { ok: false, message: "Não foi possível reenviar: " + error.message };
+  }
+
+  return { ok: true, message: `Convite reenviado para ${target.email}.` };
+}
+
 export async function removeTeamMember(memberId: string) {
   const profile = await getProfile();
   if (!profile?.company_id) return { ok: false, message: "Sessão inválida." };
