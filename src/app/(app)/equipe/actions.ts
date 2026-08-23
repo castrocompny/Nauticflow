@@ -20,10 +20,23 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
   if (!name || !email) return { error: "Preencha nome e e-mail." };
 
   const supabase = createClient();
+  const admin = createAdminClient();
 
-  const [{ blocked, maxUsers }, { count: usedCount }] = await Promise.all([
+  const [{ blocked, maxUsers }, { count: usedCount }, { data: existingProfile }] = await Promise.all([
     getSubscriptionStatus(profile.company_id),
     supabase.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", profile.company_id),
+    // se o e-mail ja tem QUALQUER conta (de outra empresa, ou uma criada via
+    // "Criar conta" e nunca confirmada), o convite do Supabase so reaproveita
+    // a conta existente por baixo dos panos -- e como isso e um UPDATE em
+    // auth.users, nao um INSERT, o gatilho que vincula "convidado" a empresa de
+    // quem convidou nao roda de novo. A pessoa confirma a senha, mas continua
+    // dona da empresa/papel que ja tinha antes, sem aparecer na Equipe de quem
+    // convidou. Bloquear aqui evita esse estado quebrado e silencioso.
+    // Usa o client admin (service_role) de proposito: RLS de "profiles" so deixa
+    // ver colegas da MESMA empresa (migration 0013) -- com o client normal, um
+    // e-mail cadastrado em OUTRA empresa (o caso real que causou o bug) passaria
+    // batido pelo check.
+    admin.from("profiles").select("id").eq("email", email).maybeSingle(),
   ]);
   if (blocked) return { error: blocked };
 
@@ -33,7 +46,9 @@ export async function inviteTeamMember(_prev: unknown, formData: FormData) {
     };
   }
 
-  const admin = createAdminClient();
+  if (existingProfile) {
+    return { error: "Já existe uma conta cadastrada com esse e-mail no sistema." };
+  }
 
   const { error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: {

@@ -965,4 +965,18 @@ Ao tentar usar esse botão numa das duas empresas ("Escuna amigos"), o dono não
 
 Todos agora comparam `.trim()` dos dois lados. Não enfraquece a proteção — continua exigindo o nome exato (e senha, no caso da auto-exclusão), só ignora espaço nas pontas que o usuário não consegue nem ver na tela.
 
+## 55. 🔴 Bug: convite pra e-mail já cadastrado virava conta órfã, some da Equipe (sessão de 2026-08-22)
+
+Investigado outro relato: um colaborador convidado pela Equipe nunca aparecia na lista, mesmo depois de confirmar a senha pelo link. Rastreado direto no banco (via script pontual com a service role key, apagado depois de usar):
+
+- O e-mail convidado já tinha uma conta **pendente** no sistema (criada antes por engano, via "Criar conta" do login, nunca confirmada — mesma pessoa testando).
+- `admin.inviteUserByEmail()` do Supabase, quando o e-mail já existe mas está **sem confirmar**, não cria conta nova — **reaproveita** a conta existente (atualiza ela, manda um novo e-mail). Isso é um `UPDATE` em `auth.users`, não um `INSERT`.
+- O gatilho `on_auth_user_created` (que decide se a pessoa entra como colaborador na empresa de quem convidou, ou vira dona de uma empresa nova) só roda em `after insert` — **não dispara de novo num update**. Resultado: a pessoa confirma a senha normalmente (sem erro de link nem nada), mas o perfil dela continua com a empresa/papel de **antes** do convite (no caso investigado: dono de uma "Minha empresa" própria, criada na tentativa de cadastro anterior) — nunca vira `staff` da empresa de quem convidou, e por isso nunca aparece na lista da Equipe de quem convidou.
+
+**Correção** (`src/app/(app)/equipe/actions.ts`, `inviteTeamMember`): antes de chamar `inviteUserByEmail`, agora verifica se já existe qualquer `profiles` com aquele e-mail (`select id from profiles where email = $1`) — se existir, bloqueia com "Já existe uma conta cadastrada com esse e-mail no sistema" em vez de deixar o Supabase reaproveitar a conta silenciosamente. Cobre tanto conta confirmada de outra empresa quanto conta pendente/nunca confirmada. Essa checagem usa o **client admin (service_role)**, não o client normal da sessão — a RLS de `profiles` (migration 0013) só deixa um `company_admin` ver colegas da própria empresa, então com o client normal um e-mail cadastrado em *outra* empresa (o caso real que causou o bug) passaria batido pela checagem. Não mexeu no gatilho `handle_new_user()` (código sensível, alvo de uma correção crítica de segurança na migration `0018` — mudar o comportamento dele de novo pede mais cautela do que vale a pena aqui, já que bloquear o convite na origem resolve o problema por completo).
+
+A conta de teste afetada ("Minha empresa" nova, dona = e-mail convidado) precisa ser limpa manualmente pelo dono via `/admin` → entrar na empresa → "Excluir empresa definitivamente" (o mesmo botão corrigido na seção 54).
+
+`tsc --noEmit` e `eslint` limpos.
+
 `tsc --noEmit` e `eslint` limpos.
