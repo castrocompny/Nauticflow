@@ -19,7 +19,7 @@ export async function signUp(_prev: unknown, formData: FormData) {
   const name = String(formData.get("name"));
   const company = String(formData.get("company"));
   const city = String(formData.get("city"));
-  const cnpj = String(formData.get("cnpj") || "");
+  const cnpj = String(formData.get("cnpj") || "").trim();
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
   const termsAccepted = formData.get("terms_accepted") === "on";
@@ -34,6 +34,14 @@ export async function signUp(_prev: unknown, formData: FormData) {
   }
   const passwordError = validatePassword(password);
   if (passwordError) return { error: passwordError };
+  // CNPJ/CPF virou obrigatorio (era opcional) -- e a chave que o gatilho do banco usa
+  // pra saber se essa pessoa/empresa ja usou os 7 dias de trial antes (mesmo depois de
+  // excluir a conta e criar outra com e-mail diferente, ver trial_history na migration).
+  // So confere a quantidade de digitos (11=CPF, 14=CNPJ), sem validar digito verificador.
+  const cnpjDigits = cnpj.replace(/\D/g, "");
+  if (cnpjDigits.length !== 11 && cnpjDigits.length !== 14) {
+    return { error: "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido." };
+  }
   const supabase = createClient({ persistSession: remember });
 
   // empresa, perfil e assinatura são criados por um gatilho no banco (on_auth_user_created),

@@ -1078,3 +1078,13 @@ Causa: `isCurrent` (`p.code === currentPlanCode`) decidia sozinho se mostrava "A
 **Correção** (`src/app/(app)/planos/plan-cards.tsx`): novo `isExactCurrent` (`isCurrent && cycle === currentBillingCycle`) — só esconde o botão quando o plano **e** o ciclo selecionados na tela batem exatamente com o que está ativo. Quando é o mesmo plano mas ciclo diferente, aparece um botão "Mudar para anual"/"Mudar para mensal" (em vez de "Pagar este plano" ou "Renovar plano"). O backend (`startAsaasCheckout`) já suportava isso sem mudança nenhuma — já cancelava a assinatura antiga no Asaas e criava uma nova com o ciclo escolhido, só a tela é que nunca deixava chegar no botão.
 
 Testado com Playwright (sessão real, DAVI/LLEDENEW, plano Premium mensal): aba Mensal → "Ativo até" sem botão (correto); aba Anual → botão "Mudar para anual" aparece (correto). `tsc --noEmit` e `eslint` limpos.
+
+## 63. Trava o reaproveitamento infinito do trial de 7 dias (sessão de 2026-08-23)
+
+Pedido do dono: um usuário podia esperar os 7 dias de trial acabarem, excluir a conta, criar outra com e-mail diferente e ganhar mais 7 dias — repetindo pra sempre, sem nunca pagar.
+
+- **CNPJ/CPF virou obrigatório no cadastro** (`src/app/login/page.tsx`, `src/app/login/actions.ts`) — antes era opcional; sem exigir um documento, não tem como identificar quem já usou o trial. `signUp()` valida a quantidade de dígitos (11 = CPF, 14 = CNPJ) antes de criar a conta.
+- **Nova tabela `trial_history`** (migration `0031_bloqueia_trial_repetido_por_documento.sql`) — guarda o documento (só dígitos) de quem já ganhou o trial. Fica **separada** de `companies` de propósito: excluir a conta/empresa apaga a linha de `companies`, mas essa tabela nunca é tocada por nenhum fluxo do app (sem FK, sem cascade), então continua "lembrando" mesmo depois da conta sumir. RLS habilitada sem nenhuma policy — fechada pra `authenticated`/`anon`, só o gatilho (`security definer`) e o `service_role` acessam.
+- **`handle_new_user()`** (gatilho de cadastro) — no cadastro normal, normaliza o CNPJ/CPF pra só dígitos e confere em `trial_history`: documento novo → ganha os 7 dias normalmente e fica registrado; documento já usado antes (mesmo que a conta anterior tenha sido excluída) → a assinatura já nasce com `paid_until = agora` (mesmo efeito de "assinatura vencida" que `getSubscriptionStatus` já trata — a conta é criada, mas sem cadastrar nada novo até pagar um plano).
+
+**Validado** com cadastro real (via `signUp()` público, não simulado): primeiro cadastro com um CPF de teste ganhou os 7 dias; segundo cadastro (e-mail diferente, **mesmo CPF**) não ganhou nada, `trial_history` continuou com só 1 registro (sem duplicar). `tsc --noEmit` e `eslint` limpos.

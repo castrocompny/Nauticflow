@@ -80,8 +80,8 @@ function AuthForm({
               <input name="city" required className="mt-1" placeholder="Arraial do Cabo" />
             </div>
             <div>
-              <label>CNPJ ou CPF (opcional)</label>
-              <input name="cnpj" className="mt-1" placeholder="00.000.000/0000-00" />
+              <label>CNPJ ou CPF</label>
+              <input name="cnpj" required className="mt-1" placeholder="00.000.000/0000-00" />
             </div>
           </>
         )}
