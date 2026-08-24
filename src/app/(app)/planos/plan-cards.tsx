@@ -33,6 +33,7 @@ type Plan = {
 export function PlanCards({
   plans,
   currentPlanCode,
+  currentBillingCycle,
   preselected,
   initialCycle,
   precisaRenovarLogo,
@@ -40,6 +41,7 @@ export function PlanCards({
 }: {
   plans: Plan[];
   currentPlanCode?: string;
+  currentBillingCycle: "mensal" | "anual";
   preselected?: string;
   initialCycle: "mensal" | "anual";
   precisaRenovarLogo: boolean;
@@ -82,7 +84,11 @@ export function PlanCards({
               key={p.code}
               className={isCurrent || isPreselected ? "border-brand ring-2 ring-brand/25" : ""}
             >
-              {isCurrent && <p className="mb-1 text-xs font-semibold text-brand">SEU PLANO ATUAL</p>}
+              {isCurrent && (
+                <p className="mb-1 text-xs font-semibold text-brand">
+                  SEU PLANO ATUAL · {currentBillingCycle === "anual" ? "ANUAL" : "MENSAL"}
+                </p>
+              )}
               {isPreselected && (
                 <p className="mb-1 text-xs font-semibold text-brand">PLANO ESCOLHIDO NO SITE</p>
               )}

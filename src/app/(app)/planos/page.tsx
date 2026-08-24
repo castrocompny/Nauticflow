@@ -41,7 +41,7 @@ export default async function PlanosPage(props: {
       .order("price_cents"),
     supabase
       .from("subscriptions")
-      .select("paid_until, status, asaas_subscription_id, plans(code)")
+      .select("paid_until, status, asaas_subscription_id, billing_cycle, plans(code)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -51,6 +51,7 @@ export default async function PlanosPage(props: {
 
   const plans = (plansData ?? []) as Plan[];
   const currentPlanCode = (subData as any)?.plans?.code as string | undefined;
+  const currentBillingCycle = (subData as any)?.billing_cycle === "anual" ? "anual" : "mensal";
   const currentPlan = plans.find((p) => p.code === currentPlanCode);
   const paidUntil = (subData as any)?.paid_until ? new Date((subData as any).paid_until) : null;
   const canCancel =
@@ -83,6 +84,7 @@ export default async function PlanosPage(props: {
       <PlanCards
         plans={plans}
         currentPlanCode={currentPlanCode}
+        currentBillingCycle={currentBillingCycle}
         preselected={preselected}
         initialCycle={initialCycle}
         precisaRenovarLogo={precisaRenovarLogo}

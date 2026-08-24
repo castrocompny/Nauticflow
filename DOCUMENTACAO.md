@@ -1059,3 +1059,12 @@ A função é `security definer` e só grava na própria empresa de quem chama (
 Checado e confirmado seguro: os gatilhos de convite (`handle_new_user`/`handle_invited_user`, seção 56) continuam só confiando em `invited_at`, nunca forjável; a coluna `company_id`/`role` de `profiles` é destravada só por `UPDATE` direto (migration `0003`), o client nunca consegue mudar isso; toda action com `createAdminClient()` faz checagem de cargo antes; a área `/admin` exige `super_admin` + MFA (AAL2) em toda página e toda action; o webhook do Asaas usa comparação seguro contra timing attack (`timingSafeEqual`) e nunca lê `company_id` de campo controlável pelo atacante; as duas Edge Functions (`send-email`, `send-reservation-voucher`) estão protegidas certinho; nenhum segredo hardcoded no código; nenhum HTML não escapado com dado de usuário.
 
 `tsc --noEmit`, `eslint` e `next build` limpos.
+
+## 61. Card de "plano atual" mostra o ciclo (mensal/anual) (sessão de 2026-08-23)
+
+Pedido do dono: na tela de Planos, o card "SEU PLANO ATUAL" mostrava só o nome (ex: "Premium"), sem dizer se a assinatura é mensal ou anual — confuso principalmente ao alternar o toggle Mensal/Anual da tela, que não muda o plano real da empresa, só o que está sendo *visualizado/escolhido*.
+
+- `src/app/(app)/planos/page.tsx` — passa a buscar `billing_cycle` da assinatura (já existia na tabela desde a migration `0020`, só não estava sendo lido aqui) e repassa como `currentBillingCycle` pro `PlanCards`.
+- `src/app/(app)/planos/plan-cards.tsx` — badge do plano atual passa de "SEU PLANO ATUAL" pra "SEU PLANO ATUAL · MENSAL" ou "· ANUAL", usando o ciclo real salvo no banco (não o toggle da tela, que é só pra escolher o próximo pagamento).
+
+Testado com Playwright (sessão real) — badge aparece corretamente. `tsc --noEmit` e `eslint` limpos.
