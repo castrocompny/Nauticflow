@@ -13,7 +13,9 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co https://*.sentry.io",
+  // wss://*.supabase.co: canal websocket do Supabase Realtime (RealtimeRefresh) --
+  // sem isso a CSP bloqueia silenciosamente a conexao e a tela nunca atualiza sozinha
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.sentry.io",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

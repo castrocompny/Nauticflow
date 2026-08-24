@@ -1,6 +1,7 @@
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { fmtDate, fmtTime, saoPauloHHMM } from "@/lib/format";
 import { NewReservationForm } from "./new-reservation-form";
 import { ReservationRow } from "./reservation-row";
@@ -66,6 +67,7 @@ export default async function ReservationsPage() {
 
   return (
     <>
+      <RealtimeRefresh tables={["reservations", "departures"]} />
       <PageHeader title="Reservas" />
       <NewReservationForm departures={createDepOptions} clients={(clients ?? []) as { id: string; name: string }[]} />
 

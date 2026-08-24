@@ -1,6 +1,7 @@
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader } from "@/components/ui";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { NewVesselForm } from "./new-vessel-form";
 import { VesselRow } from "./vessel-row";
 import type { Vessel } from "@/lib/types";
@@ -12,6 +13,7 @@ export default async function VesselsPage() {
 
   return (
     <>
+      <RealtimeRefresh tables={["vessels"]} />
       <PageHeader title="Embarcações" action={<NewVesselForm />} />
       {vessels.length === 0 ? (
         <Card>

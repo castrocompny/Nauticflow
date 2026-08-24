@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { fmtTime, saoPauloHour, saoPauloStartOfDay } from "@/lib/format";
 
 type Dep = {
@@ -62,6 +63,7 @@ export default async function AgendaPage(props: { searchParams: Promise<{ f?: st
 
   return (
     <>
+      <RealtimeRefresh tables={["departures", "reservations"]} />
       <PageHeader
         title="Agenda"
         subtitle="Saídas programadas por horário."

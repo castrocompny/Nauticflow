@@ -1,6 +1,7 @@
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { NewPartnerForm } from "./new-partner-form";
 import { PartnerRow } from "./partner-row";
 
@@ -20,6 +21,7 @@ export default async function ParceirosPage() {
 
   return (
     <>
+      <RealtimeRefresh tables={["partners"]} />
       <PageHeader title="Parceiros" subtitle="Hotéis, pousadas e agências que enviam clientes." />
       <NewPartnerForm />
 

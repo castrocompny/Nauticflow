@@ -1,6 +1,7 @@
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Pager } from "@/components/ui";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { NewClientForm } from "./new-client-form";
 import { ClientRow } from "./client-row";
 import type { Client } from "@/lib/types";
@@ -24,6 +25,7 @@ export default async function ClientsPage(props: { searchParams: Promise<{ page?
 
   return (
     <>
+      <RealtimeRefresh tables={["clients"]} />
       <PageHeader title="Clientes" subtitle={count ? `${count} cliente(s) cadastrado(s)` : undefined} />
       <NewClientForm />
       {clients.length === 0 ? (
