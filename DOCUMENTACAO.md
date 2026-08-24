@@ -1068,3 +1068,13 @@ Pedido do dono: na tela de Planos, o card "SEU PLANO ATUAL" mostrava só o nome 
 - `src/app/(app)/planos/plan-cards.tsx` — badge do plano atual passa de "SEU PLANO ATUAL" pra "SEU PLANO ATUAL · MENSAL" ou "· ANUAL", usando o ciclo real salvo no banco (não o toggle da tela, que é só pra escolher o próximo pagamento).
 
 Testado com Playwright (sessão real) — badge aparece corretamente. `tsc --noEmit` e `eslint` limpos.
+
+## 62. Bug: não dava pra trocar de mensal pra anual no mesmo plano (sessão de 2026-08-23)
+
+Achado pelo dono logo depois da seção 61: no plano atual (ex: Premium mensal), ao clicar na aba "Anual" da tela de Planos, o card continuava mostrando só "Ativo até [data]" — **sem nenhum botão pra pagar**. Não tinha como migrar de mensal pra anual (nem o contrário) no mesmo plano.
+
+Causa: `isCurrent` (`p.code === currentPlanCode`) decidia sozinho se mostrava "Ativo até" (sem botão) ou o botão de pagamento — mas isso só olha o **plano**, não o **ciclo**. Alternar a aba Mensal/Anual não muda o que a empresa realmente paga, só o que está sendo visualizado; então o card do plano atual escondia o botão em qualquer aba, mesmo numa aba de ciclo diferente do que está ativo de verdade.
+
+**Correção** (`src/app/(app)/planos/plan-cards.tsx`): novo `isExactCurrent` (`isCurrent && cycle === currentBillingCycle`) — só esconde o botão quando o plano **e** o ciclo selecionados na tela batem exatamente com o que está ativo. Quando é o mesmo plano mas ciclo diferente, aparece um botão "Mudar para anual"/"Mudar para mensal" (em vez de "Pagar este plano" ou "Renovar plano"). O backend (`startAsaasCheckout`) já suportava isso sem mudança nenhuma — já cancelava a assinatura antiga no Asaas e criava uma nova com o ciclo escolhido, só a tela é que nunca deixava chegar no botão.
+
+Testado com Playwright (sessão real, DAVI/LLEDENEW, plano Premium mensal): aba Mensal → "Ativo até" sem botão (correto); aba Anual → botão "Mudar para anual" aparece (correto). `tsc --noEmit` e `eslint` limpos.

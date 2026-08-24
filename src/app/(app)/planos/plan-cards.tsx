@@ -76,6 +76,13 @@ export function PlanCards({
       <div className="grid gap-4 md:grid-cols-3">
         {plans.map((p) => {
           const isCurrent = p.code === currentPlanCode;
+          // "atual" so nesse sentido estrito (mesmo plano E mesmo ciclo de cobranca)
+          // e quem decide se mostra "Ativo até" (sem botao) ou um botao de pagamento --
+          // sem isso, alternar a aba Mensal/Anual escondia o botao do plano atual
+          // mesmo quando a aba selecionada era um ciclo DIFERENTE do que a empresa
+          // realmente paga, e nunca dava pra trocar de mensal pra anual (ou vice-versa)
+          // no mesmo plano.
+          const isExactCurrent = isCurrent && cycle === currentBillingCycle;
           const isPreselected = !isCurrent && p.code === preselected;
           const yearly = p.price_cents_yearly ?? p.price_cents * 10;
           const price = isAnual ? yearly : p.price_cents;
@@ -126,7 +133,7 @@ export function PlanCards({
                 ))}
               </ul>
 
-              {isCurrent && !precisaRenovarLogo ? (
+              {isExactCurrent && !precisaRenovarLogo ? (
                 <p className="mt-3 text-center text-xs text-muted">
                   Ativo até{" "}
                   <span className="font-medium text-heading">{fmtDate(paidUntilISO!)}</span>
@@ -135,7 +142,13 @@ export function PlanCards({
                 <PayPlanButton
                   planCode={p.code}
                   billingCycle={cycle}
-                  label={isCurrent ? "Renovar plano" : undefined}
+                  label={
+                    isExactCurrent
+                      ? "Renovar plano"
+                      : isCurrent
+                        ? `Mudar para ${isAnual ? "anual" : "mensal"}`
+                        : undefined
+                  }
                 />
               )}
             </Card>
