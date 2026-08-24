@@ -80,7 +80,13 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
   });
   if (!subRes.ok) return { error: subRes.error };
 
-  const { error: linkError } = await supabase.rpc("link_asaas_subscription", {
+  // link_asaas_subscription só pode ser chamada pelo service_role (migration 0030) --
+  // antes ficava aberta pra "authenticated" chamar direto do navegador, o que deixava
+  // qualquer usuário logado se auto-promover pro plano Premium sem pagar nada, sem
+  // passar por essa action nem pelo Asaas de verdade.
+  const admin = createAdminClient();
+  const { error: linkError } = await admin.rpc("link_asaas_subscription", {
+    p_company_id: profile.company_id,
     p_customer_id: customerRes.data,
     p_subscription_id: subRes.data.id,
     p_plan_code: plan.code,

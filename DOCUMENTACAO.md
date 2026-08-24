@@ -1033,4 +1033,29 @@ Pedido do dono: testando com dois colaboradores ao mesmo tempo (um daqui, um de 
 
 **Validado com teste de isolamento entre empresas de verdade** (não só "parece certo"): sessão real do `company_admin` da LLEDENEW assinando `clients`, e via `service_role`: (1) inserido cliente em **outra** empresa → não apareceu pra ele (correto); (2) inserido cliente na **própria** empresa → apareceu sozinho, sem reload (correto, prova que o recurso funciona); (3) editado o cliente da outra empresa → não vazou o novo nome (correto). `tsc --noEmit` e `eslint` limpos.
 
-`tsc --noEmit` e `eslint` não se aplicam aqui (mudança é só SQL/banco, aplicada via `supabase db push`, sem tocar em código TypeScript).
+## 60. 🔴 Auditoria de segurança completa do sistema — falha crítica de graça no plano corrigida (sessão de 2026-08-23)
+
+Pedido do dono: revisão de segurança do sistema **inteiro** (não só do que mudou recentemente), mais uma checagem geral de erro de código. Rodado em paralelo: `tsc --noEmit`, `eslint .` e `next build` completos (todos limpos — só 4 avisos cosméticos preexistentes de `<img>` vs `next/image`) e uma auditoria de segurança de ponta a ponta cobrindo todo o codebase (RLS de cada tabela, toda action com `createAdminClient()`, os dois gatilhos de auth, a área `/admin`, o webhook do Asaas, as Edge Functions).
+
+### 🔴 CRÍTICO — qualquer usuário logado conseguia virar Premium de graça
+
+`link_asaas_subscription()` (RPC do Postgres criada na migration `0012`, atualizada na `0020` pros planos anuais) tinha `grant execute ... to authenticated` — ou seja, **qualquer pessoa logada no sistema** (colaborador ou dono, de qualquer empresa) conseguia chamar essa função **direto pelo navegador**, sem passar pela tela de Planos nem pelo Asaas de verdade:
+
+```js
+supabase.rpc('link_asaas_subscription', {
+  p_customer_id: 'x', p_subscription_id: 'qualquer-coisa-inventada',
+  p_plan_code: 'premium', p_billing_cycle: 'anual'
+})
+```
+
+A função é `security definer` e só grava na própria empresa de quem chama (`current_company_id()`) — então não dava pra mexer na empresa de outro cliente —, mas ela **nunca conferia se `p_subscription_id` correspondia a uma cobrança real no Asaas**, só trocava o `plan_id` da assinatura direto. Como `getSubscriptionStatus()` (`src/lib/subscription.ts`) só olha `paid_until`/`suspended_at` pra liberar uso (nunca o `status` da assinatura), qualquer empresa dentro da janela válida (ex: os 7 dias de trial que todo cadastro novo já ganha) virava Premium (limites de embarcações/usuários maiores) **sem pagar nada**, e isso não se autocorrigia sozinho depois — o webhook do Asaas só estende `paid_until`, nunca reverte `plan_id`.
+
+**Correção** (migration `0030_fecha_bypass_link_asaas_subscription.sql`): a função não confia mais em quem a chama pra saber "qual é a empresa dela mesma" — agora exige `p_company_id` explícito e **só o `service_role` pode executá-la** (`revoke ... from public/authenticated/anon`, `grant ... to service_role`). `startAsaasCheckout` (`billing-actions.ts`) agora chama essa RPC pelo `createAdminClient()` (mesmo client já usado ali pra outras operações administrativas), passando o `company_id` já validado no servidor — nenhuma mudança de comportamento pro fluxo legítimo (checkout continua funcionando igual), só fecha a porta que deixava chamar direto do navegador.
+
+**Validado**: (1) exploit antigo (assinatura de 4 parâmetros) — função nem existe mais; (2) exploit com a assinatura nova (5 parâmetros) usando a chave pública — `permission denied for function`; (3) fluxo legítimo via `service_role` — funciona normal. Testado numa assinatura real (LLEDENEW) e restaurado ao estado original depois.
+
+### Resto da auditoria — nada mais de alta confiança encontrado
+
+Checado e confirmado seguro: os gatilhos de convite (`handle_new_user`/`handle_invited_user`, seção 56) continuam só confiando em `invited_at`, nunca forjável; a coluna `company_id`/`role` de `profiles` é destravada só por `UPDATE` direto (migration `0003`), o client nunca consegue mudar isso; toda action com `createAdminClient()` faz checagem de cargo antes; a área `/admin` exige `super_admin` + MFA (AAL2) em toda página e toda action; o webhook do Asaas usa comparação seguro contra timing attack (`timingSafeEqual`) e nunca lê `company_id` de campo controlável pelo atacante; as duas Edge Functions (`send-email`, `send-reservation-voucher`) estão protegidas certinho; nenhum segredo hardcoded no código; nenhum HTML não escapado com dado de usuário.
+
+`tsc --noEmit`, `eslint` e `next build` limpos.
