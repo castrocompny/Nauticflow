@@ -1088,3 +1088,7 @@ Pedido do dono: um usuário podia esperar os 7 dias de trial acabarem, excluir a
 - **`handle_new_user()`** (gatilho de cadastro) — no cadastro normal, normaliza o CNPJ/CPF pra só dígitos e confere em `trial_history`: documento novo → ganha os 7 dias normalmente e fica registrado; documento já usado antes (mesmo que a conta anterior tenha sido excluída) → a assinatura já nasce com `paid_until = agora` (mesmo efeito de "assinatura vencida" que `getSubscriptionStatus` já trata — a conta é criada, mas sem cadastrar nada novo até pagar um plano).
 
 **Validado** com cadastro real (via `signUp()` público, não simulado): primeiro cadastro com um CPF de teste ganhou os 7 dias; segundo cadastro (e-mail diferente, **mesmo CPF**) não ganhou nada, `trial_history` continuou com só 1 registro (sem duplicar). `tsc --noEmit` e `eslint` limpos.
+
+## 64. Favicon trocado pela logo de verdade (sessão de 2026-08-24)
+
+O favicon (`public/favicon.ico`/`favicon.png`/`apple-icon.png`) usava um desenho antigo, meio "fantasma"/desbotado — diferente da logo de verdade (`public/nauticflow-icon.png`) já usada em todo o resto do sistema (login, menu lateral, e-mails, `og-image.png`). Gerados os três arquivos de novo a partir da logo real (fundo branco quadrado, logo centralizada) via `sharp`; `favicon.ico` escrito manualmente (formato ICO com PNG embutido — suportado desde o Windows Vista, sharp não tem encoder de `.ico`). Confirmado servindo certo (`/favicon.ico`, `/favicon.png`, `/apple-icon.png` → 200, content-type correto) antes de commitar.
