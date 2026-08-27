@@ -18,6 +18,44 @@ export const TOURSFLOW_RATE_LIMIT_MAX_REQUESTS = Number(process.env.TOURSFLOW_RA
 export const TOURSFLOW_RATE_LIMIT_WINDOW_SECONDS = Number(process.env.TOURSFLOW_RATE_LIMIT_WINDOW_SECONDS) || 60;
 export const TOURSFLOW_RATE_LIMIT_CONSUMER_KEY = "toursflow";
 
+// Segunda camada de rate limit, POR VISITANTE do ToursFlow -- reaproveita a
+// MESMA infraestrutura acima (public.check_rate_limit + public.api_rate_limits),
+// só com um consumer_key diferente por chamador. Protege contra um único
+// visitante (ou script malicioso se passando por um) esgotar tentativas/vagas
+// sozinho, sem depender do limite GLOBAL do consumidor "toursflow" (que existe
+// pra proteger o NauticFlow como um todo, não guarda relação com visitante
+// individual nenhum). Configurável por env, mesmo padrão do limite global.
+export const TOURSFLOW_CLIENT_RATE_LIMIT_MAX_REQUESTS =
+  Number(process.env.TOURSFLOW_CLIENT_RATE_LIMIT_MAX_REQUESTS) || 10;
+export const TOURSFLOW_CLIENT_RATE_LIMIT_WINDOW_SECONDS =
+  Number(process.env.TOURSFLOW_CLIENT_RATE_LIMIT_WINDOW_SECONDS) || 60;
+
+// O ToursFlow calcula isto no PRÓPRIO servidor dele, a partir do IP do
+// visitante (nunca em claro): HMAC-SHA256(TOURSFLOW_API_SECRET, "rate-limit:v1:"
+// + ipNormalizado). O NauticFlow só recebe o resultado -- 64 caracteres
+// hexadecimais, já pseudônimo, nunca o IP em si. Aceita maiúsculas na entrada
+// (case-insensitive) mas sempre normaliza pra minúsculas antes de usar --
+// "ABC123..." e "abc123..." têm que cair no MESMO consumer_key de rate limit,
+// nunca em dois separados.
+const CLIENT_KEY_PATTERN = /^[a-f0-9]{64}$/i;
+
+export function normalizeClientKey(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!CLIENT_KEY_PATTERN.test(trimmed)) return null;
+  return trimmed.toLowerCase();
+}
+
+// Prefixo próprio ("toursflow:client:") pra nunca colidir com o consumer_key
+// global ("toursflow") nem com nenhum outro consumidor futuro que reaproveite
+// esta mesma tabela/função -- e deixa claro, só olhando a linha em
+// api_rate_limits, que aquele contador é de um visitante individual, não do
+// consumidor inteiro. O valor gravado já é o hash (pseudônimo) -- nunca IP,
+// e-mail, telefone, CPF ou nome.
+export function buildClientRateLimitConsumerKey(normalizedClientKey: string): string {
+  return `toursflow:client:${normalizedClientKey}`;
+}
+
 // price_type efetivamente vendável nesta primeira versão -- 'a_partir_de' existe
 // no catálogo (migration 0039) mas não tem regra de cálculo de total definida,
 // então nunca é aceito na criação de reserva (decisão aprovada, não inventada aqui).
@@ -57,6 +95,7 @@ export function isValidCpfDigits(digitsOnly: string): boolean {
 export type MarketplaceBookingErrorCode =
   | "INVALID_REQUEST"
   | "INVALID_IDEMPOTENCY_KEY"
+  | "INVALID_CLIENT_KEY"
   | "UNAUTHORIZED"
   | "DEPARTURE_NOT_FOUND"
   | "DEPARTURE_IN_PAST"
@@ -71,6 +110,7 @@ export type MarketplaceBookingErrorCode =
 export const MARKETPLACE_ERROR_STATUS: Record<MarketplaceBookingErrorCode, number> = {
   INVALID_REQUEST: 400,
   INVALID_IDEMPOTENCY_KEY: 400,
+  INVALID_CLIENT_KEY: 400,
   UNAUTHORIZED: 401,
   DEPARTURE_NOT_FOUND: 404,
   DEPARTURE_IN_PAST: 422,

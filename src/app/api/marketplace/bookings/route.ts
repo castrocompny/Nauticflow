@@ -12,11 +12,15 @@ import {
   TOURSFLOW_RATE_LIMIT_MAX_REQUESTS,
   TOURSFLOW_RATE_LIMIT_WINDOW_SECONDS,
   TOURSFLOW_RATE_LIMIT_CONSUMER_KEY,
+  TOURSFLOW_CLIENT_RATE_LIMIT_MAX_REQUESTS,
+  TOURSFLOW_CLIENT_RATE_LIMIT_WINDOW_SECONDS,
   isSellablePriceType,
   isValidIdempotencyKey,
   isValidCpfDigits,
   calculateTotalCents,
   computeRequestFingerprint,
+  normalizeClientKey,
+  buildClientRateLimitConsumerKey,
   type MarketplaceBookingErrorCode,
   type MarketplaceBookingDTO,
 } from "@/lib/marketplace-api";
@@ -85,15 +89,46 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
-  // rate limit do consumidor autenticado -- protege contra flood acidental ou
-  // credencial comprometida, não contra força bruta do segredo em si
-  const rateLimit = await admin.rpc("check_rate_limit", {
+  // ==========================================================================
+  // X-ToursFlow-Client-Key: só é considerada DEPOIS do Bearer validado acima --
+  // nunca aceitar isto de uma requisição não autenticada. É um pseudônimo do
+  // visitante final do ToursFlow (HMAC-SHA256 do IP normalizado, calculado no
+  // SERVIDOR do ToursFlow -- o NauticFlow nunca vê o IP em si, nunca recebe
+  // X-Forwarded-For, e não guarda nada além do hash já pronto). Exigida em toda
+  // chamada autenticada -- uma implementação antiga do ToursFlow que não a
+  // envie ainda não consegue contornar o limite por visitante (seção 6 abaixo).
+  // ==========================================================================
+  const clientKey = normalizeClientKey(request.headers.get("x-toursflow-client-key"));
+  if (!clientKey) return fail("INVALID_CLIENT_KEY", "Cabeçalho X-ToursFlow-Client-Key ausente ou inválido.");
+
+  // rate limit GLOBAL do consumidor "toursflow" -- protege o NauticFlow contra
+  // volume total excessivo vindo do marketplace como um todo, independente de
+  // quantos visitantes distintos geraram esse volume.
+  const globalRateLimit = await admin.rpc("check_rate_limit", {
     p_consumer_key: TOURSFLOW_RATE_LIMIT_CONSUMER_KEY,
     p_max_requests: TOURSFLOW_RATE_LIMIT_MAX_REQUESTS,
     p_window_seconds: TOURSFLOW_RATE_LIMIT_WINDOW_SECONDS,
   });
-  if (rateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
-  if (rateLimit.data !== true) return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
+  if (globalRateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
+  if (globalRateLimit.data !== true) {
+    return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
+  }
+
+  // rate limit POR VISITANTE -- mesma função/tabela, consumer_key própria por
+  // hash de cliente (nunca cria tabela nova). Protege contra um único
+  // visitante monopolizar tentativas/vagas, independente do volume global
+  // ainda estar dentro do limite acima.
+  const clientRateLimit = await admin.rpc("check_rate_limit", {
+    p_consumer_key: buildClientRateLimitConsumerKey(clientKey),
+    p_max_requests: TOURSFLOW_CLIENT_RATE_LIMIT_MAX_REQUESTS,
+    p_window_seconds: TOURSFLOW_CLIENT_RATE_LIMIT_WINDOW_SECONDS,
+  });
+  if (clientRateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
+  if (clientRateLimit.data !== true) {
+    // mesma mensagem genérica do limite global -- nunca revela qual das duas
+    // camadas bloqueou, nem contador, hash ou qualquer detalhe interno.
+    return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
+  }
 
   const idempotencyKey = request.headers.get("idempotency-key");
   if (!isValidIdempotencyKey(idempotencyKey)) {
