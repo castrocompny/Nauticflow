@@ -42,11 +42,15 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
   const bookedByDeparture = new Map<string, number>();
 
   if (depIds.length > 0) {
+    // conta como ocupação: reservas confirmadas + reservas pendentes com hold
+    // ainda válido (migration 0042) -- um hold vencido para de contar sozinho,
+    // sem depender de nenhuma rotina de limpeza rodar antes desta consulta.
+    const nowIso = new Date().toISOString();
     const { data: reservations } = await admin
       .from("reservations")
       .select("departure_id, people_count")
       .in("departure_id", depIds)
-      .eq("status", "confirmada");
+      .or(`status.eq.confirmada,and(status.eq.pendente,hold_expires_at.gt.${nowIso})`);
     for (const r of reservations ?? []) {
       const dep = r.departure_id as string;
       bookedByDeparture.set(dep, (bookedByDeparture.get(dep) ?? 0) + (r.people_count as number));

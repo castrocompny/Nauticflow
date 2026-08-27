@@ -42,7 +42,12 @@ export async function updateSession(request: NextRequest) {
     // visitante sem sessão (é literalmente o público-alvo dela). Sem esta linha,
     // o middleware redirecionava qualquer chamada anônima pra /login antes mesmo
     // de a rota rodar -- achado testando de verdade depois do deploy do schema.
-    path.startsWith("/api/public");
+    path.startsWith("/api/public") ||
+    // rota servidor-servidor pro ToursFlow iniciar reserva (POST /api/marketplace/bookings)
+    // -- autentica com segredo compartilhado (Authorization: Bearer), nunca com sessão de
+    // usuário logado. Mesmo motivo/achado de /api/public acima: sem isto, o middleware
+    // redireciona a chamada pra /login antes mesmo da rota checar o Bearer.
+    path.startsWith("/api/marketplace");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
