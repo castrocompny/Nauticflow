@@ -2,8 +2,12 @@ export type UserRole = "super_admin" | "company_admin" | "staff";
 export type VesselType = "escuna" | "lancha" | "jet_ski" | "catamara" | "taxi_maritimo" | "outro";
 export type VesselStatus = "ativa" | "manutencao" | "inativa";
 export type ReservationStatus = "confirmada" | "cancelada" | "pendente";
+export type ReservationSource = "manual" | "operator" | "website" | "marketplace" | "partner" | "agency";
 export type PassengerStatus = "confirmado" | "embarcado" | "ausente";
 export type DepartureStatus = "agendada" | "em_andamento" | "encerrada" | "cancelada";
+export type TourCategory = "passeio_privativo" | "por_do_sol" | "praias" | "ilhas" | "passeio_compartilhado" | "outro";
+export type TourPriceType = "por_pessoa" | "por_grupo" | "a_partir_de";
+export type TourMarketplaceStatus = "draft" | "review" | "published" | "paused" | "rejected";
 
 export type Profile = {
   id: string;
@@ -39,6 +43,42 @@ export type Tour = {
   name: string;
   base_price_cents: number;
   active: boolean;
+  slug: string;
+  description: string | null;
+  short_description: string | null;
+  itinerary: string | null;
+  duration_minutes: number | null;
+  category: TourCategory | null;
+  destination: string | null;
+  destination_slug: string | null;
+  price_type: TourPriceType;
+  cancellation_policy: string | null;
+  important_information: string | null;
+  included: string | null;
+  not_included: string | null;
+  boarding_name: string | null;
+  boarding_address: string | null;
+  boarding_neighborhood: string | null;
+  boarding_city: string | null;
+  boarding_state: string | null;
+  boarding_zip_code: string | null;
+  boarding_reference: string | null;
+  boarding_instructions: string | null;
+  boarding_latitude: number | null;
+  boarding_longitude: number | null;
+  marketplace_status: TourMarketplaceStatus;
+  published_at: string | null;
+  marketplace_rejection_reason: string | null;
+};
+
+export type TourPhoto = {
+  id: string;
+  company_id: string;
+  tour_id: string;
+  storage_path: string;
+  is_cover: boolean;
+  position: number;
+  created_at: string;
 };
 
 export type Client = {
@@ -59,6 +99,8 @@ export type Departure = {
   departs_at: string;
   capacity: number;
   status: DepartureStatus;
+  price_cents: number | null;
+  price_type: TourPriceType | null;
 };
 
 export type Reservation = {
@@ -71,4 +113,5 @@ export type Reservation = {
   status: ReservationStatus;
   partner_id: string | null;
   origin_name: string | null;
+  source: ReservationSource;
 };

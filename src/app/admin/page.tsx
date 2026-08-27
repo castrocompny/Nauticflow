@@ -197,12 +197,20 @@ export default async function AdminPage(
           title="Administração NauticFlow"
           subtitle="Empresas cadastradas e status de pagamento."
           action={
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-body transition hover:bg-surfaceHover"
-            >
-              <ArrowLeft size={16} /> Voltar ao sistema
-            </Link>
+            <div className="flex gap-2">
+              <Link
+                href="/admin/passeios"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-body transition hover:bg-surfaceHover"
+              >
+                Moderação de passeios
+              </Link>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-body transition hover:bg-surfaceHover"
+              >
+                <ArrowLeft size={16} /> Voltar ao sistema
+              </Link>
+            </div>
           }
         />
 

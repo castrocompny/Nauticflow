@@ -223,6 +223,65 @@ export async function registerInvoice(_prev: unknown, formData: FormData) {
   return { error: "" };
 }
 
+// Moderação de passeios do marketplace (ToursFlow). O operador só consegue mandar
+// um passeio de "draft"/"rejected" pra "review" (ver submitTourForReview em
+// src/app/(app)/passeios/actions.ts) -- só o super admin aprova ou recusa daqui,
+// exatamente como pedido: "o operador não deve conseguir forçar published".
+export async function approveTour(tourId: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { ok: false, message: auth.message };
+  const { supabase, adminId, adminName } = auth;
+
+  const { data: tour } = await supabase
+    .from("tours")
+    .select("company_id, name, marketplace_status")
+    .eq("id", tourId)
+    .maybeSingle();
+  if (!tour) return { ok: false, message: "Passeio não encontrado." };
+  if (tour.marketplace_status !== "review") {
+    return { ok: false, message: "Só é possível aprovar um passeio que está em revisão." };
+  }
+
+  const { error } = await supabase
+    .from("tours")
+    .update({ marketplace_status: "published", marketplace_rejection_reason: null })
+    .eq("id", tourId);
+  if (error) return { ok: false, message: error.message };
+
+  await logAction(supabase, adminId, adminName, "aprovar_passeio", tour.company_id, { passeio: tour.name });
+  revalidatePath("/admin/passeios");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true, message: "Passeio publicado no marketplace." };
+}
+
+export async function rejectTour(tourId: string, reason: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { ok: false, message: auth.message };
+  const { supabase, adminId, adminName } = auth;
+
+  if (!reason.trim()) return { ok: false, message: "Informe o motivo da recusa." };
+
+  const { data: tour } = await supabase
+    .from("tours")
+    .select("company_id, name, marketplace_status")
+    .eq("id", tourId)
+    .maybeSingle();
+  if (!tour) return { ok: false, message: "Passeio não encontrado." };
+  if (tour.marketplace_status !== "review") {
+    return { ok: false, message: "Só é possível recusar um passeio que está em revisão." };
+  }
+
+  const { error } = await supabase
+    .from("tours")
+    .update({ marketplace_status: "rejected", marketplace_rejection_reason: reason.trim() })
+    .eq("id", tourId);
+  if (error) return { ok: false, message: error.message };
+
+  await logAction(supabase, adminId, adminName, "recusar_passeio", tour.company_id, { passeio: tour.name, motivo: reason.trim() });
+  revalidatePath("/admin/passeios");
+  return { ok: true, message: "Passeio recusado. O operador poderá ajustar e enviar de novo." };
+}
+
 export async function deleteInvoice(formData: FormData) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { error: auth.message };

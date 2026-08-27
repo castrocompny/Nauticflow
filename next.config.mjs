@@ -11,7 +11,9 @@ const csp = [
   // que roda antes da página pintar e não usa nonce. Se algum dia migrar pra CSP com nonce, dá pra remover.
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
+  // https://*.supabase.co: fotos de passeios (bucket "tour-photos") são exibidas via
+  // signed URL do Storage, tanto no painel do operador quanto na API pública de vitrine
+  "img-src 'self' data: https://*.supabase.co",
   "font-src 'self' data:",
   // wss://*.supabase.co: canal websocket do Supabase Realtime (RealtimeRefresh) --
   // sem isso a CSP bloqueia silenciosamente a conexao e a tela nunca atualiza sozinha

@@ -82,6 +82,10 @@ export function NewDepartureForm({ vessels, tours }: { vessels: Vessel[]; tours:
             <label>Hora</label>
             <input name="time" type="time" required min="08:00" max="19:00" className="mt-1" />
           </div>
+          <div>
+            <label>Preço desta saída (R$, opcional)</label>
+            <input name="price_cents" type="number" min={0} step="0.01" className="mt-1" placeholder="Usa o preço-base do passeio" />
+          </div>
         </div>
         <div className="flex gap-2">
           <Save />

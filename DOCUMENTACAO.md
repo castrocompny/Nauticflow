@@ -1092,3 +1092,59 @@ Pedido do dono: um usuário podia esperar os 7 dias de trial acabarem, excluir a
 ## 64. Favicon trocado pela logo de verdade (sessão de 2026-08-24)
 
 O favicon (`public/favicon.ico`/`favicon.png`/`apple-icon.png`) usava um desenho antigo, meio "fantasma"/desbotado — diferente da logo de verdade (`public/nauticflow-icon.png`) já usada em todo o resto do sistema (login, menu lateral, e-mails, `og-image.png`). Gerados os três arquivos de novo a partir da logo real (fundo branco quadrado, logo centralizada) via `sharp`; `favicon.ico` escrito manualmente (formato ICO com PNG embutido — suportado desde o Windows Vista, sharp não tem encoder de `.ico`). Confirmado servindo certo (`/favicon.ico`, `/favicon.png`, `/apple-icon.png` → 200, content-type correto) antes de commitar.
+
+## 65. Preparação do Core para o marketplace ToursFlow (sessão de 2026-08-26)
+
+Pedido do dono: preparar o NauticFlow para futuramente alimentar o **ToursFlow** (marketplace B2C de passeios, projeto/domínio separado, `toursflow.com.br`), sem conectar os dois sistemas ainda. Antes da implementação foi feita uma auditoria completa só de leitura (ver histórico da sessão) mapeando o que já existia, o que faltava e o que não devia ser mexido. Esta seção documenta o que foi de fato implementado a partir dela — **nenhuma integração com o ToursFlow foi feita nesta etapa**, só o Core do NauticFlow.
+
+Princípio seguido em tudo: reaproveitar `tours`/`departures`/`reservations`/`companies` (nada de tabela duplicada de saída, reserva ou capacidade), tudo aditivo (nenhuma coluna existente alterada/removida, nenhum dado antigo quebrado), e o mecanismo de proteção contra overbooking (`SELECT ... FOR UPDATE` na migration `0003`) preservado exatamente como estava.
+
+### Migrations (`0032` a `0037`)
+
+- **`0032_marketplace_expande_tours.sql`** — `tours` vira o cadastro comercial completo do passeio: `slug`, `description`, `short_description`, `itinerary`, `duration_minutes`, `category` (categoria da **experiência** — privativo/pôr do sol/praias/ilhas/compartilhado/outro — não confundir com `vessels.type`, que é tipo de **embarcação**), `destination` (+ `destination_slug`, coluna **gerada** via `public.slugify()`, indexada, pra filtro de URL tipo `/destinos/buzios` sem acento e sem precisar carregar tudo e comparar em JavaScript), `price_type`, `cancellation_policy`, `important_information`, `included`, `not_included`, os 10 campos de local de embarque (`boarding_*`, incluindo lat/long), e `marketplace_status` (`draft → review → published`, mais `paused`/`rejected`) com `published_at` e `marketplace_rejection_reason`.
+  - **Slug**: gerado automaticamente (nome + sufixo do próprio `id`, garante unicidade global sem fila de tentativas — dois operadores podem ter passeios com nome igual). Trigger `trg_tour_slug` trava a troca do slug **depois que o passeio já foi publicado uma vez** (`published_at` não nulo) — editar nome/descrição depois de publicado nunca muda a URL.
+  - Passeios já existentes ganharam slug automaticamente no backfill da própria migration — nenhum ficou sem.
+- **`0033_marketplace_preco_saida.sql`** — `departures` ganha `price_cents`/`price_type` (nullable). Decisão de arquitetura: `tours.base_price_cents` continua sendo o preço-base/fallback de vitrine; `departures.price_cents`, quando preenchido, é o preço oficial e vendável **daquela saída específica** (permite alta/baixa temporada). Nenhuma mudança no fluxo de reserva atual — `reservations.total_cents` continua sendo digitado à mão, sem ler essas colunas novas.
+- **`0034_marketplace_fotos_passeio.sql`** — tabela `tour_photos` (capa, ordem, `storage_path`), RLS por empresa + gatilho de defesa em profundidade (mesmo padrão das migrations `0015`/`0019`). Bucket de Storage `tour-photos` criado **privado** (não público), com policies que só liberam quem está autenticado e cujo `current_company_id()` bate com o primeiro segmento do caminho (`{company_id}/{tour_id}/arquivo`) — um operador nunca acessa foto de outra empresa.
+- **`0035_reservas_origem_estruturada.sql`** — `reservations.source` (enum `manual`/`operator`/`website`/`marketplace`/`partner`/`agency`), backfill `'manual'` em tudo que já existia (é exatamente o que o painel sempre foi). `origin_name` (texto livre) continua existindo sem nenhuma mudança — os dois campos coexistem, `source` é o canal estruturado pra filtro/relatório, `origin_name` é a observação livre.
+- **`0036_infra_pagamentos_marketplace.sql`** — tabela `payments` (`reservation_id`, `provider`, `status`, `amount_cents`...) **só a estrutura**, sem nenhuma integração com Asaas ainda — RLS habilitada sem nenhuma policy (mesmo padrão de `trial_history`, fechada por padrão). `companies` ganha `asaas_wallet_id`/`asaas_receiver_status` (colunas, sem onboarding financeiro implementado).
+- **`0037_idempotencia_webhook_asaas.sql`** + `src/app/api/webhooks/asaas/route.ts` — corrige um bug real encontrado na auditoria: o webhook somava dias em `subscriptions.paid_until` **sem checar se aquele evento já tinha sido processado**. Se o Asaas reenviasse a notificação (retry normal), ou mandasse `PAYMENT_CONFIRMED` e depois `PAYMENT_RECEIVED` do mesmo pagamento, a assinatura ganhava o prazo somado duas vezes. Corrigido com uma tabela `processed_webhook_events` (chave única `payment.id`, sem o tipo de evento de propósito) — a rota agora insere essa chave **antes** de renovar; se já existir (23505), ignora silenciosamente. Isso já valia pro SaaS atual, antes mesmo do marketplace existir.
+
+### Painel do operador — `/passeios`
+
+Nova área (`src/app/(app)/passeios/`), visível a `company_admin` e `staff` (mesmo nível de acesso de Clientes/Embarcações/Parceiros). Fluxo: "+ Novo passeio" cria um rascunho só com o nome e leva direto pra tela de edição, com as seções pedidas (informações básicas, preço, roteiro, incluso/não incluso, informações importantes, política de cancelamento, local de embarque). Um painel lateral (`publication-panel.tsx`) mostra o status de publicação e os botões de ação disponíveis pra cada estado.
+
+Fotos (`photo-manager.tsx`): upload direto do navegador pro Storage (respeitando as policies da migration `0034`), com capa, reordenar (subir/descer) e excluir; ao apagar a capa, a próxima foto vira capa automaticamente pra nunca sobrar um passeio "publicável" sem nenhuma capa.
+
+`/saidas` (criar/editar saída) ganhou um campo opcional "Preço desta saída" — se deixado em branco, mantém `price_cents = null` (herda o preço-base do passeio na hora de exibir).
+
+### Publicação — o operador não aprova o próprio passeio
+
+`draft`/`rejected` → **operador** pode enviar pra `review` (`submitTourForReview`), com validação (nome, descrição curta e completa, destino, categoria, duração, tipo de preço, local de embarque completo e **ao menos 1 foto** — um rascunho incompleto pode ser salvo livremente, só o *envio pra revisão* é bloqueado). `review` → só o **super admin** aprova (`published`) ou recusa (`rejected`, com motivo) — nova tela `/admin/passeios` (RLS: policy nova de `select`/`update` cross-empresa pra super admin em `tours`, mesmo padrão já usado em `vessels`/`profiles` desde a migration `0016`). `published` → operador pode `pausar` a qualquer momento; `paused` → operador pode reativar direto (sem passar por revisão de novo — fica documentado como possível melhoria futura: hoje editar o conteúdo de um passeio pausado não força reenvio pra revisão).
+
+### API pública somente-leitura (`/api/public/*`)
+
+Cinco rotas, todas usando `createAdminClient()` (service_role) internamente, mas **nunca abrindo RLS pra `anon`** — o filtro `marketplace_status = 'published'` é sempre aplicado em código, e o payload é sempre montado campo a campo (nunca um `select("*")` devolvido direto), então nenhuma coluna sensível (`company_id`, CNPJ, dados do Asaas, `marketplace_rejection_reason`) sai por acidente:
+
+- `GET /api/public/tours?destination=buzios&category=por_do_sol&page=1&limit=20` — lista paginada (limite máximo 50/página), filtra por `destination_slug`/`category` direto no banco (índices da migration `0032`), devolve nome da empresa/cidade (nunca CNPJ/e-mail/dados internos) e a foto de capa como signed URL.
+- `GET /api/public/tours/[slug]` — detalhe completo (descrição, roteiro, incluso/não incluso, local de embarque, todas as fotos). 404 (nunca 500, nunca revela "existe mas não está publicado") pra slug inexistente ou não publicado.
+- `GET /api/public/tours/[slug]/departures` — saídas futuras, não canceladas e **já precificadas** (sem `price_cents` = ainda não pronta pra venda). Nunca expõe a capacidade real da embarcação — só um `soldOut: boolean` calculado no servidor.
+- `GET /api/public/destinations` e `GET /api/public/categories` — listas pra alimentar filtros/rotas tipo `/destinos/[slug]`.
+
+Fotos são servidas via **signed URL de 1h** gerada sob demanda pelo `service_role` (o bucket continua privado) — decisão v1, documentada como pendente de revisão antes da integração real (ver seção "Pendências" abaixo).
+
+### CSP
+
+`next.config.mjs` — `img-src` passou a incluir `https://*.supabase.co` (fotos de passeios, tanto no painel do operador quanto na API pública, são exibidas via signed URL do Storage).
+
+### Testes e verificação
+
+`tsc --noEmit`, `eslint .` e `next build` (rotas novas incluídas: `/passeios`, `/passeios/[id]`, `/admin/passeios`, as 5 rotas de `/api/public/*`) — todos limpos, sem erro novo. Nenhuma migration foi aplicada em produção nesta etapa — ficaram só como arquivo, aguardando autorização explícita pra rodar `supabase db push` (mudança grande demais pra aplicar sem confirmar antes, diferente de sessões anteriores).
+
+### Pendências / decisões que dependem do dono
+
+- Rodar as migrations `0032`–`0037` em produção (nada foi aplicado ainda).
+- Fotos: hoje servidas por signed URL gerada a cada chamada da API pública — funciona, mas complica cache (a URL expira). Antes de conectar o ToursFlow de verdade, decidir entre manter assim, aumentar o TTL, ou abrir uma policy pública restrita a "só fotos de passeio publicado".
+- Reativar um passeio pausado não força nova revisão do conteúdo — se o operador editar tudo enquanto pausado, republica sem novo aval do super admin.
+- Checkout do turista, cobrança, Asaas Split, voucher novo, QR Code, avaliações, login/área do turista — **nada disso foi implementado** (fora de escopo explícito desta etapa).
+- Conectar o ToursFlow de verdade a esta API — não feito, aguardando autorização separada.

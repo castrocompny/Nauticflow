@@ -83,6 +83,11 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   const departs_at = saoPauloToUTC(date, time);
   const capRaw = formData.get("capacity");
   const capacity = capRaw ? Number(capRaw) : null;
+  const priceRaw = String(formData.get("price_cents") || "").trim();
+  const priceReais = priceRaw ? Number(priceRaw.replace(",", ".")) : null;
+  if (priceRaw && (!Number.isFinite(priceReais) || (priceReais as number) < 0)) {
+    return { error: "Preço da saída inválido." };
+  }
 
   const { error } = await supabase.from("departures").insert({
     company_id,
@@ -90,6 +95,7 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
     tour_id,
     departs_at,
     ...(capacity ? { capacity } : {}),
+    price_cents: priceReais != null ? Math.round(priceReais * 100) : null,
   });
 
   if (error) {
@@ -139,6 +145,11 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
   const departs_at = saoPauloToUTC(date, time);
   const capRaw = formData.get("capacity");
   const capacity = capRaw ? Number(capRaw) : null;
+  const priceRaw = String(formData.get("price_cents") || "").trim();
+  const priceReais = priceRaw ? Number(priceRaw.replace(",", ".")) : null;
+  if (priceRaw && (!Number.isFinite(priceReais) || (priceReais as number) < 0)) {
+    return { error: "Preço da saída inválido." };
+  }
 
   const { error } = await supabase
     .from("departures")
@@ -147,6 +158,7 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
       tour_id,
       departs_at,
       ...(capacity ? { capacity } : {}),
+      price_cents: priceReais != null ? Math.round(priceReais * 100) : null,
     })
     .eq("id", id)
     .eq("company_id", company_id);

@@ -39,7 +39,24 @@ export async function POST(request: Request) {
   const companyId = payment.externalReference as string | undefined;
   if (!companyId) return NextResponse.json({ ok: true });
 
+  const paymentId = payment.id as string | undefined;
+  if (!paymentId) return NextResponse.json({ ok: true });
+
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  // idempotência: registra a chave (provider, payment.id) ANTES de renovar. Se o
+  // Asaas reenviar a mesma notificação, ou mandar PAYMENT_CONFIRMED e depois
+  // PAYMENT_RECEIVED pro mesmo pagamento, o insert bate na unique constraint e a
+  // gente nunca soma o prazo duas vezes pra mesma cobrança (migration 0037).
+  const { error: dedupeError } = await supabase
+    .from("processed_webhook_events")
+    .insert({ provider: "asaas", event_type: event, event_key: paymentId });
+  if (dedupeError) {
+    if (dedupeError.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
+    // erro inesperado ao gravar a marca de dedupe: não falha o webhook por isso
+    // (o Asaas reenviaria em loop), só não renova por segurança nesta chamada
+    return NextResponse.json({ ok: true });
+  }
 
   const { data: sub } = await supabase
     .from("subscriptions")

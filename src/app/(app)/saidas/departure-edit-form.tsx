@@ -11,6 +11,7 @@ type Row = {
   capacity: number;
   vessel_id: string;
   tour_id: string;
+  price_cents: number | null;
 };
 
 function Save() {
@@ -89,6 +90,18 @@ export function DepartureEditForm({
           <div>
             <label>Hora</label>
             <input name="time" type="time" required min="08:00" max="19:00" defaultValue={timeHM} className="mt-1" />
+          </div>
+          <div>
+            <label>Preço desta saída (R$, opcional)</label>
+            <input
+              name="price_cents"
+              type="number"
+              min={0}
+              step="0.01"
+              defaultValue={r.price_cents != null ? (r.price_cents / 100).toFixed(2) : ""}
+              placeholder="Usa o preço-base do passeio"
+              className="mt-1"
+            />
           </div>
         </div>
         <div className="flex gap-2">

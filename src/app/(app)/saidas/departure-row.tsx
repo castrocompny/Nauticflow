@@ -22,6 +22,7 @@ type Row = {
   status: string;
   vessel_id: string;
   tour_id: string;
+  price_cents: number | null;
   vessels: { name: string } | null;
   tours: { name: string } | null;
   reservations: { people_count: number; status: string }[];

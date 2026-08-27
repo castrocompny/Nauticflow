@@ -37,7 +37,12 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/redefinir-senha") ||
     path.startsWith("/termos") ||
     path.startsWith("/privacidade") ||
-    path.startsWith("/api/webhooks");
+    path.startsWith("/api/webhooks") ||
+    // vitrine somente-leitura do futuro ToursFlow -- precisa ser alcançável por
+    // visitante sem sessão (é literalmente o público-alvo dela). Sem esta linha,
+    // o middleware redirecionava qualquer chamada anônima pra /login antes mesmo
+    // de a rota rodar -- achado testando de verdade depois do deploy do schema.
+    path.startsWith("/api/public");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

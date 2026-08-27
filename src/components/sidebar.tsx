@@ -16,6 +16,7 @@ import {
   UserCog,
   ShieldAlert,
   ChevronRight,
+  Compass,
   X,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
@@ -36,6 +37,7 @@ const navGroups = [
       { href: "/clientes", label: "Clientes", icon: Users },
       { href: "/embarcacoes", label: "Embarcações", icon: Ship },
       { href: "/parceiros", label: "Parceiros", icon: Handshake },
+      { href: "/passeios", label: "Passeios", icon: Compass },
     ],
   },
   {

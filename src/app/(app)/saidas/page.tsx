@@ -12,6 +12,7 @@ type Row = {
   status: string;
   vessel_id: string;
   tour_id: string;
+  price_cents: number | null;
   vessels: { name: string } | null;
   tours: { name: string } | null;
   reservations: { people_count: number; status: string }[];
@@ -31,7 +32,7 @@ export default async function DeparturesPage(props: { searchParams: Promise<{ pa
     supabase
       .from("departures")
       .select(
-        "id, departs_at, capacity, status, vessel_id, tour_id, vessels(name), tours(name), reservations(people_count, status)",
+        "id, departs_at, capacity, status, vessel_id, tour_id, price_cents, vessels(name), tours(name), reservations(people_count, status)",
         { count: "exact" }
       )
       .order("departs_at", { ascending: true })
