@@ -14,20 +14,30 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
   if (!slug) return NextResponse.json({ error: "Passeio não encontrado." }, { status: 404 });
 
   const admin = createAdminClient();
+  // Regra de visibilidade completa (ver /api/public/tours): active, não
+  // suspenso administrativamente, e empresa dona não suspensa.
+  // "companies!inner" pra o filtro em companies.suspended_at excluir a LINHA
+  // do tour, não só o objeto aninhado.
   const { data: tour, error } = await admin
     .from("tours")
-    .select("*, companies(name, city)")
+    .select("*, companies!inner(name, city, suspended_at)")
     .eq("slug", slug)
     .eq("marketplace_status", "published")
+    .eq("active", true)
+    .is("marketplace_suspended_at", null)
+    .is("companies.suspended_at", null)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: "Erro ao consultar o passeio." }, { status: 500 });
   if (!tour) return NextResponse.json({ error: "Passeio não encontrado." }, { status: 404 });
 
+  // só fotos aprovadas (approved/legacy_approved -- migration 0044) podem sair
+  // na API pública; pending/rejected/moderation_unavailable nunca
   const { data: photoRows } = await admin
     .from("tour_photos")
     .select("storage_path, is_cover")
     .eq("tour_id", tour.id)
+    .in("moderation_status", ["approved", "legacy_approved", "manual_approved"])
     .order("position", { ascending: true });
 
   // mesma regra da listagem (GET /api/public/tours): a capa é a foto marcada

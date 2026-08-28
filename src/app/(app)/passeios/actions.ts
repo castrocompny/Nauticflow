@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { requireActiveSubscription } from "@/lib/subscription";
+import { validateTourForPublishing, friendlyContentErrorMessage } from "@/lib/tour-publishing";
+import { runPhotoModeration, getImageModerationMode } from "@/lib/image-moderation";
 
 async function companyId() {
   const supabase = createClient();
@@ -116,7 +118,12 @@ export async function updateTourFull(_prev: unknown, formData: FormData) {
   const { error } = await supabase.from("tours").update(patch).eq("id", id).eq("company_id", company_id);
   if (error) {
     if (error.code === "23505") return { error: "Já existe um passeio com este nome ou endereço (slug)." };
-    return { error: error.message };
+    // passeio JÁ publicado tem o conteúdo protegido no banco
+    // (trg_tour_content_while_published, migration 0044) -- acontece só quando
+    // o passeio já está no ar e a edição introduziria contato externo/link
+    // proibido; o erro chega como o código cru (ex: "PHONE_IN_DESCRIPTION"),
+    // traduz pra mensagem legível.
+    return { error: friendlyContentErrorMessage(error.message) };
   }
 
   revalidatePath("/passeios");
@@ -124,43 +131,22 @@ export async function updateTourFull(_prev: unknown, formData: FormData) {
   return { error: "" };
 }
 
-// Campos mínimos pra mandar um passeio pra revisão (item 14 do pedido). Salvar um
-// rascunho incompleto nunca é bloqueado -- só o ENVIO pra revisão exige isso.
-async function validateReadyForReview(
-  supabase: ReturnType<typeof createClient>,
-  tourId: string
-): Promise<string | null> {
-  const { data: tour } = await supabase
-    .from("tours")
-    .select(
-      "name, short_description, description, category, destination, duration_minutes, price_type, boarding_name, boarding_address, boarding_city"
-    )
-    .eq("id", tourId)
-    .maybeSingle();
-  if (!tour) return "Passeio não encontrado.";
-
-  const missing: string[] = [];
-  if (!tour.name?.trim()) missing.push("nome");
-  if (!tour.short_description?.trim()) missing.push("descrição curta");
-  if (!tour.description?.trim()) missing.push("descrição");
-  if (!tour.destination?.trim()) missing.push("destino");
-  if (!tour.category) missing.push("categoria");
-  if (!tour.duration_minutes) missing.push("duração");
-  if (!tour.price_type) missing.push("tipo de preço");
-  if (!tour.boarding_name?.trim() || !tour.boarding_address?.trim() || !tour.boarding_city?.trim())
-    missing.push("local de embarque (nome, endereço e cidade)");
-
-  const { count } = await supabase
-    .from("tour_photos")
-    .select("id", { count: "exact", head: true })
-    .eq("tour_id", tourId);
-  if (!count || count < 1) missing.push("pelo menos 1 foto");
-
-  if (missing.length > 0) return `Preencha antes de enviar para revisão: ${missing.join(", ")}.`;
-  return null;
+// Validação de publicação: a REGRA em si mora só no banco (função
+// validate_tour_for_publishing, migration 0044) -- aqui só chama e devolve
+// pra UI, nunca reimplementa nenhuma regra em TypeScript (fonte única de
+// verdade, ver DOCUMENTACAO.md). Chamado tanto pelo checklist visual quanto
+// por publishTour antes de tentar publicar -- e mesmo que este código seja
+// pulado por completo, o gatilho check_tour_marketplace_transition chama a
+// MESMA função de dentro do banco, então não existe caminho pra publicar um
+// passeio que reprove nela.
+export async function getPublicationChecklist(tourId: string) {
+  const { supabase } = await companyId();
+  return validateTourForPublishing(supabase, tourId);
 }
 
-export async function submitTourForReview(tourId: string) {
+// Publicação autônoma: o operador decide quando publicar, sem aprovação do
+// super admin (decisão de produto -- ver DOCUMENTACAO.md).
+export async function publishTour(tourId: string) {
   const { supabase, id: company_id } = await companyId();
   if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
 
@@ -170,26 +156,38 @@ export async function submitTourForReview(tourId: string) {
     .eq("id", tourId)
     .maybeSingle();
   if (!tour || tour.company_id !== company_id) return { ok: false, message: "Passeio inválido." };
-  if (tour.marketplace_status !== "draft" && tour.marketplace_status !== "rejected") {
-    return { ok: false, message: "Só é possível enviar para revisão um passeio em rascunho ou recusado." };
-  }
+  if (tour.marketplace_status === "published") return { ok: true, message: "Este passeio já está publicado." };
 
-  const validationError = await validateReadyForReview(supabase, tourId);
-  if (validationError) return { ok: false, message: validationError };
+  const validation = await validateTourForPublishing(supabase, tourId);
+  if (!validation.canPublish) {
+    return {
+      ok: false,
+      message: "Não foi possível publicar este passeio.",
+      errors: validation.errors,
+    };
+  }
 
   const { error } = await supabase
     .from("tours")
-    .update({ marketplace_status: "review", marketplace_rejection_reason: null })
+    .update({ marketplace_status: "published" })
     .eq("id", tourId)
     .eq("company_id", company_id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    // defesa em profundidade: se o gatilho do banco recusar por um motivo que
+    // a checagem acima não pegou (corrida, dado mudou entre as duas chamadas),
+    // devolve mensagem legível em vez do erro cru
+    if (error.message === "PUBLISH_VALIDATION_FAILED") {
+      return { ok: false, message: "Não foi possível publicar este passeio. Tente novamente." };
+    }
+    return { ok: false, message: error.message };
+  }
 
   revalidatePath("/passeios");
   revalidatePath(`/passeios/${tourId}`);
-  return { ok: true, message: "Enviado para revisão. Um administrador vai avaliar antes de publicar." };
+  return { ok: true, message: "Passeio publicado no ToursFlow." };
 }
 
-export async function withdrawTourFromReview(tourId: string) {
+export async function unpublishTour(tourId: string) {
   const { supabase, id: company_id } = await companyId();
   if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
 
@@ -198,50 +196,12 @@ export async function withdrawTourFromReview(tourId: string) {
     .update({ marketplace_status: "draft" })
     .eq("id", tourId)
     .eq("company_id", company_id)
-    .eq("marketplace_status", "review");
-  if (error) return { ok: false, message: error.message };
-
-  revalidatePath("/passeios");
-  revalidatePath(`/passeios/${tourId}`);
-  return { ok: true, message: "Retirado da fila de revisão. Voltou para rascunho." };
-}
-
-export async function pauseTour(tourId: string) {
-  const { supabase, id: company_id } = await companyId();
-  if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
-
-  const { error } = await supabase
-    .from("tours")
-    .update({ marketplace_status: "paused" })
-    .eq("id", tourId)
-    .eq("company_id", company_id)
     .eq("marketplace_status", "published");
   if (error) return { ok: false, message: error.message };
 
   revalidatePath("/passeios");
   revalidatePath(`/passeios/${tourId}`);
-  return { ok: true, message: "Passeio pausado. Ele some da vitrine do ToursFlow até ser reativado." };
-}
-
-// Reativar um passeio pausado NÃO passa por nova revisão -- o conteúdo já tinha
-// sido aprovado antes de ser publicado pela primeira vez. Se o operador editar o
-// conteúdo enquanto pausado, hoje isso não força nova revisão automaticamente;
-// fica documentado como melhoria futura (ver DOCUMENTACAO.md).
-export async function resumeTour(tourId: string) {
-  const { supabase, id: company_id } = await companyId();
-  if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
-
-  const { error } = await supabase
-    .from("tours")
-    .update({ marketplace_status: "published" })
-    .eq("id", tourId)
-    .eq("company_id", company_id)
-    .eq("marketplace_status", "paused");
-  if (error) return { ok: false, message: error.message };
-
-  revalidatePath("/passeios");
-  revalidatePath(`/passeios/${tourId}`);
-  return { ok: true, message: "Passeio reativado na vitrine." };
+  return { ok: true, message: "Passeio despublicado. Ele some da vitrine do ToursFlow até ser publicado de novo." };
 }
 
 // ============================================================================
@@ -249,7 +209,19 @@ export async function resumeTour(tourId: string) {
 // 0034); estas actions só cuidam do registro em tour_photos.
 // ============================================================================
 
-export async function addTourPhoto(tourId: string, storagePath: string) {
+// manual_approved: liberada sem passar por provider algum, enquanto
+// IMAGE_MODERATION_MODE=manual for a política ativa (ver src/lib/image-moderation.ts
+// e DOCUMENTACAO.md) -- conta em tudo igual approved/legacy_approved. Trocar
+// o modo pra "openai" no futuro NÃO reprocessa fotos manual_approved
+// existentes automaticamente (decisão de produto explícita).
+const APPROVED_STATUSES = ["approved", "legacy_approved", "manual_approved"];
+
+export async function addTourPhoto(
+  tourId: string,
+  storagePath: string,
+  width: number | null = null,
+  height: number | null = null
+) {
   const { supabase, id: company_id } = await companyId();
   if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
 
@@ -262,22 +234,132 @@ export async function addTourPhoto(tourId: string, storagePath: string) {
     .eq("tour_id", tourId);
   const isFirstPhoto = !count || count === 0;
 
-  const { error } = await supabase.from("tour_photos").insert({
-    company_id,
-    tour_id: tourId,
-    storage_path: storagePath,
-    position: count ?? 0,
-    is_cover: isFirstPhoto,
-  });
+  // Política de moderação é explícita (IMAGE_MODERATION_MODE, ver
+  // src/lib/image-moderation.ts), nunca inferida pela ausência de chave.
+  // Enquanto o modo for "manual" (padrão do lançamento inicial -- sem
+  // provider pago ligado ainda), a foto nasce já liberada
+  // (manual_approved), pra nunca bloquear publicação por falta de
+  // crédito/API. is_cover pode nascer true mesmo em modo "openai"/pending
+  // (é só o "slot" pretendido) -- quem decide se ela conta pra valer como
+  // capa pública é sempre moderation_status, checado em
+  // validate_tour_for_publishing e nas rotas públicas, nunca aqui.
+  const mode = getImageModerationMode();
+  const nowIso = new Date().toISOString();
+  const { data: inserted, error } = await supabase
+    .from("tour_photos")
+    .insert({
+      company_id,
+      tour_id: tourId,
+      storage_path: storagePath,
+      position: count ?? 0,
+      is_cover: isFirstPhoto,
+      moderation_status: mode === "openai" ? "pending" : "manual_approved",
+      moderation_provider: mode === "openai" ? null : "manual",
+      moderation_checked_at: mode === "openai" ? null : nowIso,
+      width,
+      height,
+    })
+    .select("id")
+    .single();
   if (error) return { ok: false, message: error.message };
 
+  // moderação roda aqui mesmo, aguardada -- nada de fila/job separado (a API
+  // da OpenAI responde em segundos, não precisa de infraestrutura extra pra
+  // isso). Quando a Server Action retorna, o operador já vê o resultado real
+  // (approved/rejected/moderation_unavailable), não um "pending" parado. Em
+  // modo "manual" a foto já saiu do insert liberada -- não há nada a chamar.
+  if (mode === "openai") {
+    await runPhotoModeration(supabase, inserted.id, storagePath);
+  }
+
   revalidatePath(`/passeios/${tourId}`);
-  return { ok: true, message: "Foto adicionada." };
+  return { ok: true, message: mode === "openai" ? "Foto enviada e verificada." : "Foto enviada." };
+}
+
+// Reprocessa uma foto que ficou 'pending' (raro -- addTourPhoto já aguarda o
+// resultado) ou 'moderation_unavailable' (falha técnica -- vale tentar de
+// novo). NUNCA aceita reprocessar 'rejected' -- decisão de produto explícita:
+// o operador não pode forçar rejected -> approved, só remover/substituir a
+// foto (deleteTourPhoto + novo upload).
+export async function retryPhotoModeration(photoId: string, tourId: string) {
+  const { supabase, id: company_id } = await companyId();
+  if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
+
+  const { data: photo } = await supabase
+    .from("tour_photos")
+    .select("storage_path, moderation_status")
+    .eq("id", photoId)
+    .eq("company_id", company_id)
+    .eq("tour_id", tourId)
+    .maybeSingle();
+  if (!photo) return { ok: false, message: "Foto não encontrada." };
+
+  if (APPROVED_STATUSES.includes(photo.moderation_status)) {
+    return { ok: true, message: "Esta imagem já está aprovada." };
+  }
+  if (photo.moderation_status === "rejected") {
+    return { ok: false, message: "Esta imagem não atende às regras de publicação. Remova ou substitua a imagem para continuar." };
+  }
+
+  // Foto ficou pending/moderation_unavailable de um momento em que o modo
+  // era "openai" (ou de uma falha técnica) e agora a política ativa é
+  // "manual" -- libera direto, sem chamar rede nenhuma. Mesma regra central
+  // de runPhotoModeration, aplicada aqui pra não precisar de um round-trip
+  // via storage/OpenAI só pra decidir o que ela mesma decidiria de qualquer
+  // forma.
+  if (getImageModerationMode() !== "openai") {
+    const { error } = await supabase
+      .from("tour_photos")
+      .update({
+        moderation_status: "manual_approved",
+        moderation_provider: "manual",
+        moderation_checked_at: new Date().toISOString(),
+        moderation_reason_code: null,
+      })
+      .eq("id", photoId)
+      .eq("company_id", company_id);
+    if (error) return { ok: false, message: error.message };
+    revalidatePath(`/passeios/${tourId}`);
+    return { ok: true, message: "Foto liberada." };
+  }
+
+  // guarda simples contra duas moderações simultâneas da mesma foto: só
+  // "reivindica" o reprocessamento se ninguém tocou moderation_checked_at nos
+  // últimos 30s -- UPDATE condicional é atômico no Postgres, não precisa de
+  // fila/lock separado pra isto.
+  const claimCutoff = new Date(Date.now() - 30_000).toISOString();
+  const { data: claimed } = await supabase
+    .from("tour_photos")
+    .update({ moderation_checked_at: new Date().toISOString() })
+    .eq("id", photoId)
+    .eq("company_id", company_id)
+    .in("moderation_status", ["pending", "moderation_unavailable"])
+    .or(`moderation_checked_at.is.null,moderation_checked_at.lt.${claimCutoff}`)
+    .select("id")
+    .maybeSingle();
+  if (!claimed) {
+    return { ok: true, message: "Esta imagem já está sendo verificada." };
+  }
+
+  await runPhotoModeration(supabase, photoId, photo.storage_path);
+  revalidatePath(`/passeios/${tourId}`);
+  return { ok: true, message: "Verificação concluída." };
 }
 
 export async function setCoverPhoto(photoId: string, tourId: string) {
   const { supabase, id: company_id } = await companyId();
   if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
+
+  const { data: photo } = await supabase
+    .from("tour_photos")
+    .select("moderation_status")
+    .eq("id", photoId)
+    .eq("company_id", company_id)
+    .maybeSingle();
+  if (!photo) return { ok: false, message: "Foto não encontrada." };
+  if (!APPROVED_STATUSES.includes(photo.moderation_status)) {
+    return { ok: false, message: "Só uma imagem aprovada pode ser definida como capa." };
+  }
 
   await supabase
     .from("tour_photos")
@@ -313,14 +395,17 @@ export async function deleteTourPhoto(photoId: string, tourId: string) {
   const { error } = await supabase.from("tour_photos").delete().eq("id", photoId).eq("company_id", company_id);
   if (error) return { ok: false, message: error.message };
 
-  // se apagou a capa e sobraram fotos, promove a primeira da lista pra evitar um
-  // passeio publicado sem nenhuma foto de capa
+  // se apagou a capa e sobraram fotos, promove a próxima APROVADA (nunca uma
+  // pending/rejected/moderation_unavailable -- evita deixar um passeio
+  // publicado com is_cover apontando pra uma foto que a API pública não
+  // devolve, ver DOCUMENTACAO.md)
   if (photo.is_cover) {
     const { data: next } = await supabase
       .from("tour_photos")
       .select("id")
       .eq("tour_id", tourId)
       .eq("company_id", company_id)
+      .in("moderation_status", APPROVED_STATUSES)
       .order("position", { ascending: true })
       .limit(1)
       .maybeSingle();

@@ -71,7 +71,12 @@ type TourEmbed = {
   name: string;
   active: boolean;
   marketplace_status: string;
+  marketplace_suspended_at: string | null;
   price_type: string;
+};
+
+type CompanyEmbed = {
+  suspended_at: string | null;
 };
 
 type BookingRpcRow = {
@@ -178,7 +183,7 @@ export async function POST(request: Request) {
   const { data: departure, error: departureError } = await admin
     .from("departures")
     .select(
-      "id, company_id, departs_at, status, price_cents, price_type, tours(id, slug, name, active, marketplace_status, price_type)"
+      "id, company_id, departs_at, status, price_cents, price_type, tours(id, slug, name, active, marketplace_status, marketplace_suspended_at, price_type), companies(suspended_at)"
     )
     .eq("id", departureId)
     .maybeSingle();
@@ -188,12 +193,21 @@ export async function POST(request: Request) {
   const tour = departure
     ? ((Array.isArray(departure.tours) ? departure.tours[0] : departure.tours) as TourEmbed | null)
     : null;
+  const company = departure
+    ? ((Array.isArray(departure.companies) ? departure.companies[0] : departure.companies) as CompanyEmbed | null)
+    : null;
 
-  // mesmo 404 genérico para: saída inexistente, passeio inexistente/inativo, ou
-  // passeio não publicado -- nunca revelar qual desses é o caso real (mesma
-  // lógica de "not found" já usada em /api/public/tours/[slug])
-  if (!departure || !tour || !tour.active || tour.marketplace_status !== "published") {
+  // mesmo 404 genérico para: saída inexistente, passeio inexistente/inativo,
+  // não publicado, ou suspenso administrativamente -- nunca revelar qual desses
+  // é o caso real (mesma lógica de "not found" já usada em /api/public/tours/[slug])
+  if (!departure || !tour || !tour.active || tour.marketplace_status !== "published" || tour.marketplace_suspended_at) {
     return fail("DEPARTURE_NOT_FOUND", "Saída não encontrada.");
+  }
+
+  // company suspensa: código interno distinto (facilita investigar/logar),
+  // mensagem pública genérica -- nunca revela que o motivo é administrativo.
+  if (!company || company.suspended_at) {
+    return fail("COMPANY_NOT_AVAILABLE", "Este passeio não está disponível para reserva.");
   }
 
   if (new Date(departure.departs_at as string).getTime() <= Date.now()) {
@@ -262,6 +276,11 @@ export async function POST(request: Request) {
     }
     if (rpcError.message.includes("DEPARTURE_NOT_FOUND")) {
       return fail("DEPARTURE_NOT_FOUND", "Saída não encontrada.");
+    }
+    // defesa em profundidade: a rota já checou isso acima antes de chegar aqui,
+    // mas a RPC (migration 0044) reconfirma -- nunca confiar só na camada de cima.
+    if (rpcError.message.includes("COMPANY_NOT_AVAILABLE")) {
+      return fail("COMPANY_NOT_AVAILABLE", "Este passeio não está disponível para reserva.");
     }
     return fail("INTERNAL_ERROR", "Erro ao criar a reserva.");
   }

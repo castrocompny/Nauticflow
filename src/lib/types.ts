@@ -69,7 +69,12 @@ export type Tour = {
   marketplace_status: TourMarketplaceStatus;
   published_at: string | null;
   marketplace_rejection_reason: string | null;
+  marketplace_suspended_at: string | null;
+  marketplace_suspended_by: string | null;
+  marketplace_suspension_reason: string | null;
 };
+
+export type PhotoModerationStatus = "pending" | "approved" | "rejected" | "moderation_unavailable" | "legacy_approved" | "manual_approved";
 
 export type TourPhoto = {
   id: string;
@@ -79,6 +84,12 @@ export type TourPhoto = {
   is_cover: boolean;
   position: number;
   created_at: string;
+  moderation_status: PhotoModerationStatus;
+  moderation_provider: string | null;
+  moderation_checked_at: string | null;
+  moderation_reason_code: string | null;
+  width: number | null;
+  height: number | null;
 };
 
 export type Client = {

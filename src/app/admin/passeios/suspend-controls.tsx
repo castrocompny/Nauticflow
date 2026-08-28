@@ -2,29 +2,29 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { approveTour, rejectTour } from "../actions";
+import { suspendTour, unsuspendTour } from "../actions";
 
-export function ModerationControls({ tourId }: { tourId: string }) {
+export function SuspendControls({ tourId, suspended }: { tourId: string; suspended: boolean }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
-  const [rejecting, setRejecting] = useState(false);
+  const [suspending, setSuspending] = useState(false);
   const [reason, setReason] = useState("");
 
-  function approve() {
+  function unsuspend() {
     startTransition(async () => {
-      const res = await approveTour(tourId);
+      const res = await unsuspendTour(tourId);
       setMessage(res.message);
       if (res.ok) router.refresh();
     });
   }
 
-  function reject() {
+  function suspend() {
     startTransition(async () => {
-      const res = await rejectTour(tourId, reason);
+      const res = await suspendTour(tourId, reason);
       setMessage(res.message);
       if (res.ok) {
-        setRejecting(false);
+        setSuspending(false);
         router.refresh();
       }
     });
@@ -33,40 +33,39 @@ export function ModerationControls({ tourId }: { tourId: string }) {
   return (
     <div className="space-y-2">
       {message && <p className="text-xs text-danger">{message}</p>}
-      {!rejecting ? (
-        <div className="flex gap-2">
-          <button
-            disabled={pending}
-            onClick={approve}
-            className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-60"
-          >
-            Aprovar
-          </button>
-          <button
-            disabled={pending}
-            onClick={() => setRejecting(true)}
-            className="rounded-lg border border-line px-3 py-1.5 text-xs text-danger hover:bg-red-50 disabled:opacity-60"
-          >
-            Recusar
-          </button>
-        </div>
+      {suspended ? (
+        <button
+          disabled={pending}
+          onClick={unsuspend}
+          className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-60"
+        >
+          Remover suspensão
+        </button>
+      ) : !suspending ? (
+        <button
+          disabled={pending}
+          onClick={() => setSuspending(true)}
+          className="rounded-lg border border-line px-3 py-1.5 text-xs text-danger hover:bg-red-50 disabled:opacity-60"
+        >
+          Suspender
+        </button>
       ) : (
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Motivo da recusa"
+            placeholder="Motivo da suspensão"
             className="text-xs"
           />
           <div className="flex gap-2">
             <button
               disabled={pending}
-              onClick={reject}
+              onClick={suspend}
               className="rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
             >
               Confirmar
             </button>
-            <button onClick={() => setRejecting(false)} className="rounded-lg border border-line px-3 py-1.5 text-xs text-body">
+            <button onClick={() => setSuspending(false)} className="rounded-lg border border-line px-3 py-1.5 text-xs text-body">
               Cancelar
             </button>
           </div>

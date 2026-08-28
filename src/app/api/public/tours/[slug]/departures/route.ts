@@ -14,11 +14,16 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
   if (!slug) return NextResponse.json({ error: "Passeio não encontrado." }, { status: 404 });
 
   const admin = createAdminClient();
+  // Regra de visibilidade completa (ver /api/public/tours): active, não
+  // suspenso administrativamente, e empresa dona não suspensa.
   const { data: tour, error: tourError } = await admin
     .from("tours")
-    .select("id, price_type")
+    .select("id, price_type, companies!inner(suspended_at)")
     .eq("slug", slug)
     .eq("marketplace_status", "published")
+    .eq("active", true)
+    .is("marketplace_suspended_at", null)
+    .is("companies.suspended_at", null)
     .maybeSingle();
 
   if (tourError) return NextResponse.json({ error: "Erro ao consultar o passeio." }, { status: 500 });

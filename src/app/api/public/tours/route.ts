@@ -26,13 +26,22 @@ export async function GET(request: Request) {
   const { page, limit, from, to } = parsePagination(searchParams);
   const admin = createAdminClient();
 
+  // Regra de visibilidade completa (achado na auditoria de publicação: active e
+  // suspensão administrativa não eram checados aqui): active=true AND
+  // marketplace_status='published' AND marketplace_suspended_at IS NULL AND a
+  // empresa dona não está suspensa. "companies!inner" (não o embed normal)
+  // porque precisamos que o filtro na coluna da empresa EXCLUA a linha de tours
+  // quando a empresa está suspensa, não só filtrar o objeto aninhado.
   let query = admin
     .from("tours")
     .select(
-      "id, slug, name, short_description, destination, category, duration_minutes, price_type, base_price_cents, companies(name, city)",
+      "id, slug, name, short_description, destination, category, duration_minutes, price_type, base_price_cents, companies!inner(name, city, suspended_at)",
       { count: "exact" }
     )
     .eq("marketplace_status", "published")
+    .eq("active", true)
+    .is("marketplace_suspended_at", null)
+    .is("companies.suspended_at", null)
     .order("published_at", { ascending: false })
     .range(from, to);
 
@@ -51,11 +60,14 @@ export async function GET(request: Request) {
   const coverByTour = new Map<string, string>();
 
   if (tourIds.length > 0) {
+    // só fotos aprovadas (approved/legacy_approved -- migration 0044) podem
+    // sair na API pública; pending/rejected/moderation_unavailable nunca
     const { data: covers } = await admin
       .from("tour_photos")
       .select("tour_id, storage_path")
       .in("tour_id", tourIds)
-      .eq("is_cover", true);
+      .eq("is_cover", true)
+      .in("moderation_status", ["approved", "legacy_approved", "manual_approved"]);
     for (const c of covers ?? []) {
       const { data: signed } = await admin.storage
         .from("tour-photos")
@@ -73,6 +85,7 @@ export async function GET(request: Request) {
         .from("tour_photos")
         .select("tour_id, storage_path")
         .in("tour_id", uncoveredIds)
+        .in("moderation_status", ["approved", "legacy_approved", "manual_approved"])
         .order("position", { ascending: true });
       const firstPathByTour = new Map<string, string>();
       for (const p of fallbackRows ?? []) {

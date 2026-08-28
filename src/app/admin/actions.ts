@@ -223,63 +223,59 @@ export async function registerInvoice(_prev: unknown, formData: FormData) {
   return { error: "" };
 }
 
-// Moderação de passeios do marketplace (ToursFlow). O operador só consegue mandar
-// um passeio de "draft"/"rejected" pra "review" (ver submitTourForReview em
-// src/app/(app)/passeios/actions.ts) -- só o super admin aprova ou recusa daqui,
-// exatamente como pedido: "o operador não deve conseguir forçar published".
-export async function approveTour(tourId: string) {
+// Moderação de passeios do marketplace (ToursFlow). Publicação é autônoma --
+// o operador publica direto (ver publishTour em src/app/(app)/passeios/
+// actions.ts), sem aprovação prévia. O que o super admin controla aqui é
+// suspensão administrativa: marketplace_suspended_at (separado de
+// marketplace_status de propósito -- ver migration 0044) tira o passeio da
+// vitrine sem mexer na "intenção" do operador (que continua marcado como
+// published). O gatilho trg_tour_suspension_guard no banco já impede o
+// operador de escrever nesses 3 campos mesmo que tente direto pela API --
+// esta action não é a única linha de defesa.
+export async function suspendTour(tourId: string, reason: string) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { ok: false, message: auth.message };
   const { supabase, adminId, adminName } = auth;
 
-  const { data: tour } = await supabase
-    .from("tours")
-    .select("company_id, name, marketplace_status")
-    .eq("id", tourId)
-    .maybeSingle();
+  if (!reason.trim()) return { ok: false, message: "Informe o motivo da suspensão." };
+
+  const { data: tour } = await supabase.from("tours").select("company_id, name").eq("id", tourId).maybeSingle();
   if (!tour) return { ok: false, message: "Passeio não encontrado." };
-  if (tour.marketplace_status !== "review") {
-    return { ok: false, message: "Só é possível aprovar um passeio que está em revisão." };
-  }
 
   const { error } = await supabase
     .from("tours")
-    .update({ marketplace_status: "published", marketplace_rejection_reason: null })
+    .update({
+      marketplace_suspended_at: new Date().toISOString(),
+      marketplace_suspended_by: adminId,
+      marketplace_suspension_reason: reason.trim(),
+    })
     .eq("id", tourId);
   if (error) return { ok: false, message: error.message };
 
-  await logAction(supabase, adminId, adminName, "aprovar_passeio", tour.company_id, { passeio: tour.name });
+  await logAction(supabase, adminId, adminName, "suspender_passeio", tour.company_id, { passeio: tour.name, motivo: reason.trim() });
   revalidatePath("/admin/passeios");
   revalidatePath("/dashboard", "layout");
-  return { ok: true, message: "Passeio publicado no marketplace." };
+  return { ok: true, message: "Passeio suspenso. Ele sai da vitrine imediatamente." };
 }
 
-export async function rejectTour(tourId: string, reason: string) {
+export async function unsuspendTour(tourId: string) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { ok: false, message: auth.message };
   const { supabase, adminId, adminName } = auth;
 
-  if (!reason.trim()) return { ok: false, message: "Informe o motivo da recusa." };
-
-  const { data: tour } = await supabase
-    .from("tours")
-    .select("company_id, name, marketplace_status")
-    .eq("id", tourId)
-    .maybeSingle();
+  const { data: tour } = await supabase.from("tours").select("company_id, name").eq("id", tourId).maybeSingle();
   if (!tour) return { ok: false, message: "Passeio não encontrado." };
-  if (tour.marketplace_status !== "review") {
-    return { ok: false, message: "Só é possível recusar um passeio que está em revisão." };
-  }
 
   const { error } = await supabase
     .from("tours")
-    .update({ marketplace_status: "rejected", marketplace_rejection_reason: reason.trim() })
+    .update({ marketplace_suspended_at: null, marketplace_suspended_by: null, marketplace_suspension_reason: null })
     .eq("id", tourId);
   if (error) return { ok: false, message: error.message };
 
-  await logAction(supabase, adminId, adminName, "recusar_passeio", tour.company_id, { passeio: tour.name, motivo: reason.trim() });
+  await logAction(supabase, adminId, adminName, "reativar_passeio", tour.company_id, { passeio: tour.name });
   revalidatePath("/admin/passeios");
-  return { ok: true, message: "Passeio recusado. O operador poderá ajustar e enviar de novo." };
+  revalidatePath("/dashboard", "layout");
+  return { ok: true, message: "Suspensão removida. O passeio volta à vitrine se o operador o mantiver publicado." };
 }
 
 export async function deleteInvoice(formData: FormData) {

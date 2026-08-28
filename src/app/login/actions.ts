@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { validatePassword } from "@/lib/password";
 import { SITE_URL } from "@/lib/site-url";
+import { isValidDocument, normalizeDocumentDigits } from "@/lib/trial-identity";
 
 export async function signIn(_prev: unknown, formData: FormData) {
   const email = String(formData.get("email"));
@@ -36,11 +37,14 @@ export async function signUp(_prev: unknown, formData: FormData) {
   if (passwordError) return { error: passwordError };
   // CNPJ/CPF virou obrigatorio (era opcional) -- e a chave que o gatilho do banco usa
   // pra saber se essa pessoa/empresa ja usou os 7 dias de trial antes (mesmo depois de
-  // excluir a conta e criar outra com e-mail diferente, ver trial_history na migration).
-  // So confere a quantidade de digitos (11=CPF, 14=CNPJ), sem validar digito verificador.
-  const cnpjDigits = cnpj.replace(/\D/g, "");
-  if (cnpjDigits.length !== 11 && cnpjDigits.length !== 14) {
-    return { error: "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido." };
+  // excluir a conta e criar outra com e-mail diferente, ver trial_history na migration
+  // 0045). Validação de dígito verificador real aqui é só UX (mensagem melhor, erro
+  // cedo) -- a autoridade de verdade mora no gatilho handle_new_user(), que recalcula
+  // tudo de novo a partir do dado bruto e nunca confia neste valor (ver
+  // src/lib/trial-identity.ts pra explicação completa do porquê).
+  const cnpjDigits = normalizeDocumentDigits(cnpj);
+  if (!isValidDocument(cnpjDigits)) {
+    return { error: "Informe um CPF ou CNPJ válido." };
   }
   const supabase = createClient({ persistSession: remember });
 

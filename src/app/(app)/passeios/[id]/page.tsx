@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { PageHeader } from "@/components/ui";
 import type { Tour, TourPhoto } from "@/lib/types";
+import { validateTourForPublishing } from "@/lib/tour-publishing";
 import { TourForm } from "./tour-form";
 import { PhotoManager } from "./photo-manager";
 import { PublicationPanel } from "./publication-panel";
@@ -25,6 +26,10 @@ export default async function EditTourPage({ params }: { params: Promise<{ id: s
       .order("position", { ascending: true }),
   ]);
   if (!tour) notFound();
+
+  // checklist de publicação -- a REGRA mora no banco (validate_tour_for_publishing,
+  // migration 0044), isto aqui só busca pra mostrar o "pronto pra publicar?" na tela
+  const checklist = await validateTourForPublishing(supabase, id);
 
   const photos = (photosData ?? []) as TourPhoto[];
   const signedPhotos = await Promise.all(
@@ -52,7 +57,7 @@ export default async function EditTourPage({ params }: { params: Promise<{ id: s
           <PhotoManager tourId={tour.id} companyId={profile.company_id} photos={signedPhotos} />
         </div>
         <div>
-          <PublicationPanel tour={tour as Tour} photoCount={photos.length} />
+          <PublicationPanel tour={tour as Tour} photoCount={photos.length} checklist={checklist} />
         </div>
       </div>
     </>
