@@ -4,7 +4,7 @@ Base do MVP de gestão para turismo náutico. Next.js (App Router) + Supabase + 
 
 ## O que já está pronto
 
-- Autenticação (login, cadastro com `bootstrap_company`, sair) ligada ao Supabase Auth
+- Autenticação (login, cadastro via gatilho `handle_new_user()`, sair) ligada ao Supabase Auth
 - Shell completo (menu lateral no estilo da marca + barra superior), com itens do MVP ativos e os demais como "em breve"
 - Dashboard com indicadores do dia e saídas de hoje com ocupação
 - Embarcações (lista + cadastro, capacidade comercial calculada)
@@ -32,7 +32,7 @@ npm install
 npm run dev
 ```
 
-Abra http://localhost:3000. Crie a conta pela tela de login (isso chama `bootstrap_company` e monta empresa, perfil e assinatura). Depois cadastre uma embarcação, um cliente, uma saída e a primeira reserva.
+Abra http://localhost:3000. Crie a conta pela tela de login (o gatilho `handle_new_user()` no Postgres roda automaticamente ao inserir o usuário em `auth.users` e monta empresa, perfil e assinatura). Depois cadastre uma embarcação, um cliente, uma saída e a primeira reserva.
 
 ## Mapa do projeto
 
