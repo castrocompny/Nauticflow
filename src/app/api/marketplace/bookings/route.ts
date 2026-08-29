@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logSecurityEvent } from "@/lib/security-log";
 import {
   MARKETPLACE_HOLD_MINUTES,
   MARKETPLACE_ERROR_STATUS,
@@ -90,7 +91,14 @@ type BookingRpcRow = {
 export async function POST(request: Request) {
   // 401 sempre primeiro, sem revelar qual parte da autenticação falhou (sem
   // header, header mal formado, ou segredo errado -- mesma resposta genérica)
-  if (!isAuthorized(request)) return fail("UNAUTHORIZED", "Não autorizado.");
+  if (!isAuthorized(request)) {
+    // rota servidor-a-servidor: só o ToursFlow deveria chamar isto com o
+    // segredo certo -- um Bearer ausente/errado aqui é sinal forte de
+    // configuração quebrada do lado deles ou de alguém tentando adivinhar o
+    // segredo, nunca erro de digitação de um usuário final.
+    logSecurityEvent("marketplace_unauthorized");
+    return fail("UNAUTHORIZED", "Não autorizado.");
+  }
 
   const admin = createAdminClient();
 

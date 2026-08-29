@@ -65,7 +65,10 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
         .insert({ company_id, name: newTour })
         .select("id")
         .single();
-      if (error) return { error: error.message };
+      if (error) {
+        console.error("createDeparture new_tour:", error);
+        return { error: "Não foi possível criar o passeio. Tente novamente." };
+      }
       tour_id = data!.id;
       tourJustCreated = true;
     }
@@ -103,7 +106,8 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
       return { error: "Já existe uma saída desta embarcação neste horário." };
     if (error.message.includes("capacidade comercial"))
       return { error: error.message };
-    return { error: error.message };
+    console.error("createDeparture:", error);
+    return { error: "Não foi possível criar a saída. Tente novamente." };
   }
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
@@ -165,7 +169,8 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
 
   if (error) {
     if (error.code === "23505") return { error: "Já existe uma saída desta embarcação neste horário." };
-    return { error: error.message };
+    console.error("updateDeparture:", error);
+    return { error: "Não foi possível salvar a saída. Tente novamente." };
   }
   revalidatePath("/saidas");
   revalidatePath(`/saidas/${id}`);
@@ -182,7 +187,10 @@ async function setDepartureStatus(id: string, status: "em_andamento" | "cancelad
     .update({ status })
     .eq("id", id)
     .eq("company_id", company_id);
-  if (error) return { ok: false, message: "Não foi possível atualizar a saída. " + error.message };
+  if (error) {
+    console.error("setDepartureStatus:", error);
+    return { ok: false, message: "Não foi possível atualizar a saída. Tente novamente." };
+  }
   revalidatePath("/saidas");
   revalidatePath(`/saidas/${id}`);
   revalidatePath("/reservas");
@@ -270,10 +278,16 @@ export async function deleteTour(formData: FormData) {
       .update({ active: false })
       .eq("id", id)
       .eq("company_id", company_id);
-    if (error) return { error: error.message };
+    if (error) {
+      console.error("deleteTour deactivate:", error);
+      return { error: "Não foi possível atualizar o passeio. Tente novamente." };
+    }
   } else {
     const { error } = await supabase.from("tours").delete().eq("id", id).eq("company_id", company_id);
-    if (error) return { error: "Não foi possível excluir o passeio. " + error.message };
+    if (error) {
+      console.error("deleteTour delete:", error);
+      return { error: "Não foi possível excluir o passeio. Tente novamente." };
+    }
   }
 
   revalidatePath("/saidas");

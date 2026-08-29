@@ -41,7 +41,8 @@ export async function createTourDraft(_prev: unknown, formData: FormData) {
 
   if (error) {
     if (error.code === "23505") return { error: "Já existe um passeio ativo com este nome." };
-    return { error: error.message };
+    console.error("createTourDraft:", error);
+    return { error: "Não foi possível criar o passeio. Tente novamente." };
   }
 
   revalidatePath("/passeios");
@@ -179,7 +180,8 @@ export async function publishTour(tourId: string) {
     if (error.message === "PUBLISH_VALIDATION_FAILED") {
       return { ok: false, message: "Não foi possível publicar este passeio. Tente novamente." };
     }
-    return { ok: false, message: error.message };
+    console.error("publishTour:", error);
+    return { ok: false, message: "Não foi possível publicar este passeio. Tente novamente." };
   }
 
   revalidatePath("/passeios");
@@ -197,7 +199,10 @@ export async function unpublishTour(tourId: string) {
     .eq("id", tourId)
     .eq("company_id", company_id)
     .eq("marketplace_status", "published");
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("unpublishTour:", error);
+    return { ok: false, message: "Não foi possível despublicar o passeio. Tente novamente." };
+  }
 
   revalidatePath("/passeios");
   revalidatePath(`/passeios/${tourId}`);
@@ -261,7 +266,10 @@ export async function addTourPhoto(
     })
     .select("id")
     .single();
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("addTourPhoto:", error);
+    return { ok: false, message: "Não foi possível salvar a foto. Tente novamente." };
+  }
 
   // moderação roda aqui mesmo, aguardada -- nada de fila/job separado (a API
   // da OpenAI responde em segundos, não precisa de infraestrutura extra pra
@@ -318,7 +326,10 @@ export async function retryPhotoModeration(photoId: string, tourId: string) {
       })
       .eq("id", photoId)
       .eq("company_id", company_id);
-    if (error) return { ok: false, message: error.message };
+    if (error) {
+      console.error("retryPhotoModeration manual:", error);
+      return { ok: false, message: "Não foi possível liberar a foto. Tente novamente." };
+    }
     revalidatePath(`/passeios/${tourId}`);
     return { ok: true, message: "Foto liberada." };
   }
@@ -373,7 +384,10 @@ export async function setCoverPhoto(photoId: string, tourId: string) {
     .update({ is_cover: true })
     .eq("id", photoId)
     .eq("company_id", company_id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("setCoverPhoto:", error);
+    return { ok: false, message: "Não foi possível definir a capa. Tente novamente." };
+  }
 
   revalidatePath(`/passeios/${tourId}`);
   return { ok: true, message: "Capa definida." };
@@ -393,7 +407,10 @@ export async function deleteTourPhoto(photoId: string, tourId: string) {
 
   await supabase.storage.from("tour-photos").remove([photo.storage_path]);
   const { error } = await supabase.from("tour_photos").delete().eq("id", photoId).eq("company_id", company_id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("deleteTourPhoto:", error);
+    return { ok: false, message: "Não foi possível remover a foto. Tente novamente." };
+  }
 
   // se apagou a capa e sobraram fotos, promove a próxima APROVADA (nunca uma
   // pending/rejected/moderation_unavailable -- evita deixar um passeio

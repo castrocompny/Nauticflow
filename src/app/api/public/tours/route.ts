@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  checkPublicApiRateLimit,
   isValidCategory,
   parsePagination,
   PHOTO_SIGNED_URL_TTL_SECONDS,
@@ -15,6 +16,10 @@ export const dynamic = "force-dynamic";
 // decidir o que é público -- o filtro marketplace_status='published' é sempre
 // aplicado aqui, no servidor (item 21 do pedido).
 export async function GET(request: Request) {
+  if (!(await checkPublicApiRateLimit())) {
+    return NextResponse.json({ error: "Muitas requisições. Tente novamente em instantes." }, { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
   const destination = searchParams.get("destination")?.trim().toLowerCase() || undefined;
   const category = searchParams.get("category")?.trim() || undefined;

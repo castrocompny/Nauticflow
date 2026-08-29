@@ -1,0 +1,31 @@
+-- Hardening de segurança (achado da auditoria — RPC legada bootstrap_company).
+--
+-- public.bootstrap_company(company_name text, plan_code text, user_name text),
+-- criada em 0000_init_schema.sql:288-318 pro cadastro original, está sem uso
+-- desde que o trigger de cadastro assumiu o fluxo -- o próprio comentário de
+-- supabase/migrations/0002_auth_trigger_bootstrap.sql:51 já documentava isso:
+-- "a função antiga fica sem uso (o app não chama mais
+-- supabase.rpc('bootstrap_company', ...))". Confirmado agora, ao vivo, que os
+-- dois únicos triggers em auth.users (on_auth_user_created -> handle_new_user(),
+-- on_auth_user_invited -> handle_invited_user()) não chamam esta função, e que
+-- nenhum código em src/ faz `.rpc("bootstrap_company", ...)`.
+--
+-- Apesar de não usada, o EXECUTE original (migration 0000, linha 318) nunca foi
+-- revogado -- confirmado ao vivo que PUBLIC, anon e authenticated ainda
+-- conseguem chamar `POST /rest/v1/rpc/bootstrap_company`. O corpo da função já
+-- bloqueia uma chamada verdadeiramente anônima (`if auth.uid() is null then
+-- raise exception`), mas qualquer usuário AUTENTICADO (inclusive staff)
+-- conseguia chamá-la e reatribuir o PRÓPRIO perfil pra uma empresa nova, virando
+-- company_admin dela na hora, pulando toda a validação normal de cadastro
+-- (CNPJ, aceite de termos, trava de trial repetido -- migration 0045). Não abre
+-- acesso a dado de OUTRA empresa/usuário -- só afeta o próprio perfil de quem
+-- chama.
+--
+-- NÃO é DROP FUNCTION -- só fecha o acesso externo indevido, mesmo princípio de
+-- menor privilégio já usado nas migrations 0043/0044/0045/0048 deste projeto
+-- pra funções legadas/novas: revoga de PUBLIC e de cada role explicitamente
+-- (revogar só de PUBLIC não basta -- o Supabase concede EXECUTE direto a
+-- anon/authenticated também, independente do pseudo-role PUBLIC, exatamente o
+-- que aquelas migrations já tiveram que corrigir pra outras funções). Nenhuma
+-- tabela, RLS, trigger ou função de trial é tocada aqui -- só este GRANT.
+revoke execute on function public.bootstrap_company(text, text, text) from public, anon, authenticated;

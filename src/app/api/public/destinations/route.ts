@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { checkPublicApiRateLimit } from "@/lib/public-api";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,10 @@ export const dynamic = "force-dynamic";
 // obter distinct sem uma função de banco dedicada, aceitável no volume atual de
 // passeios publicados; ver DOCUMENTACAO.md).
 export async function GET() {
+  if (!(await checkPublicApiRateLimit())) {
+    return NextResponse.json({ error: "Muitas requisições. Tente novamente em instantes." }, { status: 429 });
+  }
+
   const admin = createAdminClient();
   // Mesma regra de visibilidade completa das demais rotas públicas (ver
   // /api/public/tours) -- um destino só populado por tours suspensos/inativos/

@@ -44,7 +44,8 @@ async function sendInviteEmail(
     if (error.message.toLowerCase().includes("already been registered")) {
       return { error: "already_registered" };
     }
-    return { error: "Não foi possível gerar o convite: " + error.message };
+    console.error("sendInviteEmail generateLink:", error);
+    return { error: "Não foi possível gerar o convite. Tente novamente." };
   }
 
   const link = `${SITE_URL}/auth/callback?token_hash=${data.properties.hashed_token}&type=invite&next=/redefinir-senha`;
@@ -188,7 +189,10 @@ export async function removeTeamMember(memberId: string) {
 
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.deleteUser(memberId);
-  if (error) return { ok: false, message: "Não foi possível remover: " + error.message };
+  if (error) {
+    console.error("removeTeamMember:", error);
+    return { ok: false, message: "Não foi possível remover o usuário. Tente novamente." };
+  }
 
   revalidatePath("/equipe");
   return { ok: true, message: `${target.name ?? "Usuário"} removido.` };

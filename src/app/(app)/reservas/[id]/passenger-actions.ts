@@ -38,7 +38,8 @@ export async function addPassenger(_prev: unknown, formData: FormData) {
     // o gatilho recusa passageiros acima do people_count da reserva
     if (error.message.includes("Limite de passageiros"))
       return { error: "A reserva não comporta mais passageiros." };
-    return { error: error.message };
+    console.error("addPassenger:", error);
+    return { error: "Não foi possível adicionar o passageiro. Tente novamente." };
   }
   revalidatePath(`/reservas/${reservationId}`);
   return { error: "" };

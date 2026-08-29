@@ -10,6 +10,28 @@
 export const PUBLIC_PAGE_SIZE_DEFAULT = 20;
 export const PUBLIC_PAGE_SIZE_MAX = 50;
 
+// Rate limit das rotas /api/public/* -- achado da auditoria de segurança (item 1):
+// eram as únicas rotas que geram custo real por chamada (signed URL de Storage a
+// cada foto) sem nenhum limite. Reaproveita a mesma infraestrutura do marketplace
+// (public.check_rate_limit, migration 0042).
+//
+// Deliberadamente GLOBAL (uma chave fixa, compartilhada pelas 5 rotas), NUNCA por
+// IP: hoje não há garantia de que quem chama aqui é o navegador do visitante final
+// -- pode ser o próprio servidor do ToursFlow renderizando páginas de listagem/SEO
+// -- e um limite por IP arriscaria bloquear tráfego legítimo inteiro concentrado
+// numa única origem. Configurável por env (mesmo padrão de TOURSFLOW_RATE_LIMIT_*
+// em src/lib/marketplace-api.ts), com default generoso o bastante pra não incomodar
+// navegação normal/SEO/integrações.
+import { checkRateLimit } from "@/lib/rate-limit";
+
+export const PUBLIC_API_RATE_LIMIT_MAX_REQUESTS = Number(process.env.PUBLIC_API_RATE_LIMIT_MAX_REQUESTS) || 600;
+export const PUBLIC_API_RATE_LIMIT_WINDOW_SECONDS = Number(process.env.PUBLIC_API_RATE_LIMIT_WINDOW_SECONDS) || 60;
+const PUBLIC_API_RATE_LIMIT_CONSUMER_KEY = "public-api:global";
+
+export async function checkPublicApiRateLimit(): Promise<boolean> {
+  return checkRateLimit(PUBLIC_API_RATE_LIMIT_CONSUMER_KEY, PUBLIC_API_RATE_LIMIT_MAX_REQUESTS, PUBLIC_API_RATE_LIMIT_WINDOW_SECONDS);
+}
+
 export const TOUR_CATEGORIES = [
   { value: "passeio_privativo", label: "Passeio privativo" },
   { value: "por_do_sol", label: "Pôr do sol" },

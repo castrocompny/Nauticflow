@@ -1,0 +1,31 @@
+-- Hardening de segurança (achado da reauditoria final -- grants diretos das
+-- tabelas public.payments e public.processed_webhook_events).
+--
+-- As duas têm RLS habilitado e NUNCA tiveram nenhuma policy criada -- mesmo
+-- padrão intencional de tabela "só service_role acessa" já usado em
+-- api_rate_limits (migration 0042/0050) e trial_history (migration 0031):
+-- RLS ativo + zero policy permissiva nega qualquer operação pra
+-- anon/authenticated na prática, via PostgREST.
+--
+-- Apesar disso, as duas ainda carregavam os GRANTs padrão que o Supabase
+-- concede a toda tabela nova do schema public pra `authenticated`
+-- (SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER). `anon` já não
+-- tinha nenhum grant nessas duas (diferente do caso de api_rate_limits).
+-- Isso nunca foi explorável sozinho (a RLS já barra), mas é uma camada de
+-- defesa a menos -- mesmo raciocínio de menor privilégio já aplicado a
+-- bootstrap_company (0049) e api_rate_limits (0050).
+--
+-- Confirmado ao vivo, antes de revogar:
+-- 1) public.payments: zero referência em código (`.from("payments")` não
+--    aparece em lugar nenhum de src/ -- tabela existe desde a migration 0036
+--    mas ainda não é usada por nenhum fluxo hoje).
+-- 2) public.processed_webhook_events: única referência em código é
+--    src/app/api/webhooks/asaas/route.ts, que usa um client criado com
+--    SUPABASE_SERVICE_ROLE_KEY (service_role) -- nunca sessão de
+--    usuário/anon.
+-- 3) Nenhuma das duas tem função SECURITY DEFINER própria (diferente de
+--    api_rate_limits/check_rate_limit) -- não há nada a checar ali.
+--
+-- service_role e postgres (owner) continuam com todos os privilégios (não
+-- tocados aqui) -- são os únicos que legitimamente precisam de acesso.
+revoke all on table public.payments, public.processed_webhook_events from anon, authenticated;

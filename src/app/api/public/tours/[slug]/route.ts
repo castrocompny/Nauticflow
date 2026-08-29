@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { PHOTO_SIGNED_URL_TTL_SECONDS, type PublicTourDetailDTO } from "@/lib/public-api";
+import { checkPublicApiRateLimit, PHOTO_SIGNED_URL_TTL_SECONDS, type PublicTourDetailDTO } from "@/lib/public-api";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,10 @@ export const dynamic = "force-dynamic";
 // "existe mas está em rascunho/pausado/recusado" (mesma lógica de "not found" que
 // RLS já aplica pra tabelas internas).
 export async function GET(_request: Request, context: { params: Promise<{ slug: string }> }) {
+  if (!(await checkPublicApiRateLimit())) {
+    return NextResponse.json({ error: "Muitas requisições. Tente novamente em instantes." }, { status: 429 });
+  }
+
   const { slug } = await context.params;
   if (!slug) return NextResponse.json({ error: "Passeio não encontrado." }, { status: 404 });
 

@@ -1,0 +1,37 @@
+-- Hardening de segurança (achado adicional da auditoria — grants diretos da
+-- tabela public.api_rate_limits).
+--
+-- public.api_rate_limits (migration 0042) já tem RLS habilitado e NUNCA teve
+-- nenhuma policy criada pra anon/authenticated -- na prática, esses papéis já
+-- ficam bloqueados de acessar a tabela via PostgREST (RLS ativo + zero policy
+-- permissiva = nega tudo, pra qualquer comando). Confirmado ao vivo antes desta
+-- migration: nenhuma policy existe pra esta tabela.
+--
+-- Apesar disso, a tabela ainda carregava os GRANTs padrão que o Supabase
+-- concede a toda tabela nova do schema public: SELECT/INSERT/UPDATE/DELETE/
+-- TRUNCATE/REFERENCES/TRIGGER pra anon E authenticated. Isso nunca foi
+-- explorável sozinho (a RLS já barra), mas é uma camada de defesa a menos --
+-- mesmo raciocínio de menor privilégio já aplicado a bootstrap_company
+-- (migration 0049) e às RPCs do marketplace (migrations 0043/0044/0048).
+--
+-- Confirmado ao vivo, antes de revogar, que isto é seguro:
+-- 1) public.check_rate_limit(text,int,int) é SECURITY DEFINER, dono
+--    "postgres", com search_path fixado ("search_path=public" -- não é
+--    mutável pelo chamador). Uma função SECURITY DEFINER roda com o
+--    privilégio do DONO sobre as tabelas que toca por dentro do corpo dela,
+--    não com o privilégio de quem chamou -- então revogar o acesso direto de
+--    anon/authenticated à TABELA não afeta em nada a capacidade da função de
+--    ler/escrever nela.
+-- 2) EXECUTE em check_rate_limit já estava revogado de anon/authenticated
+--    desde a migration 0043 (confirmado ao vivo: só postgres e service_role
+--    têm EXECUTE) -- ninguém de fora chama a RPC diretamente de qualquer
+--    forma.
+-- 3) Todo o código do app (src/lib/rate-limit.ts, src/app/api/marketplace/
+--    bookings/route.ts) chama a RPC exclusivamente via createAdminClient()
+--    (service_role) -- nenhum lugar usa sessão de usuário/anon pra isso, e
+--    não existe nenhum `.from("api_rate_limits")` em lugar nenhum do código
+--    (busca confirmada em toda a árvore src/).
+--
+-- service_role e postgres continuam com todos os privilégios (não tocados
+-- aqui) -- são os únicos que legitimamente precisam de acesso à tabela.
+revoke all on table public.api_rate_limits from anon, authenticated;

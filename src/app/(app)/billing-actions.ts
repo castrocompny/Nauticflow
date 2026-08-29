@@ -92,7 +92,10 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
     p_plan_code: plan.code,
     p_billing_cycle: cycle,
   });
-  if (linkError) return { error: "Cobrança criada, mas houve um erro ao vincular: " + linkError.message };
+  if (linkError) {
+    console.error("startAsaasCheckout link_asaas_subscription:", linkError);
+    return { error: "Cobrança criada, mas houve um erro ao vincular a assinatura. Entre em contato com o suporte." };
+  }
 
   const invoiceRes = await getFirstInvoiceUrl(subRes.data.id);
   if (!invoiceRes.ok) return { error: invoiceRes.error };
@@ -133,7 +136,10 @@ export async function cancelAsaasSubscription() {
   // subscriptions (ver migration 0007), então a sessão normal do cliente não conseguiria
   const admin = createAdminClient();
   const { error } = await admin.from("subscriptions").update({ status: "cancelada" }).eq("id", sub.id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("cancelAsaasSubscription:", error);
+    return { error: "Não foi possível cancelar a assinatura. Tente novamente." };
+  }
 
   revalidatePath("/planos");
   revalidatePath("/dashboard", "layout");

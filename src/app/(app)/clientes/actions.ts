@@ -23,7 +23,8 @@ export async function createClientRecord(_prev: unknown, formData: FormData) {
   });
   if (error) {
     if (error.code === "23505") return { error: "Já existe um cliente com este CPF." };
-    return { error: error.message };
+    console.error("createClientRecord:", error);
+    return { error: "Não foi possível salvar o cliente. Tente novamente." };
   }
   revalidatePath("/clientes");
   return { error: "" };
@@ -48,7 +49,8 @@ export async function updateClient(_prev: unknown, formData: FormData) {
     .eq("company_id", profile.company_id);
   if (error) {
     if (error.code === "23505") return { error: "Já existe um cliente com este CPF." };
-    return { error: error.message };
+    console.error("updateClient:", error);
+    return { error: "Não foi possível salvar o cliente. Tente novamente." };
   }
   revalidatePath("/clientes");
   revalidatePath(`/clientes/${id}`);

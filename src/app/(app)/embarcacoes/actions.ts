@@ -59,7 +59,10 @@ export async function createVessel(_prev: unknown, formData: FormData) {
       : null,
     registration: String(formData.get("registration") || ""),
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("createVessel:", error);
+    return { error: "Não foi possível cadastrar a embarcação. Tente novamente." };
+  }
 
   revalidatePath("/embarcacoes");
   return { error: "" };
@@ -91,7 +94,10 @@ export async function updateVessel(_prev: unknown, formData: FormData) {
     })
     .eq("id", id)
     .eq("company_id", profile.company_id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("updateVessel:", error);
+    return { error: "Não foi possível salvar a embarcação. Tente novamente." };
+  }
 
   revalidatePath("/embarcacoes");
   revalidatePath(`/embarcacoes/${id}`);

@@ -28,7 +28,10 @@ export async function createPartner(_prev: unknown, formData: FormData) {
     contact: String(formData.get("contact") || "") || null,
     commission_rate: Number(String(formData.get("commission_rate") || "0").replace(",", ".")) || 0,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("createPartner:", error);
+    return { error: "Não foi possível cadastrar o parceiro. Tente novamente." };
+  }
   revalidatePath("/parceiros");
   return { error: "" };
 }
@@ -47,7 +50,10 @@ export async function updatePartner(_prev: unknown, formData: FormData) {
     })
     .eq("id", pid)
     .eq("company_id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("updatePartner:", error);
+    return { error: "Não foi possível salvar o parceiro. Tente novamente." };
+  }
   revalidatePath("/parceiros");
   revalidatePath(`/parceiros/${pid}`);
   return { error: "" };
@@ -57,7 +63,10 @@ export async function cancelPartnership(pid: string) {
   const { supabase, id } = await companyId();
   if (!id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
   const { error } = await supabase.from("partners").update({ active: false }).eq("id", pid).eq("company_id", id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("cancelPartnership:", error);
+    return { ok: false, message: "Não foi possível cancelar a parceria. Tente novamente." };
+  }
   revalidatePath("/parceiros");
   return { ok: true, message: "Parceria cancelada." };
 }
@@ -66,7 +75,10 @@ export async function reactivatePartner(pid: string) {
   const { supabase, id } = await companyId();
   if (!id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
   const { error } = await supabase.from("partners").update({ active: true }).eq("id", pid).eq("company_id", id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("reactivatePartner:", error);
+    return { ok: false, message: "Não foi possível reativar a parceria. Tente novamente." };
+  }
   revalidatePath("/parceiros");
   return { ok: true, message: "Parceria reativada." };
 }

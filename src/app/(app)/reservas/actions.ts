@@ -66,7 +66,8 @@ export async function createReservation(_prev: unknown, formData: FormData) {
     // o gatilho do banco recusa quando excede a capacidade da saida
     if (error.message.includes("Capacidade excedida"))
       return { error: "Sem vagas suficientes nesta saída. " + error.message };
-    return { error: error.message };
+    console.error("createReservation:", error);
+    return { error: "Não foi possível criar a reserva. Tente novamente." };
   }
 
   // tenta enviar o voucher por e-mail, mas NUNCA desfaz a reserva se falhar
@@ -126,7 +127,10 @@ export async function updateReservationStatus(id: string, status: "confirmada" |
     .update({ status })
     .eq("id", id)
     .eq("company_id", profile.company_id);
-  if (error) return { ok: false, message: "Não foi possível atualizar o status. " + error.message };
+  if (error) {
+    console.error("updateReservationStatus:", error);
+    return { ok: false, message: "Não foi possível atualizar o status. Tente novamente." };
+  }
 
   revalidatePath("/reservas");
   revalidatePath("/saidas");
@@ -182,7 +186,8 @@ export async function updateReservation(_prev: unknown, formData: FormData) {
   if (error) {
     if (error.message.includes("Capacidade excedida"))
       return { error: "Sem vagas suficientes nesta saída. " + error.message };
-    return { error: error.message };
+    console.error("updateReservation:", error);
+    return { error: "Não foi possível salvar a reserva. Tente novamente." };
   }
 
   revalidatePath("/reservas");
@@ -212,7 +217,10 @@ export async function deleteReservation(formData: FormData) {
     .delete()
     .eq("id", id)
     .eq("company_id", profile.company_id);
-  if (error) return { error: "Erro ao excluir. " + error.message };
+  if (error) {
+    console.error("deleteReservation:", error);
+    return { error: "Não foi possível excluir a reserva. Tente novamente." };
+  }
   revalidatePath("/reservas");
   revalidatePath("/saidas");
   revalidatePath("/dashboard");

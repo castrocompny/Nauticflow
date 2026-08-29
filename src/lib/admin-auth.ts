@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { logSecurityEvent } from "@/lib/security-log";
 
 // Confere super_admin + segundo fator (aal2) verificado NESTA sessão -- usado no topo
 // de toda página da área /admin. Não fica no middleware pra não gastar uma query extra
@@ -17,8 +18,13 @@ export async function requireSuperAdminPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).maybeSingle();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, name, company_id")
+    .eq("id", user.id)
+    .maybeSingle();
   if (profile?.role !== "super_admin") {
+    logSecurityEvent("admin_access_denied", { userId: user.id, companyId: profile?.company_id ?? null });
     return { supabase, user, denied: true as const, name: undefined };
   }
 
@@ -39,8 +45,15 @@ export async function requireSuperAdminAction() {
   } = await supabase.auth.getUser();
   if (!user) return { ok: false as const, message: "Sessão inválida." };
 
-  const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).maybeSingle();
-  if (profile?.role !== "super_admin") return { ok: false as const, message: "Sem permissão." };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, name, company_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profile?.role !== "super_admin") {
+    logSecurityEvent("admin_access_denied", { userId: user.id, companyId: profile?.company_id ?? null });
+    return { ok: false as const, message: "Sem permissão." };
+  }
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (aal?.currentLevel !== "aal2") {

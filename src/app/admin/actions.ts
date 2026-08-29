@@ -62,7 +62,10 @@ export async function renewSubscription(companyId: string, planCode: string, cyc
     .from("subscriptions")
     .update({ paid_until: base.toISOString(), status: "ativa", plan_id: plan.id, billing_cycle: isAnual ? "anual" : "mensal" })
     .eq("id", sub.id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("renewSubscription:", error);
+    return { ok: false, message: "Não foi possível renovar a assinatura. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "renovar_assinatura", companyId, {
     plano: plan.name,
@@ -96,7 +99,10 @@ export async function changePlan(companyId: string, planCode: string) {
   if (!sub) return { ok: false, message: "Assinatura não encontrada pra esta empresa." };
 
   const { error } = await supabase.from("subscriptions").update({ plan_id: plan.id }).eq("id", sub.id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("changePlan:", error);
+    return { ok: false, message: "Não foi possível trocar o plano. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "trocar_plano", companyId, { plano: plan.name });
   revalidateAffectedCompany(companyId);
@@ -112,7 +118,10 @@ export async function suspendCompany(companyId: string, reason: string) {
     .from("companies")
     .update({ suspended_at: new Date().toISOString(), suspended_reason: reason || null })
     .eq("id", companyId);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("suspendCompany:", error);
+    return { ok: false, message: "Não foi possível suspender a empresa. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "suspender_empresa", companyId, { motivo: reason || null });
   revalidateAffectedCompany(companyId);
@@ -128,7 +137,10 @@ export async function unsuspendCompany(companyId: string) {
     .from("companies")
     .update({ suspended_at: null, suspended_reason: null })
     .eq("id", companyId);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("unsuspendCompany:", error);
+    return { ok: false, message: "Não foi possível remover a suspensão. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "reativar_empresa", companyId);
   revalidateAffectedCompany(companyId);
@@ -169,7 +181,10 @@ export async function deleteCompanyPermanently(companyId: string, confirmName: s
   }
 
   const { error } = await admin.from("companies").delete().eq("id", companyId);
-  if (error) return { ok: false, message: "Não foi possível excluir: " + error.message };
+  if (error) {
+    console.error("deleteCompanyPermanently:", error);
+    return { ok: false, message: "Não foi possível excluir a empresa. Tente novamente." };
+  }
 
   revalidatePath("/admin");
   return { ok: true, message: "Empresa excluída definitivamente." };
@@ -185,7 +200,10 @@ export async function updateCompanyBilling(_prev: unknown, formData: FormData) {
   const city = String(formData.get("city") || "") || null;
 
   const { error } = await supabase.from("companies").update({ cnpj, city }).eq("id", companyId);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("updateCompanyBilling:", error);
+    return { error: "Não foi possível salvar os dados. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "editar_dados_empresa", companyId, { cnpj, city });
   revalidateAffectedCompany(companyId);
@@ -216,7 +234,10 @@ export async function registerInvoice(_prev: unknown, formData: FormData) {
     notes,
     created_by: adminId,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("registerInvoice:", error);
+    return { error: "Não foi possível registrar a nota fiscal. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "registrar_nota_fiscal", companyId, { numero: number, valor_cents: Math.round(valueReais * 100) });
   revalidateAffectedCompany(companyId);
@@ -250,7 +271,10 @@ export async function suspendTour(tourId: string, reason: string) {
       marketplace_suspension_reason: reason.trim(),
     })
     .eq("id", tourId);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("suspendTour:", error);
+    return { ok: false, message: "Não foi possível suspender o passeio. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "suspender_passeio", tour.company_id, { passeio: tour.name, motivo: reason.trim() });
   revalidatePath("/admin/passeios");
@@ -270,7 +294,10 @@ export async function unsuspendTour(tourId: string) {
     .from("tours")
     .update({ marketplace_suspended_at: null, marketplace_suspended_by: null, marketplace_suspension_reason: null })
     .eq("id", tourId);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("unsuspendTour:", error);
+    return { ok: false, message: "Não foi possível remover a suspensão do passeio. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "reativar_passeio", tour.company_id, { passeio: tour.name });
   revalidatePath("/admin/passeios");
@@ -293,7 +320,10 @@ export async function deleteInvoice(formData: FormData) {
   const companyId = invoice.company_id as string;
 
   const { error } = await supabase.from("invoices").delete().eq("id", id);
-  if (error) return { error: "Erro ao excluir. " + error.message };
+  if (error) {
+    console.error("deleteInvoice:", error);
+    return { error: "Não foi possível excluir a nota fiscal. Tente novamente." };
+  }
 
   await logAction(supabase, adminId, adminName, "excluir_nota_fiscal", companyId, { invoice_id: id });
   revalidateAffectedCompany(companyId);

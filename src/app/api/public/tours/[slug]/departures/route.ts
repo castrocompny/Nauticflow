@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { PublicDepartureDTO } from "@/lib/public-api";
+import { checkPublicApiRateLimit, type PublicDepartureDTO } from "@/lib/public-api";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,10 @@ const MAX_DEPARTURES = 100;
 // precificadas de um passeio PUBLICADO. Nunca expõe a capacidade real da
 // embarcação (dado interno) -- só um booleano "soldOut" calculado no servidor.
 export async function GET(_request: Request, context: { params: Promise<{ slug: string }> }) {
+  if (!(await checkPublicApiRateLimit())) {
+    return NextResponse.json({ error: "Muitas requisições. Tente novamente em instantes." }, { status: 429 });
+  }
+
   const { slug } = await context.params;
   if (!slug) return NextResponse.json({ error: "Passeio não encontrado." }, { status: 404 });
 

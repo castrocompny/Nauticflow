@@ -38,14 +38,20 @@ export async function updateSettings(_prev: unknown, formData: FormData) {
       phone: String(formData.get("phone") || "") || null,
     })
     .eq("id", profile.company_id);
-  if (cErr) return { error: cErr.message, ok: false };
+  if (cErr) {
+    console.error("updateSettings company:", cErr);
+    return { error: "Não foi possível salvar os dados da empresa. Tente novamente.", ok: false };
+  }
 
   // atualiza o nome do administrador (RLS permite o proprio perfil)
   const { error: pErr } = await supabase
     .from("profiles")
     .update({ name: String(formData.get("admin_name")) })
     .eq("id", user.id);
-  if (pErr) return { error: pErr.message, ok: false };
+  if (pErr) {
+    console.error("updateSettings profile:", pErr);
+    return { error: "Não foi possível salvar seu nome. Tente novamente.", ok: false };
+  }
 
   revalidatePath("/configuracoes");
   revalidatePath("/dashboard");
@@ -104,13 +110,19 @@ export async function deleteMyAccount(_prev: unknown, formData: FormData) {
     // clientes, notas fiscais etc. (profiles.company_id é on delete set null,
     // por isso os perfis precisam ser removidos via auth.admin acima)
     const { error: companyErr } = await admin.from("companies").delete().eq("id", profile.company_id);
-    if (companyErr) return { error: "Não foi possível excluir a empresa: " + companyErr.message };
+    if (companyErr) {
+      console.error("deleteMyAccount company:", companyErr);
+      return { error: "Não foi possível excluir a empresa. Tente novamente." };
+    }
 
     await admin.auth.admin.deleteUser(profile.id);
   } else {
     if (confirmText !== "EXCLUIR") return { error: 'Digite "EXCLUIR" para confirmar.' };
     const { error } = await admin.auth.admin.deleteUser(profile.id);
-    if (error) return { error: "Não foi possível excluir a conta: " + error.message };
+    if (error) {
+      console.error("deleteMyAccount user:", error);
+      return { error: "Não foi possível excluir a conta. Tente novamente." };
+    }
   }
 
   await supabaseAuth.auth.signOut();
