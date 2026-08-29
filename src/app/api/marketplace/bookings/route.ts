@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logSecurityEvent } from "@/lib/security-log";
 import {
@@ -22,6 +21,7 @@ import {
   computeRequestFingerprint,
   normalizeClientKey,
   buildClientRateLimitConsumerKey,
+  isAuthorizedToursFlowRequest,
   type MarketplaceBookingErrorCode,
   type MarketplaceBookingDTO,
 } from "@/lib/marketplace-api";
@@ -41,25 +41,6 @@ export const dynamic = "force-dynamic";
 
 function fail(code: MarketplaceBookingErrorCode, message: string) {
   return NextResponse.json({ error: { code, message } }, { status: MARKETPLACE_ERROR_STATUS[code] });
-}
-
-// comparação em tempo constante -- mesmo padrão já usado no webhook do Asaas
-// (src/app/api/webhooks/asaas/route.ts): "!==" normal vaza, por timing, quantos
-// caracteres iniciais bateram.
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
-}
-
-function isAuthorized(request: Request): boolean {
-  const secret = process.env.TOURSFLOW_API_SECRET;
-  if (!secret) return false;
-  const header = request.headers.get("authorization") || "";
-  const match = header.match(/^Bearer (.+)$/);
-  if (!match) return false;
-  return safeEqual(match[1], secret);
 }
 
 function onlyDigits(s: string): string {
@@ -91,11 +72,14 @@ type BookingRpcRow = {
 export async function POST(request: Request) {
   // 401 sempre primeiro, sem revelar qual parte da autenticação falhou (sem
   // header, header mal formado, ou segredo errado -- mesma resposta genérica)
-  if (!isAuthorized(request)) {
+  if (!isAuthorizedToursFlowRequest(request)) {
     // rota servidor-a-servidor: só o ToursFlow deveria chamar isto com o
     // segredo certo -- um Bearer ausente/errado aqui é sinal forte de
     // configuração quebrada do lado deles ou de alguém tentando adivinhar o
-    // segredo, nunca erro de digitação de um usuário final.
+    // segredo, nunca erro de digitação de um usuário final. A checagem em si
+    // (Bearer + comparação em tempo constante) vive em isAuthorizedToursFlowRequest
+    // (src/lib/marketplace-api.ts) -- este arquivo só decide a resposta HTTP e
+    // registra o evento de segurança, não duplica a lógica de autenticação.
     logSecurityEvent("marketplace_unauthorized");
     return fail("UNAUTHORIZED", "Não autorizado.");
   }

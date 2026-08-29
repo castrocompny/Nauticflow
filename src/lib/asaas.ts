@@ -92,3 +92,47 @@ export async function getFirstInvoiceUrl(subscriptionId: string): Promise<AsaasR
   if (!url) return { ok: false, error: "Cobrança criada, mas sem link de pagamento disponível ainda." };
   return { ok: true, data: url };
 }
+
+// ============================================================================
+// FASE 4A -- fundação de pagamento do MARKETPLACE (turista comprando um
+// passeio via ToursFlow), diferente de tudo acima (que é a assinatura SaaS
+// do operador). createMarketplacePayment() existe só como CONTRATO/adapter
+// pronto pra Fase 4B -- NENHUM caminho de produção a chama ainda (a rota
+// POST /api/marketplace/bookings/[id]/payment para antes disso, ver
+// src/app/api/marketplace/bookings/[id]/payment/route.ts). Só é exercitada
+// em teste, com fetch mockado -- nunca bate na rede de verdade nesta fase.
+//
+// Guard interno redundante de propósito (mesmo espírito de
+// runPhotoModeration checar o modo de moderação de novo por dentro, migration
+// 0044): mesmo que um código futuro esqueça de checar
+// isMarketplacePaymentsEnabled() antes de chamar esta função, ela mesma
+// nunca deixa uma requisição real sair enquanto a flag estiver desligada.
+// ============================================================================
+import { isMarketplacePaymentsEnabled, type SupportedPaymentMethod } from "./marketplace-api";
+
+type AsaasMarketplacePayment = { id: string; status: string };
+
+export async function createMarketplacePayment(params: {
+  paymentId: string; // id interno de public.payments -- vira o externalReference (nunca o bookingId cru)
+  customerId: string;
+  amountCents: number;
+  method: SupportedPaymentMethod;
+  walletId: string | null; // split -- Fase 4B/futura, null nesta fase (nenhuma company tem wallet configurada ainda)
+}): Promise<AsaasResult<AsaasMarketplacePayment>> {
+  if (!isMarketplacePaymentsEnabled()) {
+    return { ok: false, error: "Pagamento de marketplace ainda não está habilitado." };
+  }
+  const billingType = params.method === "pix" ? "PIX" : undefined;
+  if (!billingType) return { ok: false, error: "Método de pagamento não suportado." };
+
+  return asaasFetch<AsaasMarketplacePayment>("/payments", "POST", {
+    customer: params.customerId,
+    billingType,
+    value: params.amountCents / 100,
+    dueDate: new Date().toISOString().slice(0, 10),
+    externalReference: params.paymentId,
+    // split: só incluído quando existir wallet configurada (Fase 4B) -- Split
+    // em si (percentual/regra) continua NÃO IMPLEMENTADO, ver auditoria.
+    split: params.walletId ? [{ walletId: params.walletId }] : undefined,
+  });
+}
