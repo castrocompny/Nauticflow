@@ -24,7 +24,7 @@ que não devem ser confundidas:
 
 ### 1. Iniciar pagamento com hold vencido → **recusar**
 
-`create_marketplace_payment_attempt` (migration 0049) recusa criar uma nova
+`create_marketplace_payment_attempt` (migration 0052) recusa criar uma nova
 tentativa de pagamento (`HOLD_EXPIRED`) se `hold_expires_at` já passou. Não
 faz sentido começar a cobrar por uma vaga que já não está mais
 garantida — o ToursFlow deve, nesse caso, orientar o cliente a refazer a
@@ -93,7 +93,7 @@ MESMA reserva poderiam gerar duas cobranças `pending`/`paid` simultâneas.
 
 **Regra**: no máximo uma tentativa de pagamento **ativa** (`pending` ou
 `paid`) por `reservation_id`, ao mesmo tempo — imposta por um `unique index`
-parcial (`payments_one_active_per_reservation`, migration `0049`), nunca só
+parcial (`payments_one_active_per_reservation`, migration `0052`), nunca só
 em TypeScript.
 
 **Quando uma nova tentativa (nova `idempotency_key`) é permitida para a

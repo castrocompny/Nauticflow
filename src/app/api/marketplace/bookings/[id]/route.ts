@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logSecurityEvent } from "@/lib/security-log";
 import {
   isAuthorizedToursFlowRequest,
   normalizeClientKey,
@@ -24,7 +25,12 @@ function fail(code: MarketplacePaymentErrorCode, message: string) {
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isAuthorizedToursFlowRequest(request)) return fail("UNAUTHORIZED", "Não autorizado.");
+  if (!isAuthorizedToursFlowRequest(request)) {
+    // mesmo padrão do hardening de segurança em POST /bookings -- mesmo
+    // evento, reaproveitado (não um tipo novo por rota).
+    logSecurityEvent("marketplace_unauthorized");
+    return fail("UNAUTHORIZED", "Não autorizado.");
+  }
 
   // X-ToursFlow-Client-Key exigido aqui também -- mesma política de toda
   // chamada autenticada do marketplace, mesmo sendo só leitura (consistência

@@ -270,7 +270,7 @@ export const MARKETPLACE_PAYMENT_ERROR_STATUS: Record<MarketplacePaymentErrorCod
   PAYMENT_IDEMPOTENCY_CONFLICT: 409,
   // já existe uma tentativa pending/paid pra esta reserva -- só libera nova
   // tentativa depois que a anterior sair desses dois estados (ver
-  // payments_one_active_per_reservation, migration 0049).
+  // payments_one_active_per_reservation, migration 0052).
   PAYMENT_ALREADY_ACTIVE: 409,
   PAYMENT_PROVIDER_NOT_ENABLED: 501,
   RATE_LIMITED: 429,

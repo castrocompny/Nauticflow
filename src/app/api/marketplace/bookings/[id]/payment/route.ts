@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createHash } from "crypto";
+import { logSecurityEvent } from "@/lib/security-log";
 import {
   isAuthorizedToursFlowRequest,
   isValidIdempotencyKey,
@@ -48,7 +49,13 @@ type PaymentRpcRow = {
 };
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isAuthorizedToursFlowRequest(request)) return fail("UNAUTHORIZED", "Não autorizado.");
+  if (!isAuthorizedToursFlowRequest(request)) {
+    // mesmo padrão do hardening de segurança em POST /bookings -- rota
+    // servidor-a-servidor igualmente sensível, mesmo evento (não um novo
+    // tipo por rota, pra não fragmentar o alerta já configurado no Sentry).
+    logSecurityEvent("marketplace_unauthorized");
+    return fail("UNAUTHORIZED", "Não autorizado.");
+  }
 
   const { id: bookingId } = await params;
   if (!bookingId) return fail("BOOKING_NOT_FOUND", "Reserva não encontrada.");
@@ -93,7 +100,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // desligado, nenhuma tentativa "fantasma" (que nunca vai virar cobrança
   // real) deve ser persistida -- ela ocuparia o único slot pending/paid
   // permitido por reserva (payments_one_active_per_reservation, migration
-  // 0049) e bloquearia pra sempre a tentativa de verdade quando a Fase 4B
+  // 0052) e bloquearia pra sempre a tentativa de verdade quando a Fase 4B
   // ligar o provider. Único efeito colateral aceito: com o provider
   // desligado, o chamador recebe sempre 501 aqui, mesmo que a reserva
   // também tivesse outro problema (ex: hold vencido) -- opção mais simples
