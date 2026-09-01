@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logSecurityEvent } from "@/lib/security-log";
+import { getMarketplacePixQrCode } from "@/lib/asaas";
 import {
   isAuthorizedToursFlowRequest,
   normalizeClientKey,
@@ -65,10 +66,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .maybeSingle();
 
   // pagamento mais recente desta reserva, se existir alguma tentativa --
-  // só status/método, nunca provider_payment_id/payload/wallet.
+  // provider_payment_id é lido só pra reconsultar o QR (nunca devolvido em
+  // si na resposta -- é detalhe interno do provider).
   const { data: payment } = await admin
     .from("payments")
-    .select("status, payment_method")
+    .select("status, payment_method, provider_payment_id")
     .eq("reservation_id", reservation.id)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -83,6 +85,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     totalCents: reservation.total_cents,
     payment: payment ? { status: payment.status, method: payment.payment_method } : null,
   };
+
+  // PIX só reexibido enquanto: pagamento ainda pending E o hold ainda não
+  // venceu -- o hold continua sendo a autoridade de "ainda vale apresentar
+  // este Pix como válido pro turista" (ver docs/adr/0007-marketplace-pix-
+  // payment-settlement.md), mesmo que a cobrança em si pudesse, em teoria,
+  // continuar tecnicamente pagável no provider além disso (política de
+  // pagamento tardio já coberta pelo settlement, não pela exibição aqui).
+  const holdStillValid = reservation.hold_expires_at !== null && new Date(reservation.hold_expires_at).getTime() > Date.now();
+  if (payment?.status === "pending" && payment.provider_payment_id && holdStillValid) {
+    const qr = await getMarketplacePixQrCode(payment.provider_payment_id);
+    if (qr.ok) {
+      dto.pix = { payload: qr.data.payload, encodedImage: qr.data.encodedImage, expirationDate: qr.data.expirationDate };
+    }
+  }
 
   return NextResponse.json({ data: dto }, { status: 200 });
 }

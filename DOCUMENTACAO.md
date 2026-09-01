@@ -1713,3 +1713,43 @@ Fechamento da seção 86: em vez de depender de um `INSERT` solto executado à m
 **Testes**: 23 cenários (matriz de autorização nos 6 papéis, range 0/1000/10000 aceitos e negativo/>10000 rejeitados, versionamento 1000→1200 com snapshot antigo preservado, ausência de config continua fail-closed, verificação estrutural do ACL real no arquivo -- revoke de public/anon, grant só service_role+authenticated, checagem FORBIDDEN presente, SECURITY DEFINER presente, search_path fixo, nenhuma chamada transitiva arriscada). **23/23 passaram.** `npx tsc --noEmit`, `npx eslint .` (0 erros, 4 warnings pré-existentes) e `npx next build` -- todos limpos.
 
 **Migration `0058`**: nova, não sobrescreve `0052`-`0057` (nenhuma aplicada ainda). Não aplicada nesta etapa.
+
+## 88. Pix do cliente -- cobrança real Asaas, QR Code, webhook de liquidação, confirmação atômica (sessão de 2026-08-31)
+
+Fluxo completo de cobrança PIX do turista: ToursFlow cria booking/hold → solicita payment → NauticFlow cria/recupera customer Asaas → cria cobrança PIX → obtém QR Code → cliente paga → webhook → liquida payment → confirma reservation → comissão 10%/90% → D+1 → saque. Migration `0059` (local, **não aplicada**). Decisão de arquitetura completa em `docs/adr/0007-marketplace-pix-payment-settlement.md`. `MARKETPLACE_PAYMENTS_ENABLED` continua false por padrão; `MARKETPLACE_PAYMENTS_MODE` precisa estar explicitamente configurado pra qualquer chamada de rede.
+
+**Asaas customer separado do SaaS**: `clients.asaas_customer_id` (novo) -- nunca confundido com `companies.asaas_customer_id` (mensalidade do operador, `0012`). `findOrCreateMarketplaceAsaasCustomer()` é função nova, separada de `findOrCreateCustomer()`.
+
+**CPF/CNPJ obrigatório, checado antes de persistir**: `create_marketplace_payment_attempt` (estendida, mesma assinatura de `0052`) valida checksum real (reaproveita `trial_validate_cpf`/`trial_validate_cnpj`) ANTES do insert -- mesma disciplina "checar antes de persistir" do achado da Fase 4A (provider desabilitado). `CUSTOMER_DOCUMENT_REQUIRED` (422) se ausente/inválido.
+
+**Deduplicação de customer e cobrança**: reconciliação por `externalReference` -- reutiliza se persistido; senão consulta o Asaas antes de criar (`GET /customers?externalReference=`/`GET /payments?externalReference=`); resultado ambíguo (>1) falha fechado, nunca adivinha.
+
+**Contrato oficial confirmado**: `POST /v3/payments` (customer/billingType=PIX/value/dueDate/externalReference=payments.id interno, nunca reservation cru/CPF/e-mail/company_id/chave Pix); `GET /payments/{id}/pixQrCode` (payload/encodedImage/expirationDate, nunca persistido no banco).
+
+**Amount sempre do NauticFlow**: `amount_cents` de `reservations.total_cents`, nunca aceito do ToursFlow -- reconfirmado, não alterado desde a Fase 4A.
+
+**Comissão reaproveitada**: `marketplace_fee_config` continua vazia, `MARKETPLACE_FEE_NOT_CONFIGURED` bloqueia liquidação real até configuração via `set_marketplace_global_fee_config` (seção 87). Nenhum fallback de 10% hardcoded.
+
+**Hold vs. QR Code**: `hold_expires_at` continua sendo a autoridade de exibição -- `GET .../bookings/[id]` só reinclui `pix` na resposta enquanto `payment.status='pending'` E o hold ainda não venceu.
+
+**Pagamento tardio -- política do ADR 0001 finalmente implementada**: `settle_marketplace_payment_received` nunca confirma cegamente -- revalida capacidade ATOMICAMENTE via `trg_reservation_capacity` (migration `0000`, disparado pelo próprio `UPDATE reservations SET status='confirmada'`, sem checagem TypeScript separada). Capacidade OK → confirma normalmente. Capacidade perdida → payment marcado `paid` (dinheiro real), reserva NUNCA confirmada, operador NUNCA recebe `operator_blocked`, `marketplace_refunds` nasce em `manual_review` (`reason_code='settlement_exception'`, novo valor de enum) -- nunca overbooking, nunca dinheiro do cliente perdido/ignorado. Testado com cenário de 1 vaga disputada por 2 pagamentos.
+
+**PAYMENT_CONFIRMED vs PAYMENT_RECEIVED**: CONFIRMED é só sinal operacional (persiste `provider_payment_id`, nunca cria `operator_blocked`, nenhum estado novo inventado). RECEIVED é o único gatilho financeiro real.
+
+**Liquidação atômica**: `settle_marketplace_payment_received` garante numa única transação: elegibilidade, amount correto, reserva confirmável, capacidade, e delega o efeito financeiro pra `record_marketplace_payment_confirmed` (0053/0055/0057) -- nunca duplicado. Nunca payment paid com ledger faltando, nunca ledger criado sem reserva confirmada.
+
+**Verificação de amount**: diferença nunca confirma nem credita -- `payment.status` fica `pending`, `manual_review` registra a divergência, sem PII no evento de segurança.
+
+**Replay idempotente**: reconfirmado em todas as frentes -- segunda liquidação do mesmo pagamento não reconfirma reserva nem recria ledger.
+
+**Eventos de refund (PAYMENT_REFUND_IN_PROGRESS/REFUNDED/PARTIALLY_REFUNDED)**: integrados só até o contrato interno seguro -- nenhum provider refund real ativado, webhook nunca ignora silenciosamente (dedupe + log `marketplace_payment_refund_event_received`).
+
+**Webhook -- três fluxos independentes**: SaaS (intocado), transfer/saque (intocado, ADR 0005), e agora marketplace payment. Distinção NUNCA pelo nome do evento (idêntico entre SaaS e marketplace) -- sempre por `externalReference` corresponder a uma linha real em `payments`, verificado explicitamente antes de decidir o caminho. Idempotência por EVENTO (`body.id`, mesmo achado já aplicado ao webhook de transfer) -- CONFIRMED depois RECEIVED processam os dois, mesmo evento reenviado é deduplicado.
+
+**MARKETPLACE_PAYMENTS_MODE**: mock/sandbox/production, ausente=fail closed. Cross-validação contra `ASAAS_API_URL` -- mode=production com URL de sandbox (ou vice-versa) é recusado. Nenhum teste real em sandbox nesta sessão (sem credencial, sem pedir chave pelo chat) -- só mock, testado.
+
+**Segurança**: nenhum log carrega CPF/e-mail/telefone/payload Pix/encodedImage/payload bruto do provider/chave Asaas -- testado estruturalmente.
+
+**Testes**: 47 cenários (ledger com valor real -- R$100/500/1000 → 10/90, 50/450, 100/900 -- settlement atômico payment+reservation juntos, replay não duplica, CONFIRMED isolado nunca credita, CONFIRMED depois RECEIVED credita normalmente, amount divergence cai pra manual_review sem confirmar, pagamento tardio com capacidade confirma, pagamento tardio sem capacidade nunca overbooka e nunca perde o dinheiro do cliente, payment desconhecido rejeitado, payload oficial/mapeamento/QR Code verificados estruturalmente, deduplicação de customer/cobrança, MARKETPLACE_PAYMENTS_MODE fail-closed e cross-validado, CPF obrigatório antes do insert, dispatch do webhook correto, SaaS e transfer preservados, refund events logados, nenhuma PII em log). **47/47 passaram.** `npx tsc --noEmit`, `npx eslint .` (0 erros, 4 warnings pré-existentes) e `npx next build` -- todos limpos.
+
+**Migration `0059`**: nova, não sobrescreve `0052`-`0058` (nenhuma aplicada ainda). Não aplicada nesta etapa. Nenhuma cobrança real, nenhum Asaas de produção usado.

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createHash } from "crypto";
 import { logSecurityEvent } from "@/lib/security-log";
+import { findOrCreateMarketplaceAsaasCustomer, createOrReconcileMarketplacePixCharge, getMarketplacePixQrCode } from "@/lib/asaas";
 import {
   isAuthorizedToursFlowRequest,
   isValidIdempotencyKey,
@@ -21,25 +22,23 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// FASE 4A -- registra uma TENTATIVA de pagamento pra uma reserva já criada
-// via POST /api/marketplace/bookings, de forma idempotente e com o valor
-// SEMPRE recalculado a partir da reserva no banco (nunca de um `amount`
-// enviado pelo ToursFlow -- amount tampering não é possível, o campo nem é
-// lido do corpo da requisição). Rota servidor-servidor, mesmo padrão de
-// autenticação (Bearer + X-ToursFlow-Client-Key) de POST /bookings.
+// Registra uma TENTATIVA de pagamento pra uma reserva já criada via POST
+// /api/marketplace/bookings, de forma idempotente e com o valor SEMPRE
+// recalculado a partir da reserva no banco (nunca de um `amount` enviado
+// pelo ToursFlow). Rota servidor-servidor, mesmo padrão de autenticação
+// (Bearer + X-ToursFlow-Client-Key) de POST /bookings.
 //
-// NUNCA chama o Asaas nesta fase -- ver isMarketplacePaymentsEnabled() em
-// src/lib/marketplace-api.ts. Termina sempre em PAYMENT_PROVIDER_NOT_ENABLED
-// depois de validar e persistir a tentativa (idempotente de verdade, testável
-// de verdade -- só a chamada real ao provider está desligada).
+// PIX DO CLIENTE (docs/adr/0007-marketplace-pix-payment-settlement.md): com
+// isMarketplacePaymentsEnabled() ligada, cria/reconcilia o customer e a
+// cobrança no Asaas de verdade (mock/sandbox controlado por
+// MARKETPLACE_PAYMENTS_MODE, ver src/lib/asaas.ts) e devolve o QR Code. A
+// LIQUIDAÇÃO em si (confirmar a reserva, creditar o ledger) NUNCA acontece
+// aqui -- só o webhook (PAYMENT_RECEIVED) tem essa autoridade.
 
 function fail(code: MarketplacePaymentErrorCode, message: string) {
   return NextResponse.json({ error: { code, message } }, { status: MARKETPLACE_PAYMENT_ERROR_STATUS[code] });
 }
 
-// Idempotency-Key própria da tentativa de pagamento -- nunca reaproveita a
-// da reserva (são operações lógicas diferentes: "criar a reserva" vs
-// "tentar pagar" -- uma reserva pode, em tese, ter mais de uma tentativa).
 type PaymentRpcRow = {
   payment_id: string;
   status: string;
@@ -50,9 +49,6 @@ type PaymentRpcRow = {
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!isAuthorizedToursFlowRequest(request)) {
-    // mesmo padrão do hardening de segurança em POST /bookings -- rota
-    // servidor-a-servidor igualmente sensível, mesmo evento (não um novo
-    // tipo por rota, pra não fragmentar o alerta já configurado no Sentry).
     logSecurityEvent("marketplace_unauthorized");
     return fail("UNAUTHORIZED", "Não autorizado.");
   }
@@ -65,9 +61,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const clientKey = normalizeClientKey(request.headers.get("x-toursflow-client-key"));
   if (!clientKey) return fail("INVALID_CLIENT_KEY", "Cabeçalho X-ToursFlow-Client-Key ausente ou inválido.");
 
-  // rate limit próprio desta rota (consumer_key distinto de POST /bookings --
-  // isolado de propósito, iniciar pagamento é uma ação diferente de criar
-  // reserva, não deveriam compartilhar o mesmo contador).
   const globalRateLimit = await admin.rpc("check_rate_limit", {
     p_consumer_key: "toursflow:payment",
     p_max_requests: TOURSFLOW_RATE_LIMIT_MAX_REQUESTS,
@@ -95,24 +88,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return fail("PAYMENT_METHOD_NOT_SUPPORTED", "Método de pagamento não suportado.");
   }
 
-  // ACHADO DA REVISÃO: a checagem da flag precisa vir ANTES de qualquer
-  // escrita em `payments` -- não só antes de chamar o Asaas. Com o provider
-  // desligado, nenhuma tentativa "fantasma" (que nunca vai virar cobrança
-  // real) deve ser persistida -- ela ocuparia o único slot pending/paid
-  // permitido por reserva (payments_one_active_per_reservation, migration
-  // 0052) e bloquearia pra sempre a tentativa de verdade quando a Fase 4B
-  // ligar o provider. Único efeito colateral aceito: com o provider
-  // desligado, o chamador recebe sempre 501 aqui, mesmo que a reserva
-  // também tivesse outro problema (ex: hold vencido) -- opção mais simples
-  // e consistente, given que 501 já é inequívoco ("não tente de novo agora,
-  // não é sobre a sua reserva").
+  // ACHADO DA REVISÃO DA FASE 4A: a checagem da flag precisa vir ANTES de
+  // qualquer escrita em `payments` -- com o provider desligado, nenhuma
+  // tentativa "fantasma" deve ser persistida (ocuparia o único slot
+  // pending/paid permitido por reserva, payments_one_active_per_reservation,
+  // e bloquearia a tentativa real quando o provider for ligado).
   if (!isMarketplacePaymentsEnabled()) {
     return fail("PAYMENT_PROVIDER_NOT_ENABLED", "Pagamento de marketplace ainda não está habilitado nesta instância.");
   }
 
-  // Fingerprint da tentativa: bookingId + método -- os dois únicos campos que
-  // o chamador realmente escolhe aqui (valor nunca é um deles, é sempre
-  // recalculado dentro da RPC a partir da reserva).
   const requestFingerprint = createHash("sha256").update(`${bookingId}|${paymentMethod}`).digest("hex");
 
   const { data: rows, error: rpcError } = await admin.rpc("create_marketplace_payment_attempt", {
@@ -126,11 +110,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (rpcError.message.includes("PAYMENT_IDEMPOTENCY_CONFLICT")) {
       return fail("PAYMENT_IDEMPOTENCY_CONFLICT", "Esta Idempotency-Key já foi usada para uma tentativa de pagamento diferente.");
     }
-    // checar ANTES de "PAYMENT_IDEMPOTENCY_CONFLICT" seria um erro (esta
-    // string não contém a outra), mas a ordem entre as duas não importa --
-    // são mensagens de erro distintas, nunca uma substring da outra.
     if (rpcError.message.includes("PAYMENT_ALREADY_ACTIVE")) {
       return fail("PAYMENT_ALREADY_ACTIVE", "Já existe uma tentativa de pagamento em andamento para esta reserva.");
+    }
+    // Asaas exige CPF/CNPJ pra criar o customer -- checado dentro da RPC
+    // (migration 0059) ANTES de persistir a tentativa, nunca depois.
+    if (rpcError.message.includes("CUSTOMER_DOCUMENT_REQUIRED")) {
+      return fail("CUSTOMER_DOCUMENT_REQUIRED", "É necessário informar CPF ou CNPJ válido do cliente antes de gerar o pagamento.");
     }
     if (rpcError.message.includes("BOOKING_NOT_FOUND")) return fail("BOOKING_NOT_FOUND", "Reserva não encontrada.");
     if (rpcError.message.includes("BOOKING_NOT_PENDING")) return fail("BOOKING_NOT_PENDING", "Esta reserva não está mais pendente.");
@@ -143,15 +129,87 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const result = (Array.isArray(rows) ? rows[0] : rows) as PaymentRpcRow | undefined;
   if (!result) return fail("INTERNAL_ERROR", "Erro ao registrar a tentativa de pagamento.");
 
-  // Inalcançável nesta fase (a flag já foi checada acima e retornou cedo se
-  // desligada) -- aqui é onde a Fase 4B vai chamar createMarketplacePayment()
-  // de verdade.
-  const dto: MarketplacePaymentAttemptDTO = {
+  const baseDto: MarketplacePaymentAttemptDTO = {
     paymentId: result.payment_id,
     status: "pending",
     paymentMethod: result.payment_method as SupportedPaymentMethod,
     amountCents: result.amount_cents,
     currency: "BRL",
+  };
+
+  // replay de um pagamento que já saiu de 'pending' (liquidado ou falhou em
+  // algum momento anterior) -- nada de PIX pra reexibir, devolve só o
+  // status atual. A liquidação em si SÓ acontece via webhook, nunca aqui.
+  if (result.status !== "pending") {
+    return NextResponse.json({ data: { ...baseDto, status: result.status as MarketplacePaymentAttemptDTO["status"] } }, { status: 200 });
+  }
+
+  // ==========================================================================
+  // Cliente/CPF -- já validado dentro da RPC (0059), mas os dados em si
+  // (nome/cpf/e-mail/telefone) precisam ser buscados aqui pra montar a
+  // chamada ao Asaas. Join simples, nunca devolvido ao ToursFlow.
+  // ==========================================================================
+  const { data: reservationRow } = await admin
+    .from("reservations")
+    .select("client_id, clients(id, name, cpf, email, phone, asaas_customer_id)")
+    .eq("id", bookingId)
+    .maybeSingle();
+
+  const client = reservationRow
+    ? ((Array.isArray(reservationRow.clients) ? reservationRow.clients[0] : reservationRow.clients) as
+        | { id: string; name: string; cpf: string | null; email: string | null; phone: string | null; asaas_customer_id: string | null }
+        | null)
+    : null;
+
+  if (!client || !client.cpf) {
+    // defesa em profundidade -- a RPC já barrou isso, mas nunca confia só
+    // na camada de baixo sem checar de novo aqui.
+    return fail("CUSTOMER_DOCUMENT_REQUIRED", "É necessário informar CPF ou CNPJ válido do cliente antes de gerar o pagamento.");
+  }
+
+  const customerResult = await findOrCreateMarketplaceAsaasCustomer({
+    existingCustomerId: client.asaas_customer_id,
+    clientId: client.id,
+    name: client.name,
+    cpfCnpj: client.cpf,
+    email: client.email,
+    phone: client.phone,
+  });
+  if (!customerResult.ok) {
+    console.error("findOrCreateMarketplaceAsaasCustomer:", customerResult.error);
+    return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível preparar o pagamento no provedor. Tente novamente.");
+  }
+
+  if (client.asaas_customer_id !== customerResult.data.customerId) {
+    // persiste só se mudou -- evita um UPDATE sem efeito em toda chamada
+    // (a maioria das chamadas é replay, com o customer já resolvido).
+    await admin.from("clients").update({ asaas_customer_id: customerResult.data.customerId }).eq("id", client.id);
+  }
+
+  const chargeResult = await createOrReconcileMarketplacePixCharge({
+    internalPaymentId: result.payment_id,
+    customerId: customerResult.data.customerId,
+    amountCents: result.amount_cents,
+  });
+  if (!chargeResult.ok) {
+    console.error("createOrReconcileMarketplacePixCharge:", chargeResult.error);
+    return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível criar a cobrança Pix. Tente novamente.");
+  }
+
+  await admin.rpc("mark_marketplace_payment_provider_created", {
+    p_payment_id: result.payment_id,
+    p_provider_payment_id: chargeResult.data.providerPaymentId,
+  });
+
+  const qrResult = await getMarketplacePixQrCode(chargeResult.data.providerPaymentId);
+  if (!qrResult.ok) {
+    console.error("getMarketplacePixQrCode:", qrResult.error);
+    return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível obter o QR Code Pix. Tente novamente.");
+  }
+
+  const dto: MarketplacePaymentAttemptDTO = {
+    ...baseDto,
+    pix: { payload: qrResult.data.payload, encodedImage: qrResult.data.encodedImage, expirationDate: qrResult.data.expirationDate },
   };
   return NextResponse.json({ data: dto }, { status: result.is_replay ? 200 : 201 });
 }

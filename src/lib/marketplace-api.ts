@@ -249,6 +249,8 @@ export type MarketplacePaymentErrorCode =
   | "PAYMENT_IDEMPOTENCY_CONFLICT"
   | "PAYMENT_ALREADY_ACTIVE"
   | "PAYMENT_PROVIDER_NOT_ENABLED"
+  | "CUSTOMER_DOCUMENT_REQUIRED"
+  | "PAYMENT_PROVIDER_ERROR"
   | "RATE_LIMITED"
   | "INTERNAL_ERROR";
 
@@ -273,16 +275,37 @@ export const MARKETPLACE_PAYMENT_ERROR_STATUS: Record<MarketplacePaymentErrorCod
   // payments_one_active_per_reservation, migration 0052).
   PAYMENT_ALREADY_ACTIVE: 409,
   PAYMENT_PROVIDER_NOT_ENABLED: 501,
+  // Asaas exige CPF/CNPJ pra criar o customer -- reserva sem documento
+  // válido nunca chega a gerar cobrança (ver create_marketplace_payment_
+  // attempt, migration 0059).
+  CUSTOMER_DOCUMENT_REQUIRED: 422,
+  // erro inesperado na chamada ao Asaas (rede, resposta malformada, etc) --
+  // nunca vaza o payload bruto do provider pro ToursFlow.
+  PAYMENT_PROVIDER_ERROR: 502,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
 };
 
+export type MarketplacePixDTO = {
+  payload: string;
+  encodedImage: string;
+  expirationDate: string | null;
+};
+
 export type MarketplacePaymentAttemptDTO = {
   paymentId: string;
-  status: "pending";
+  // "pending" no caminho normal (tentativa nova ou replay ainda não
+  // liquidada) -- outros valores só aparecem no replay de um pagamento que
+  // já saiu de pending por conta do webhook de liquidação (paid/failed/
+  // refunded/partially_refunded, ver payments.status).
+  status: "pending" | "paid" | "failed" | "refunded" | "partially_refunded";
   paymentMethod: SupportedPaymentMethod;
   amountCents: number;
   currency: "BRL";
+  // presente só quando a cobrança PIX já foi criada/reconciliada no
+  // provider -- ausente se o pagamento já não estava mais pending (nunca
+  // reexibe um QR de uma cobrança já paga).
+  pix?: MarketplacePixDTO;
 };
 
 export type MarketplaceBookingStatusDTO = {
@@ -293,4 +316,7 @@ export type MarketplaceBookingStatusDTO = {
   priceCents: number;
   totalCents: number;
   payment: { status: string; method: string | null } | null;
+  // presente só enquanto o pagamento está pending E o hold ainda não venceu
+  // -- ver src/app/api/marketplace/bookings/[id]/route.ts.
+  pix?: MarketplacePixDTO;
 };

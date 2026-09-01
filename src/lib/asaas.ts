@@ -233,3 +233,176 @@ export async function createMarketplacePixTransfer(params: {
     operationType: "PIX",
   }).then((res) => (res.ok ? { ok: true, data: { providerTransferId: res.data.id, status: "processing" as const } } : res));
 }
+
+// ============================================================================
+// PIX DO CLIENTE -- cobrança real ao turista comprando um passeio via
+// ToursFlow (docs/adr/0007-marketplace-pix-payment-settlement.md). NUNCA
+// confundir com createSubscription/findOrCreateCustomer acima (aquilo é a
+// mensalidade SaaS do OPERADOR -- este bloco é o turista pagando o
+// passeio). Guard duplo, mesmo espírito de createMarketplacePixTransfer:
+// isMarketplacePaymentsEnabled() (flag mestra) + MARKETPLACE_PAYMENTS_MODE
+// (mock/sandbox/production, nunca implícito) -- nenhuma chamada de rede
+// real acontece sem os dois.
+// ============================================================================
+export type MarketplacePaymentsMode = "mock" | "sandbox" | "production";
+
+// Não confundir com isMarketplaceWithdrawalMockModeEnabled (saque) -- este é
+// o modo do fluxo de COBRANÇA. Ausente/valor desconhecido = null = fail
+// closed (nunca assume um modo default, muito menos "production").
+export function getMarketplacePaymentsMode(): MarketplacePaymentsMode | null {
+  const raw = process.env.MARKETPLACE_PAYMENTS_MODE;
+  if (raw === "mock" || raw === "sandbox" || raw === "production") return raw;
+  return null;
+}
+
+// Cross-validação entre MARKETPLACE_PAYMENTS_MODE e ASAAS_API_URL -- pedido
+// explícito da revisão ("nenhum código pode usar produção por acidente").
+// mode='production' com uma API_URL de sandbox (ou vice-versa) é uma
+// configuração inconsistente -- recusada, nunca corrigida silenciosamente
+// escolhendo um dos dois.
+function validateModeMatchesBaseUrl(mode: MarketplacePaymentsMode): string | null {
+  const looksLikeSandbox = BASE_URL.includes("sandbox");
+  if (mode === "production" && looksLikeSandbox) {
+    return "MARKETPLACE_PAYMENTS_MODE=production mas ASAAS_API_URL ainda aponta pro sandbox -- configuração inconsistente, recusado.";
+  }
+  if (mode === "sandbox" && !looksLikeSandbox) {
+    return "MARKETPLACE_PAYMENTS_MODE=sandbox mas ASAAS_API_URL não aponta pro sandbox -- configuração inconsistente, recusado.";
+  }
+  return null;
+}
+
+function guardMarketplacePixCall(): { mode: MarketplacePaymentsMode } | { error: string } {
+  if (!isMarketplacePaymentsEnabled()) return { error: "Pagamento de marketplace ainda não está habilitado." };
+  const mode = getMarketplacePaymentsMode();
+  if (!mode) return { error: "MARKETPLACE_PAYMENTS_MODE não configurado -- recusado (fail closed, nunca assume um modo default)." };
+  if (mode !== "mock") {
+    const mismatch = validateModeMatchesBaseUrl(mode);
+    if (mismatch) return { error: mismatch };
+  }
+  return { mode };
+}
+
+type AsaasCustomerSearchResult = { data: { id: string }[]; totalCount: number };
+
+export type MarketplaceCustomerResult = { customerId: string };
+
+// 1) reutiliza se já persistido; 2) senão, procura por externalReference
+// (reconciliação -- cobre o caso de uma tentativa anterior ter criado o
+// customer no Asaas mas caído antes de persistirmos o id localmente); 3) só
+// então cria. Nunca cria um segundo customer pra quem já tem um -- retry
+// seguro em qualquer ponto de falha.
+export async function findOrCreateMarketplaceAsaasCustomer(params: {
+  existingCustomerId: string | null;
+  clientId: string; // vira o externalReference -- id interno, não sensível
+  name: string;
+  cpfCnpj: string; // já validado (checksum) antes de chegar aqui -- ver create_marketplace_payment_attempt, 0059
+  email?: string | null;
+  phone?: string | null;
+}): Promise<AsaasResult<MarketplaceCustomerResult>> {
+  const guard = guardMarketplacePixCall();
+  if ("error" in guard) return { ok: false, error: guard.error };
+
+  if (params.existingCustomerId) return { ok: true, data: { customerId: params.existingCustomerId } };
+
+  if (guard.mode === "mock") {
+    return { ok: true, data: { customerId: `mock-customer-${params.clientId}` } };
+  }
+
+  const search = await asaasFetch<AsaasCustomerSearchResult>(`/customers?externalReference=${encodeURIComponent(params.clientId)}`, "GET");
+  if (!search.ok) return search;
+
+  if (search.data.totalCount === 1) {
+    return { ok: true, data: { customerId: search.data.data[0].id } };
+  }
+  if (search.data.totalCount > 1) {
+    // situação ambígua -- mais de um customer com a mesma externalReference
+    // (não deveria acontecer se este fluxo sempre passar por aqui, mas
+    // nunca adivinha qual é "o certo"). Fail closed, precisa de revisão
+    // manual.
+    return { ok: false, error: "AMBIGUOUS_CUSTOMER_MATCH" };
+  }
+
+  const created = await asaasFetch<{ id: string }>("/customers", "POST", {
+    name: params.name,
+    cpfCnpj: onlyDigits(params.cpfCnpj),
+    email: params.email || undefined,
+    mobilePhone: params.phone || undefined,
+    externalReference: params.clientId,
+  });
+  if (!created.ok) return created;
+  return { ok: true, data: { customerId: created.data.id } };
+}
+
+type AsaasPixPayment = { id: string; status: string };
+type AsaasPaymentSearchResult = { data: AsaasPixPayment[]; totalCount: number };
+
+export type MarketplacePixChargeResult = { providerPaymentId: string; status: string };
+
+// Mesma estratégia de reconciliação de findOrCreateMarketplaceAsaasCustomer
+// -- se um POST /payments anterior teve a conexão caída antes de recebermos
+// a resposta, um retry NUNCA cria uma segunda cobrança: procura primeiro
+// por externalReference (= payments.id interno, nunca a chave Pix/CPF/
+// e-mail/telefone/company_id).
+export async function createOrReconcileMarketplacePixCharge(params: {
+  internalPaymentId: string;
+  customerId: string;
+  amountCents: number;
+}): Promise<AsaasResult<MarketplacePixChargeResult>> {
+  const guard = guardMarketplacePixCall();
+  if ("error" in guard) return { ok: false, error: guard.error };
+
+  if (guard.mode === "mock") {
+    return { ok: true, data: { providerPaymentId: `mock-payment-${params.internalPaymentId}`, status: "PENDING" } };
+  }
+
+  const search = await asaasFetch<AsaasPaymentSearchResult>(`/payments?externalReference=${encodeURIComponent(params.internalPaymentId)}`, "GET");
+  if (!search.ok) return search;
+
+  if (search.data.totalCount === 1) {
+    return { ok: true, data: { providerPaymentId: search.data.data[0].id, status: search.data.data[0].status } };
+  }
+  if (search.data.totalCount > 1) {
+    return { ok: false, error: "AMBIGUOUS_PAYMENT_MATCH" };
+  }
+
+  const created = await asaasFetch<AsaasPixPayment>("/payments", "POST", {
+    customer: params.customerId,
+    billingType: "PIX",
+    value: centsToReaisForProvider(params.amountCents),
+    dueDate: new Date().toISOString().slice(0, 10),
+    externalReference: params.internalPaymentId,
+  });
+  if (!created.ok) return created;
+  return { ok: true, data: { providerPaymentId: created.data.id, status: created.data.status } };
+}
+
+export type MarketplacePixQrCode = {
+  encodedImage: string; // imagem do QR em base64 -- devolvida ao ToursFlow, nunca persistida no banco (sem necessidade)
+  payload: string; // "copia e cola" do Pix
+  expirationDate: string | null;
+};
+
+// Idempotente/seguro de chamar repetidas vezes (GET puro) -- usado tanto na
+// criação quanto num retry que só precisa reexibir o QR de uma cobrança que
+// já existe.
+export async function getMarketplacePixQrCode(providerPaymentId: string): Promise<AsaasResult<MarketplacePixQrCode>> {
+  const guard = guardMarketplacePixCall();
+  if ("error" in guard) return { ok: false, error: guard.error };
+
+  if (guard.mode === "mock") {
+    return {
+      ok: true,
+      data: { encodedImage: "mock-encoded-image-base64", payload: `mock-pix-payload-${providerPaymentId}`, expirationDate: null },
+    };
+  }
+
+  const res = await asaasFetch<{ encodedImage: string; payload: string; expirationDate?: string }>(
+    `/payments/${encodeURIComponent(providerPaymentId)}/pixQrCode`,
+    "GET"
+  );
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    data: { encodedImage: res.data.encodedImage, payload: res.data.payload, expirationDate: res.data.expirationDate ?? null },
+  };
+}

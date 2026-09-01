@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { timingSafeEqual } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { logSecurityEvent } from "@/lib/security-log";
 
 // Recebe as notificacoes de pagamento do Asaas (evento PAYMENT_CONFIRMED/PAYMENT_RECEIVED)
 // e renova a assinatura da empresa correspondente automaticamente. TAMBÉM recebe (a
@@ -23,6 +24,21 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // que ELE diz, não pelo que "deveria" ter vindo antes.
 
 const RELEVANT_EVENTS = new Set(["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"]);
+
+// PIX DO CLIENTE (marketplace) -- MESMOS nomes de evento PAYMENT_CONFIRMED/
+// PAYMENT_RECEIVED do fluxo SaaS acima (Asaas não distingue "tipo" de
+// pagamento no nome do evento) + os 3 eventos de estorno. Distinguir os dois
+// fluxos NUNCA é pelo nome do evento -- é por payment.externalReference
+// corresponder a uma linha real em public.payments (marketplace) ou não
+// (nesse caso cai pro fluxo SaaS, que trata externalReference como
+// company_id). Ver handleMarketplacePaymentEvent.
+const MARKETPLACE_PAYMENT_EVENTS = new Set([
+  "PAYMENT_CONFIRMED",
+  "PAYMENT_RECEIVED",
+  "PAYMENT_REFUND_IN_PROGRESS",
+  "PAYMENT_REFUNDED",
+  "PAYMENT_PARTIALLY_REFUNDED",
+]);
 
 // Eventos intermediários -- nunca definitivos, sempre mantêm o saque em
 // 'processing' sem tocar o ledger (o valor continua reservado em
@@ -65,6 +81,20 @@ export async function POST(request: Request) {
   if (event && transfer && (IN_PROGRESS_TRANSFER_EVENTS.has(event) || event in TERMINAL_TRANSFER_EVENTS)) {
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     return handleTransferEvent(supabase, event, transfer, notificationId);
+  }
+
+  if (event && payment && MARKETPLACE_PAYMENT_EVENTS.has(event)) {
+    const internalPaymentId = payment.externalReference as string | undefined;
+    if (internalPaymentId) {
+      const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      // só entra no fluxo marketplace se externalReference corresponder a
+      // uma linha REAL de payments -- nunca assume pelo nome do evento
+      // sozinho (que é idêntico ao do fluxo SaaS).
+      const { data: marketplacePayment } = await supabase.from("payments").select("id").eq("id", internalPaymentId).maybeSingle();
+      if (marketplacePayment) {
+        return handleMarketplacePaymentEvent(supabase, event, payment, notificationId);
+      }
+    }
   }
 
   if (!event || !payment || !RELEVANT_EVENTS.has(event)) {
@@ -194,5 +224,89 @@ async function handleTransferEvent(
 
   revalidatePath("/financeiro");
 
+  return NextResponse.json({ ok: true });
+}
+
+// PIX do cliente (marketplace) -- ver docs/adr/0007-marketplace-pix-payment-
+// settlement.md. Idempotência POR EVENTO (mesmo motivo/mesmo padrão de
+// handleTransferEvent acima) -- uma cobrança real passa por CONFIRMED e
+// depois por RECEIVED, cada evento processável uma vez; nunca deduplicado
+// só por payment.id (que travaria os dois eventos legítimos um contra o
+// outro).
+async function handleMarketplacePaymentEvent(
+  supabase: SupabaseClient,
+  event: string,
+  payment: Record<string, unknown>,
+  notificationId: string | undefined
+) {
+  const providerPaymentId = payment.id as string | undefined;
+  const internalPaymentId = payment.externalReference as string | undefined;
+  if (!providerPaymentId || !internalPaymentId) return NextResponse.json({ ok: true });
+
+  const eventKey = notificationId ?? providerPaymentId;
+
+  const { error: dedupeError } = await supabase
+    .from("processed_webhook_events")
+    .insert({ provider: "asaas", event_type: event, event_key: eventKey });
+  if (dedupeError) {
+    if (dedupeError.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (event === "PAYMENT_CONFIRMED") {
+    // sinal OPERACIONAL só -- NUNCA settlement definitivo, NUNCA cria
+    // operator_blocked, NUNCA considerado liquidação final. Só garante que
+    // provider_payment_id está persistido (idempotente -- mark_marketplace_
+    // payment_provider_created aceita o mesmo valor de novo sem erro).
+    await supabase.rpc("mark_marketplace_payment_provider_created", {
+      p_payment_id: internalPaymentId,
+      p_provider_payment_id: providerPaymentId,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (event === "PAYMENT_RECEIVED") {
+    // ÚNICO gatilho financeiro real -- delega pra settle_marketplace_
+    // payment_received (migration 0059), que faz tudo atomicamente
+    // (verifica amount, revalida capacidade, confirma reserva, congela
+    // snapshot, credita ledger -- ou cai pra manual_review sem nunca
+    // overbookar nem perder o dinheiro do cliente).
+    const rawValue = payment.value;
+    const amountCents = typeof rawValue === "number" ? Math.round(rawValue * 100) : null;
+    if (amountCents === null) {
+      // payload sem valor numérico -- nunca assume um valor, nunca liquida
+      // sem saber quanto chegou de verdade.
+      logSecurityEvent("marketplace_payment_webhook_missing_value", { paymentId: internalPaymentId });
+      return NextResponse.json({ ok: true });
+    }
+
+    const { error: settleError } = await supabase.rpc("settle_marketplace_payment_received", {
+      p_internal_payment_id: internalPaymentId,
+      p_provider_payment_id: providerPaymentId,
+      p_confirmed_amount_cents: amountCents,
+    });
+    if (settleError) {
+      // nunca falha silenciosamente -- loga sem PII/payload bruto (só o
+      // código de erro, truncado por segurança).
+      logSecurityEvent("marketplace_payment_settlement_error", {
+        paymentId: internalPaymentId,
+        errorCode: settleError.message.slice(0, 64),
+      });
+    }
+
+    revalidatePath("/financeiro");
+    revalidatePath("/reservas");
+    return NextResponse.json({ ok: true });
+  }
+
+  // PAYMENT_REFUND_IN_PROGRESS / PAYMENT_REFUNDED / PAYMENT_PARTIALLY_REFUNDED
+  // -- integrados só até o contrato interno SEGURO nesta fase. Nenhum
+  // provider refund real está ativado ainda (create_marketplace_refund_
+  // request, 0055, só RESERVA o efeito internamente -- nenhum caminho de
+  // produção chama um estorno real no Asaas). Webhook NUNCA ignora esses
+  // eventos silenciosamente -- loga pra observabilidade (sem PII), decisão
+  // de correlacionar com um marketplace_refunds específico fica pra quando
+  // a integração de estorno real existir.
+  logSecurityEvent("marketplace_payment_refund_event_received", { paymentId: internalPaymentId, eventType: event });
   return NextResponse.json({ ok: true });
 }
