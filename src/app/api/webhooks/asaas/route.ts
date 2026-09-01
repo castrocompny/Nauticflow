@@ -35,10 +35,14 @@ const RELEVANT_EVENTS = new Set(["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"]);
 const MARKETPLACE_PAYMENT_EVENTS = new Set([
   "PAYMENT_CONFIRMED",
   "PAYMENT_RECEIVED",
+  "PAYMENT_DELETED",
   "PAYMENT_REFUND_IN_PROGRESS",
   "PAYMENT_REFUNDED",
   "PAYMENT_PARTIALLY_REFUNDED",
+  "PAYMENT_REFUND_DENIED",
 ]);
+
+const REFUND_EVENTS = new Set(["PAYMENT_REFUND_IN_PROGRESS", "PAYMENT_REFUNDED", "PAYMENT_PARTIALLY_REFUNDED", "PAYMENT_REFUND_DENIED"]);
 
 // Eventos intermediários -- nunca definitivos, sempre mantêm o saque em
 // 'processing' sem tocar o ledger (o valor continua reservado em
@@ -299,14 +303,70 @@ async function handleMarketplacePaymentEvent(
     return NextResponse.json({ ok: true });
   }
 
-  // PAYMENT_REFUND_IN_PROGRESS / PAYMENT_REFUNDED / PAYMENT_PARTIALLY_REFUNDED
-  // -- integrados só até o contrato interno SEGURO nesta fase. Nenhum
-  // provider refund real está ativado ainda (create_marketplace_refund_
-  // request, 0055, só RESERVA o efeito internamente -- nenhum caminho de
-  // produção chama um estorno real no Asaas). Webhook NUNCA ignora esses
-  // eventos silenciosamente -- loga pra observabilidade (sem PII), decisão
-  // de correlacionar com um marketplace_refunds específico fica pra quando
-  // a integração de estorno real existir.
-  logSecurityEvent("marketplace_payment_refund_event_received", { paymentId: internalPaymentId, eventType: event });
+  if (event === "PAYMENT_DELETED") {
+    // cobrança removida no provider -- via o nosso próprio DELETE
+    // (cancelMarketplacePendingPayment, cleanup de hold expirado) ou por
+    // qualquer outro meio (ex: painel do Asaas). Reconcilia o estado
+    // interno com a MESMA RPC do cleanup lazy -- race-safe por construção
+    // (nunca sobrescreve um 'paid' se PAYMENT_RECEIVED chegou primeiro).
+    // NUNCA cria refund/ledger -- uma cobrança que nunca foi paga não tem
+    // nada pra estornar.
+    const { error } = await supabase.rpc("cancel_marketplace_pending_payment", { p_payment_id: internalPaymentId });
+    if (error && !error.message.includes("HOLD_STILL_VALID")) {
+      logSecurityEvent("payment_cleanup_failed", { paymentId: internalPaymentId });
+    }
+    revalidatePath("/reservas");
+    return NextResponse.json({ ok: true });
+  }
+
+  if (REFUND_EVENTS.has(event)) {
+    // PAYMENT_REFUND_IN_PROGRESS / PAYMENT_REFUNDED / PAYMENT_PARTIALLY_
+    // REFUNDED / PAYMENT_REFUND_DENIED -- correlação segura via
+    // reconcile_marketplace_refund_webhook_event (migration 0060): nunca
+    // por texto/reason, sempre payment_id + provider_refund_id (quando
+    // disponível). Sem correlação confiável -- cai pra manual_review,
+    // nunca inventa lançamento, nunca mexe em saldo.
+    //
+    // PENDÊNCIA: o campo exato onde o Asaas reporta o id do refund em si
+    // (distinto de payment.id) e o valor estornado nestes eventos
+    // específicos não foram confirmados contra a documentação oficial ao
+    // vivo nesta sessão -- mesma categoria de pendência já registrada pro
+    // payload de transfer/PHONE. `payment.refunds` (array, item mais
+    // recente) e `payment.value` são o melhor palpite informado disponível
+    // agora; precisam de validação real antes de qualquer uso em produção.
+    const refunds = Array.isArray((payment as Record<string, unknown>).refunds)
+      ? ((payment as Record<string, unknown>).refunds as Record<string, unknown>[])
+      : [];
+    const lastRefund = refunds.length > 0 ? refunds[refunds.length - 1] : undefined;
+    const providerRefundId = typeof lastRefund?.id === "string" ? lastRefund.id : null;
+    const reportedValue = typeof lastRefund?.value === "number" ? lastRefund.value : (typeof payment.value === "number" ? payment.value : null);
+    const reportedAmountCents = reportedValue !== null ? Math.round(reportedValue * 100) : null;
+
+    const { data, error } = await supabase
+      .rpc("reconcile_marketplace_refund_webhook_event", {
+        p_payment_id: internalPaymentId,
+        p_provider_refund_id: providerRefundId,
+        p_event_type: event,
+        p_reported_amount_cents: reportedAmountCents,
+      })
+      .maybeSingle();
+
+    if (error) {
+      logSecurityEvent("refund_reconciliation_required", { paymentId: internalPaymentId, eventType: event, errorCode: error.message.slice(0, 64) });
+    } else {
+      const row = data as { action: string } | null;
+      if (row?.action === "manual_review_created" || row?.action === "manual_review_existing") {
+        // não é uma falha do webhook em si -- é um estado real que precisa
+        // de atenção humana (refund sem correlação confiável, ou valor
+        // divergente do esperado). Logado como sinalização administrativa,
+        // não como erro.
+        logSecurityEvent("refund_reconciliation_required", { paymentId: internalPaymentId, eventType: event });
+      }
+    }
+
+    revalidatePath("/financeiro");
+    return NextResponse.json({ ok: true });
+  }
+
   return NextResponse.json({ ok: true });
 }

@@ -219,13 +219,27 @@ mesmo corte do painel financeiro). `set_marketplace_reservation_outcome`
 (operacional, não financeira) permite `staff` também, conforme pedido
 explícito desta etapa.
 
+## Atualização (migration `0060`) -- webhook de estorno real chegou a existir, resolução de `manual_review` ainda não
+
+A Fase de integração com o webhook de confirmação de estorno assíncrono
+(mencionada abaixo como pendência desta ADR) chegou -- `docs/adr/0007-
+marketplace-pix-payment-settlement.md` (seção "Fechamento") documenta a
+correlação real dos 4 eventos `PAYMENT_REFUND_*` do Asaas contra
+`marketplace_refunds`, via `reconcile_marketplace_refund_webhook_event`.
+Isso ainda **não é** um mecanismo de RESOLUÇÃO de `manual_review` -- é o
+que ALIMENTA `manual_review` com mais precisão (inclusive um novo gatilho:
+refund reportado pelo provider sem correlação confiável, ou com dois
+pedidos abertos ambíguos pro mesmo pagamento). A pendência abaixo ("nenhum
+mecanismo implementado ainda") continua de pé -- só ficou mais importante
+resolver, com mais entradas possíveis alimentando a fila.
+
 ## Pendências explícitas desta fase
 
-- Resolução de pedidos em `manual_review` -- nenhum mecanismo implementado ainda (nem UI, nem RPC).
+- Resolução de pedidos em `manual_review` -- nenhum mecanismo implementado ainda (nem UI, nem RPC) -- ver nota acima, agora com mais gatilhos possíveis.
 - `record_marketplace_refund` (`0053`, síncrona) permanece no banco, superada mas não removida -- nenhum código novo a chama.
 - Gatilho automático de reembolso quando uma saída inteira é cancelada -- vocabulário pronto (`reason_code='departure_cancelled'`), sem implementação.
 - Cancelamento originado pelo cliente via ToursFlow -- sem contrato de API ainda, ToursFlow não alterado.
 - Exibição da política de cancelamento aplicável na UI do NauticFlow -- adiada.
 - Percentuais reais de política de cancelamento -- ainda nenhum tour tem `marketplace_refund_policy` configurada; nenhum valor oficial definido.
 - Taxas do provider Asaas em reembolso -- pendência já registrada no ADR `0002`, ainda não endereçada.
-- Ativação real de qualquer coisa desta fase depende da Fase de integração real com o Asaas (webhook de confirmação de estorno assíncrono).
+- Ativação real de qualquer coisa desta fase depende da Fase de integração real com o Asaas -- o webhook de confirmação de estorno assíncrono em si já existe (ADR `0007`), mas nenhum estorno real é DISPARADO por este projeto ainda (só reconciliado quando chega de fora).

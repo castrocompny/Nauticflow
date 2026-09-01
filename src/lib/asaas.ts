@@ -406,3 +406,51 @@ export async function getMarketplacePixQrCode(providerPaymentId: string): Promis
     data: { encodedImage: res.data.encodedImage, payload: res.data.payload, expirationDate: res.data.expirationDate ?? null },
   };
 }
+
+// ============================================================================
+// CANCELAMENTO DE COBRANÇA PENDING -- fecha o hold expirado sem pagamento.
+// Contrato oficial: DELETE /v3/payments/{id}. NUNCA usado como refund --
+// só remove uma cobrança que ainda não foi paga. Consulta o status atual
+// ANTES de deletar (nunca deleta às cegas) -- só um status "PENDING"
+// confirmado é tratado como removível nesta fase; qualquer outra coisa
+// (incluindo estados que talvez fossem tecnicamente removíveis, mas cujo
+// nome exato não foi confirmado contra a documentação oficial ao vivo nesta
+// sessão -- mesma pendência já registrada pros eventos de transfer/pixKey
+// PHONE) é tratada como NÃO removível, fail safe: nunca deleta, nunca
+// marca como cancelado internamente. Se o DELETE em si falhar por
+// qualquer motivo, também nunca assume cancelado -- devolve `cancelled:
+// false`, deixa o estado real ser resolvido por uma tentativa futura de
+// cleanup ou pelo webhook (que continua sendo a autoridade financeira
+// final em qualquer cenário).
+// ============================================================================
+
+export type MarketplacePendingPaymentCancelResult = { cancelled: boolean; currentStatus?: string };
+
+export async function cancelMarketplacePendingPayment(providerPaymentId: string): Promise<AsaasResult<MarketplacePendingPaymentCancelResult>> {
+  const guard = guardMarketplacePixCall();
+  if ("error" in guard) return { ok: false, error: guard.error };
+
+  if (guard.mode === "mock") {
+    return { ok: true, data: { cancelled: true } };
+  }
+
+  const statusCheck = await asaasFetch<{ status: string }>(`/payments/${encodeURIComponent(providerPaymentId)}`, "GET");
+  if (!statusCheck.ok) return statusCheck;
+
+  if (statusCheck.data.status !== "PENDING") {
+    // já não está mais num estado removível -- pode já ter sido recebida
+    // (ou qualquer outro estado). NUNCA deleta, NUNCA trata como refund --
+    // devolve o status real pro chamador decidir (nunca decide sozinho que
+    // "não é PENDING, então deve estar pago").
+    return { ok: true, data: { cancelled: false, currentStatus: statusCheck.data.status } };
+  }
+
+  const deleted = await asaasFetch<{ deleted: boolean }>(`/payments/${encodeURIComponent(providerPaymentId)}`, "DELETE");
+  if (!deleted.ok) {
+    // qualquer erro aqui -- fail safe, nunca assume cancelado (pode ter
+    // sido recebida no instante entre a consulta de status e o DELETE).
+    return { ok: true, data: { cancelled: false, currentStatus: statusCheck.data.status } };
+  }
+
+  return { ok: true, data: { cancelled: true } };
+}

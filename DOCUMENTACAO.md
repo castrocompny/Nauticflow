@@ -1753,3 +1753,31 @@ Fluxo completo de cobrança PIX do turista: ToursFlow cria booking/hold → soli
 **Testes**: 47 cenários (ledger com valor real -- R$100/500/1000 → 10/90, 50/450, 100/900 -- settlement atômico payment+reservation juntos, replay não duplica, CONFIRMED isolado nunca credita, CONFIRMED depois RECEIVED credita normalmente, amount divergence cai pra manual_review sem confirmar, pagamento tardio com capacidade confirma, pagamento tardio sem capacidade nunca overbooka e nunca perde o dinheiro do cliente, payment desconhecido rejeitado, payload oficial/mapeamento/QR Code verificados estruturalmente, deduplicação de customer/cobrança, MARKETPLACE_PAYMENTS_MODE fail-closed e cross-validado, CPF obrigatório antes do insert, dispatch do webhook correto, SaaS e transfer preservados, refund events logados, nenhuma PII em log). **47/47 passaram.** `npx tsc --noEmit`, `npx eslint .` (0 erros, 4 warnings pré-existentes) e `npx next build` -- todos limpos.
 
 **Migration `0059`**: nova, não sobrescreve `0052`-`0058` (nenhuma aplicada ainda). Não aplicada nesta etapa. Nenhuma cobrança real, nenhum Asaas de produção usado.
+
+## 89. Fechamento financeiro final -- hold expirado, cancelamento de Pix pending, correlação de refund (sessão de 2026-08-31)
+
+Fecha os dois gaps restantes do módulo financeiro: (A) cobrança PIX pending após hold expirado; (B) correlação de refund events do Asaas. Migration `0060` (local, **não aplicada**). Decisão de arquitetura completa em `docs/adr/0007-marketplace-pix-payment-settlement.md` (seção "Fechamento") e `docs/adr/0004-marketplace-cancellation-no-show-refund-policy.md` (nota de atualização). Nenhuma movimentação financeira real.
+
+**Cancelamento de cobrança pending**: `cancelMarketplacePendingPayment()` (`src/lib/asaas.ts`) segue `DELETE /v3/payments/{id}` -- consulta o status atual ANTES de deletar (só `PENDING` confirmado é removível; qualquer outro estado, ou erro no DELETE, nunca é tratado como cancelado -- fail safe). `DELETE` nunca é usado como refund.
+
+**Status interno reusado**: `payments.status='failed'` -- auditado antes de inventar, já cobria semanticamente "tentativa que nunca virou cobrança paga". Nenhuma coluna/estado novo.
+
+**Race com PAYMENT_RECEIVED, resolvida em duas camadas**: TS consulta o provider antes de deletar; SQL (`cancel_marketplace_pending_payment`, 0060) só marca failed via `UPDATE ... WHERE status='pending'` -- atomicidade do Postgres garante que um settlement concorrente vencedor nunca é sobrescrito. Testado nos dois sentidos da corrida.
+
+**Nova tentativa após hold expirado**: cancelamento libera `payments_one_active_per_reservation`, mas `create_marketplace_payment_attempt` continua exigindo hold futuro de verdade -- nunca ressuscita o hold vencido. `POST .../payment` tenta cleanup automaticamente ao esbarrar num `PAYMENT_ALREADY_ACTIVE` causado por tentativa velha com hold vencido, retenta a criação UMA vez.
+
+**PAYMENT_DELETED**: reconhecido no webhook, reconcilia via a MESMA RPC do cleanup lazy -- um único caminho de cancelamento, nunca dois. Nenhum refund/ledger criado (nada a estornar de uma cobrança nunca paga).
+
+**Correlação de refund**: `reconcile_marketplace_refund_webhook_event` (0060) -- ponto único pros 4 eventos (IN_PROGRESS/REFUNDED/PARTIALLY_REFUNDED/DENIED). Correlação por `provider_refund_id` conhecido OU exatamente um pedido nosso em aberto -- nunca por texto/reason. IN_PROGRESS não considera dinheiro devolvido (ledger continua reservado). REFUNDED/PARTIALLY_REFUNDED nunca confia cegamente no valor do webhook -- valida contra `customer_refund_cents` esperado, diferença cai pra manual_review. DENIED devolve o valor reservado pro bucket de origem (nunca fica preso).
+
+**Refund desconhecido**: sem correlação confiável (0 ou >1 candidatos) -- manual_review direto, nenhum efeito de ledger, nunca inventa lançamento. **Limitação conhecida e aceita**: dois refunds simultaneamente abertos pro MESMO payment sem provider_refund_id prévio são genuinamente ambíguos -- nunca adivinha qual é qual, cai pra manual_review (mesmo espírito de AMBIGUOUS_CUSTOMER_MATCH). Descoberta durante os próprios testes desta revisão, documentada explicitamente, não corrigida com heurística de propósito (correlacionar por valor teria o mesmo problema).
+
+**Refund × withdrawal reconfirmado**: `complete_marketplace_refund_request` só move dinheiro JÁ reservado (nunca lê saldo available ao vivo) -- sem janela de corrida nova, nenhuma trava adicional necessária.
+
+**Segurança**: novos eventos de log (`payment_cleanup_failed`, `payment_cleanup_deferred`, `refund_reconciliation_required`) carregam só identificadores/enums, nunca CPF/e-mail/telefone/payload Pix/chave de API -- testado estruturalmente.
+
+**Cleanup lazy, sem cron**: `attemptMarketplacePaymentCleanup()` chamada a partir do status endpoint e do payment endpoint -- pronta pra ser o corpo de um cron futuro, sem infraestrutura de cron criada agora.
+
+**Testes**: 43 cenários (hold válido não cancela, hold expirado cancela, replay idempotente, race payment-received-durante-cleanup nunca sobrescreve paid, payment já paid nunca tocado, nova tentativa não ressuscita hold vencido, os 4 eventos de refund tratados corretamente com valor real, replay de refund não duplica, eventos distintos da mesma cobrança processam independentemente, refund conhecido vs desconhecido, amount divergence cai pra manual_review, dois refunds ambíguos caem pra manual_review, refund×withdrawal sem regressão, SaaS e transfer webhooks preservados, DELETE só depois de checar status, nenhuma PII em log). **43/43 passaram.** `npx tsc --noEmit`, `npx eslint .` (0 erros, 4 warnings pré-existentes) e `npx next build` -- todos limpos.
+
+**Migration `0060`**: nova, não sobrescreve `0052`-`0059` (nenhuma aplicada ainda). Não aplicada nesta etapa.

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logSecurityEvent } from "@/lib/security-log";
 import { getMarketplacePixQrCode } from "@/lib/asaas";
+import { attemptMarketplacePaymentCleanup } from "@/lib/marketplace-payment-cleanup";
 import {
   isAuthorizedToursFlowRequest,
   normalizeClientKey,
@@ -70,21 +71,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   // si na resposta -- é detalhe interno do provider).
   const { data: payment } = await admin
     .from("payments")
-    .select("status, payment_method, provider_payment_id")
+    .select("id, status, payment_method, provider_payment_id")
     .eq("reservation_id", reservation.id)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-
-  const dto: MarketplaceBookingStatusDTO = {
-    bookingId: reservation.id,
-    bookingStatus: reservation.status as "pendente" | "confirmada" | "cancelada",
-    holdExpiresAt: reservation.hold_expires_at,
-    quantity: reservation.people_count,
-    priceCents: (departure?.price_cents as number | undefined) ?? 0,
-    totalCents: reservation.total_cents,
-    payment: payment ? { status: payment.status, method: payment.payment_method } : null,
-  };
 
   // PIX só reexibido enquanto: pagamento ainda pending E o hold ainda não
   // venceu -- o hold continua sendo a autoridade de "ainda vale apresentar
@@ -93,6 +84,32 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   // continuar tecnicamente pagável no provider além disso (política de
   // pagamento tardio já coberta pelo settlement, não pela exibição aqui).
   const holdStillValid = reservation.hold_expires_at !== null && new Date(reservation.hold_expires_at).getTime() > Date.now();
+
+  // CLEANUP LAZY: hold já venceu e o pagamento ainda está pending -- este
+  // GET é um dos pontos onde a limpeza acontece (nunca depende só do
+  // ToursFlow esconder o QR no frontend dele). Se cancelar de verdade, o
+  // status refletido na resposta já é o final ('failed'), sem precisar de
+  // uma segunda ida ao banco.
+  let effectivePaymentStatus = payment?.status ?? null;
+  if (payment && payment.status === "pending" && !holdStillValid) {
+    const outcome = await attemptMarketplacePaymentCleanup(admin, {
+      id: payment.id,
+      status: payment.status,
+      providerPaymentId: payment.provider_payment_id,
+    });
+    if (outcome === "cancelled") effectivePaymentStatus = "failed";
+  }
+
+  const dto: MarketplaceBookingStatusDTO = {
+    bookingId: reservation.id,
+    bookingStatus: reservation.status as "pendente" | "confirmada" | "cancelada",
+    holdExpiresAt: reservation.hold_expires_at,
+    quantity: reservation.people_count,
+    priceCents: (departure?.price_cents as number | undefined) ?? 0,
+    totalCents: reservation.total_cents,
+    payment: payment ? { status: effectivePaymentStatus ?? payment.status, method: payment.payment_method } : null,
+  };
+
   if (payment?.status === "pending" && payment.provider_payment_id && holdStillValid) {
     const qr = await getMarketplacePixQrCode(payment.provider_payment_id);
     if (qr.ok) {

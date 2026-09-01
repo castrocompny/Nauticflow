@@ -266,12 +266,134 @@ webhook_missing_value`, `marketplace_payment_refund_event_received`)
 carrega só `paymentId` (id interno, não sensível) e, no caso de erro,
 uma mensagem de erro truncada (64 chars) -- nunca o payload inteiro.
 
+## Fechamento -- cancelamento de cobrança pending + correlação de refund (migration `0060`)
+
+Rodada de fechamento posterior a esta ADR: as duas pendências centrais
+("`cancelMarketplacePendingPayment()` não implementado" e "correlação
+automática de refund não implementada") foram fechadas.
+
+### `DELETE /v3/payments/{id}` -- nunca tratado como refund
+
+`cancelMarketplacePendingPayment()` (`src/lib/asaas.ts`) segue o contrato
+oficial: **consulta o status atual da cobrança ANTES de deletar**
+(`GET /payments/{id}`) -- só um status `PENDING` confirmado é tratado como
+removível nesta fase (qualquer outro valor, incluindo estados que talvez
+fossem tecnicamente removíveis mas cujo nome exato não foi confirmado
+contra a documentação ao vivo -- mesma categoria de pendência já registrada
+pro payload de PHONE/eventos de transfer -- é tratado como NÃO removível,
+fail safe). Se o `DELETE` em si falhar por qualquer motivo, **nunca assume
+cancelado** -- devolve `cancelled: false`, nunca finge um resultado que não
+aconteceu.
+
+### Race com `PAYMENT_RECEIVED` -- resolvida em duas camadas
+
+1. **TS**: `cancelMarketplacePendingPayment` consulta o status no provider
+   antes de deletar -- se o provider já diz `RECEIVED`/qualquer coisa
+   diferente de `PENDING`, a função recusa deletar.
+2. **SQL** (a proteção REAL, que não depende de nenhuma condição de corrida
+   de rede): `cancel_marketplace_pending_payment` (`0060`) só marca
+   `payments.status = 'failed'` via `UPDATE ... WHERE status = 'pending'`
+   -- atomicidade do Postgres garante que, se `settle_marketplace_payment_
+   received` (`0059`) venceu a corrida e já mudou o status pra `'paid'`
+   antes deste `UPDATE` executar, a linha simplesmente não casa (0 linhas
+   afetadas) -- o status final devolvido reflete a REALIDADE (`paid`),
+   **nunca** um cancelamento fantasma por cima de um pagamento recebido.
+   Testado explicitamente simulando a corrida nos dois sentidos.
+
+### Status interno de cobrança cancelada -- reusa `'failed'`, nenhum estado novo
+
+Auditado antes de inventar: `payments.status` já tinha `failed` desde a
+migration `0036` -- semanticamente já cobre "esta tentativa nunca virou
+uma cobrança paga". Nenhuma coluna nova, nenhum valor de enum novo.
+
+### Nova tentativa após hold expirado
+
+Uma vez cancelada (`failed`), `payments_one_active_per_reservation`
+(`0052`) libera o slot pra uma NOVA tentativa -- mas `create_marketplace_
+payment_attempt` continua exigindo `hold_expires_at` futuro de verdade da
+RESERVA (não muda por causa do cancelamento do payment antigo) -- **nunca
+ressuscita o hold vencido**. `POST .../payment` foi estendido pra tentar
+o cleanup automaticamente quando `PAYMENT_ALREADY_ACTIVE` é causado por
+uma tentativa velha com hold vencido, e re-tentar a criação UMA vez (nunca
+um loop) -- se a reserva ainda não tiver um hold novo, a nova tentativa
+ainda falha corretamente com `HOLD_EXPIRED`, exigindo um booking/hold
+genuinamente novo (nunca um "reaproveitamento automático").
+
+### `PAYMENT_DELETED` -- reconciliação, nunca refund/ledger
+
+Reconhecido no webhook, reconcilia via a **mesma** RPC do cleanup lazy
+(`cancel_marketplace_pending_payment`) -- um único caminho de cancelamento
+interno, nunca dois. Como uma cobrança que nunca foi paga não tem nada pra
+estornar, nenhum `marketplace_refunds`/ledger é criado por este evento.
+
+### Correlação de refund -- por identificador, nunca por texto/reason
+
+`reconcile_marketplace_refund_webhook_event` (`0060`) é o ponto único de
+entrada pros 4 eventos (`PAYMENT_REFUND_IN_PROGRESS`/`PAYMENT_REFUNDED`/
+`PAYMENT_PARTIALLY_REFUNDED`/`PAYMENT_REFUND_DENIED`). Correlação em duas
+camadas: (1) `provider_refund_id` já conhecido (evento posterior do MESMO
+refund); (2) exatamente UM pedido nosso em aberto (`pending`/`processing`)
+pra aquele `payment_id`, quando (1) não resolve. **Nunca decide por
+texto/reason** vindo do payload.
+
+- `PAYMENT_REFUND_IN_PROGRESS`: NÃO considera dinheiro devolvido -- o
+  ledger que já reservou o refund (`create_marketplace_refund_request`,
+  `0055`) continua intocado em `refund_pending`; só avança o status da
+  ENTIDADE.
+- `PAYMENT_REFUNDED`/`PAYMENT_PARTIALLY_REFUNDED`: **nunca confia
+  cegamente no valor do webhook** -- valida contra `customer_refund_cents`
+  já calculado na criação do pedido; diferença -> nunca finaliza, cai pra
+  `manual_review`. Valor batendo -> `complete_marketplace_refund_request`
+  (`0055`, reaproveitada via chamada interna, nunca duplicada).
+- `PAYMENT_REFUND_DENIED`: `complete_marketplace_refund_request(...,
+  succeeded=false, ...)` -- devolve o valor reservado pro bucket de
+  origem, nunca deixa dinheiro preso em `refund_pending` indefinidamente.
+
+### Refund desconhecido -- nunca inventa, sempre `manual_review`
+
+Sem correlação confiável (0 candidatos, OU mais de um candidato ambíguo)
+-- uma nova linha `marketplace_refunds` nasce direto em `manual_review`
+(`reason_code = 'settlement_exception'`, mesmo valor já usado pras
+exceções de settlement), **sem nenhum efeito de ledger**. Idempotente por
+`(payment_id, provider_refund_id ou event_type)` -- reenvio do mesmo
+evento não duplica a linha.
+
+**Limitação conhecida e aceita**: dois pedidos de refund abertos
+SIMULTANEAMENTE para o MESMO `payment_id`, sem `provider_refund_id` já
+conhecido em nenhum dos dois, são genuinamente ambíguos pra correlacionar
+-- a função nunca adivinha qual dos dois corresponde a qual evento, cai
+pra `manual_review` (mesmo espírito de `AMBIGUOUS_CUSTOMER_MATCH`/
+`AMBIGUOUS_PAYMENT_MATCH`, seção acima). Testado explicitamente. Não
+corrigido com heurística (ex: correlacionar por valor) de propósito --
+correlacionar por valor teria o mesmo problema se dois refunds tivessem o
+mesmo valor, e o pedido original foi explícito: nunca correlacionar por
+texto/reason nem por adivinhação.
+
+### Refund × withdrawal -- reconfirmado, nenhuma trava nova necessária
+
+`complete_marketplace_refund_request` só move dinheiro JÁ reservado em
+`refund_pending` (pra "fora do sistema" no sucesso, ou de volta pro bucket
+de origem na falha) -- **nunca** lê/decide com base no saldo `available`
+AO VIVO da empresa (essa checagem já aconteceu, uma vez, na CRIAÇÃO do
+pedido, `create_marketplace_refund_request`, sob a trava compartilhada com
+saque já existente desde `0055`). Como não há uma leitura-e-decisão sobre
+saldo compartilhado acontecendo na finalização, não existe uma nova janela
+de corrida pra proteger -- reconfirmado com teste, nenhuma trava nova
+adicionada.
+
+### Segurança -- novos eventos, mesma disciplina
+
+`payment_cleanup_failed`, `payment_cleanup_deferred`, `refund_
+reconciliation_required` -- todos carregam só `paymentId`/`eventType`/
+`providerStatus` (identificadores/enums de baixa cardinalidade), nunca
+CPF, e-mail, telefone, payload Pix, payload bruto do provider, chave de
+API. Testado estruturalmente.
+
 ## Pendências explícitas desta fase
 
-- `cancelMarketplacePendingPayment()` -- não implementado, registrado como próximo passo natural.
 - Teste real em sandbox -- não executado (sem credencial disponível nesta sessão).
-- Correlação automática de eventos de refund do provider com `marketplace_refunds` -- não implementada, só logado.
-- Resolução de pedidos em `manual_review` (herdado do ADR `0004`) -- ainda sem mecanismo, agora com mais um gatilho possível (settlement exceptions).
-- Limpeza de cobranças `pending` cujo hold expirou (seção 26 do pedido) -- não implementada nesta etapa; comportamento atual (parar de mostrar o QR quando o hold vence) já cobre o caso do turista, mas nenhuma limpeza/cancelamento no provider acontece ainda.
+- Resolução de pedidos em `manual_review` (herdado do ADR `0004`) -- ainda sem mecanismo (UI/RPC dedicada), agora com mais gatilhos possíveis (settlement exceptions, refunds desconhecidos ou ambíguos).
+- Correlação de dois refunds simultaneamente abertos para o mesmo payment sem `provider_refund_id` prévio -- limitação conhecida e aceita, cai pra `manual_review` (ver seção acima), nenhuma heurística de desambiguação implementada de propósito.
+- Cron real pra cleanup de cobranças pending -- não criado (infraestrutura de cron complexa fora de escopo); `attemptMarketplacePaymentCleanup` já está pronta pra ser o corpo de um cron futuro, chamada hoje só de forma lazy (status endpoint + retry do payment endpoint).
 - Comissão global (10%) continua não configurada em produção -- nenhuma liquidação real é possível até `set_marketplace_global_fee_config` ser chamada de verdade (ADR `0006`).
 - ToursFlow não foi alterado -- fora de escopo desta etapa, conforme instrução explícita.

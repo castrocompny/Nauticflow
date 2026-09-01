@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createHash } from "crypto";
 import { logSecurityEvent } from "@/lib/security-log";
 import { findOrCreateMarketplaceAsaasCustomer, createOrReconcileMarketplacePixCharge, getMarketplacePixQrCode } from "@/lib/asaas";
+import { attemptMarketplacePaymentCleanup } from "@/lib/marketplace-payment-cleanup";
 import {
   isAuthorizedToursFlowRequest,
   isValidIdempotencyKey,
@@ -99,12 +100,43 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const requestFingerprint = createHash("sha256").update(`${bookingId}|${paymentMethod}`).digest("hex");
 
-  const { data: rows, error: rpcError } = await admin.rpc("create_marketplace_payment_attempt", {
-    p_booking_id: bookingId,
-    p_payment_method: paymentMethod,
-    p_idempotency_key: idempotencyKey,
-    p_request_fingerprint: requestFingerprint,
-  });
+  const attemptPayment = () =>
+    admin.rpc("create_marketplace_payment_attempt", {
+      p_booking_id: bookingId,
+      p_payment_method: paymentMethod,
+      p_idempotency_key: idempotencyKey,
+      p_request_fingerprint: requestFingerprint,
+    });
+
+  let { data: rows, error: rpcError } = await attemptPayment();
+
+  // NOVA TENTATIVA APÓS HOLD EXPIRADO: se o que está bloqueando é uma
+  // tentativa velha, pending, cujo hold já venceu, o cleanup lazy pode
+  // liberar o slot (payments_one_active_per_reservation, 0052) pra esta
+  // tentativa nova -- uma única retentativa, nunca um loop. Nunca ressuscita
+  // o hold antigo -- create_marketplace_payment_attempt continua exigindo
+  // hold_expires_at futuro de verdade da RESERVA (não muda por causa disto).
+  if (rpcError?.message.includes("PAYMENT_ALREADY_ACTIVE")) {
+    const { data: blocking } = await admin
+      .from("payments")
+      .select("id, status, provider_payment_id")
+      .eq("reservation_id", bookingId)
+      .in("status", ["pending", "paid"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (blocking && blocking.status === "pending") {
+      const outcome = await attemptMarketplacePaymentCleanup(admin, {
+        id: blocking.id,
+        status: blocking.status,
+        providerPaymentId: blocking.provider_payment_id,
+      });
+      if (outcome === "cancelled") {
+        ({ data: rows, error: rpcError } = await attemptPayment());
+      }
+    }
+  }
 
   if (rpcError) {
     if (rpcError.message.includes("PAYMENT_IDEMPOTENCY_CONFLICT")) {
