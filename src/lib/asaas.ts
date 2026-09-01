@@ -136,3 +136,100 @@ export async function createMarketplacePayment(params: {
     split: params.walletId ? [{ walletId: params.walletId }] : undefined,
   });
 }
+
+// ============================================================================
+// SAQUE DO OPERADOR -- transferência Pix (docs/adr/0005-marketplace-
+// withdrawal-and-pix-payout.md). Adapter pronto, NENHUM caminho de produção
+// chama isto com MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED=false (default) --
+// mesmo espírito de isMarketplacePaymentsEnabled(). Guard interno redundante
+// (mesmo motivo de createMarketplacePayment): mesmo que o caller esqueça de
+// checar a flag antes, esta função nunca deixa uma chamada de rede real sair
+// enquanto ela estiver desligada.
+//
+// ATENÇÃO -- formato do payload (`/transfers`, `pixAddressKey`/
+// `pixAddressKeyType`) e os nomes exatos de evento de webhook usados em
+// src/app/api/webhooks/asaas/route.ts refletem o entendimento geral da API
+// de Transferências do Asaas, mas NÃO foram confirmados contra a
+// documentação oficial ao vivo nesta sessão (sem acesso à rede/docs externos
+// aqui) -- precisam de validação contra a doc real do Asaas ANTES de
+// qualquer chamada real, mesmo em sandbox. Registrado explicitamente como
+// pendência, não uma afirmação de fato verificado.
+// ============================================================================
+import { isValidCpfChecksum, isValidCnpjChecksum, type PixKeyType } from "./payout-accounts";
+
+export function isMarketplaceWithdrawalPayoutEnabled(): boolean {
+  return process.env.MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED === "true";
+}
+
+// Modo mock/sandbox CONTROLADO desta fase -- quando true, createMarketplacePixTransfer()
+// nunca faz nenhuma chamada de rede, simula uma transferência bem-sucedida
+// imediatamente (providerTransferId sintético, sem custo/risco nenhum).
+// Pensado só pra testar o fluxo de ponta a ponta localmente -- nunca deve
+// estar true em produção (documentado no .env.example quando existir).
+export function isMarketplaceWithdrawalMockModeEnabled(): boolean {
+  return process.env.MARKETPLACE_WITHDRAWAL_MOCK_MODE === "true";
+}
+
+function pixKeyTypeToAsaasFormat(type: PixKeyType): string {
+  // Asaas usa CPF/CNPJ/EMAIL/PHONE/EVP (maiúsculas) pro campo pixAddressKeyType
+  // -- mapeamento direto dos 5 tipos já suportados (src/lib/payout-accounts.ts).
+  // PENDÊNCIA: o formato exato esperado por PHONE (com/sem +55, com/sem DDI)
+  // não foi confirmado contra a documentação oficial nesta sessão -- por ora
+  // enviamos os mesmos dígitos puros (DDD+número) já normalizados em
+  // src/lib/payout-accounts.ts, sem nenhuma transformação adicional (nunca
+  // alterar silenciosamente uma chave, EVP incluso -- pedido explícito da
+  // revisão). Precisa de validação real antes de qualquer saque de verdade.
+  const map: Record<PixKeyType, string> = { cpf: "CPF", cnpj: "CNPJ", email: "EMAIL", telefone: "PHONE", evp: "EVP" };
+  return map[type];
+}
+
+// Conversão SEGURA de centavos (nosso domínio interno, sempre inteiro) pra
+// reais (o que o Asaas espera no campo `value`) -- só acontece aqui, na
+// BORDA da integração, nunca usada em nenhum cálculo financeiro interno
+// (que continuam inteiramente em centavos inteiros, nunca float). `toFixed`
+// evita o clássico problema de imprecisão de ponto flutuante (ex:
+// 0.1+0.2 !== 0.3) se alguma divisão gerar uma dízima binária.
+export function centsToReaisForProvider(cents: number): number {
+  return Number((cents / 100).toFixed(2));
+}
+
+type AsaasPixTransfer = { id: string; status: string };
+export type MarketplacePixTransferResult = { providerTransferId: string; status: "processing" | "completed" | "failed" };
+
+export async function createMarketplacePixTransfer(params: {
+  withdrawalId: string; // vira o externalReference -- NUNCA a chave Pix, nunca o companyId direto
+  amountCents: number;
+  pixKeyType: PixKeyType;
+  pixKeyNormalized: string;
+}): Promise<AsaasResult<MarketplacePixTransferResult>> {
+  if (!isMarketplaceWithdrawalPayoutEnabled()) {
+    return { ok: false, error: "Saque do marketplace ainda não está habilitado." };
+  }
+
+  // defesa em profundidade -- nunca envia uma chave malformada pro provider,
+  // mesmo que algo upstream tenha pulado a validação (mesmo espírito de toda
+  // RPC financeira deste projeto revalidando por conta própria).
+  if (params.pixKeyType === "cpf" && !isValidCpfChecksum(params.pixKeyNormalized)) {
+    return { ok: false, error: "Chave Pix (CPF) inválida." };
+  }
+  if (params.pixKeyType === "cnpj" && !isValidCnpjChecksum(params.pixKeyNormalized)) {
+    return { ok: false, error: "Chave Pix (CNPJ) inválida." };
+  }
+
+  if (isMarketplaceWithdrawalMockModeEnabled()) {
+    // simulação determinística -- NENHUMA chamada de rede, nenhum dinheiro
+    // real, nenhuma dependência de ASAAS_API_KEY.
+    return { ok: true, data: { providerTransferId: `mock-transfer-${params.withdrawalId}`, status: "completed" } };
+  }
+
+  return asaasFetch<AsaasPixTransfer>("/transfers", "POST", {
+    value: centsToReaisForProvider(params.amountCents),
+    pixAddressKey: params.pixKeyNormalized,
+    pixAddressKeyType: pixKeyTypeToAsaasFormat(params.pixKeyType),
+    // externalReference é SEMPRE o id interno do saque (marketplace_
+    // withdrawals.id) -- nunca company_id, chave Pix, CPF/CNPJ, e-mail ou
+    // telefone, conforme contrato oficial confirmado nesta revisão.
+    externalReference: params.withdrawalId,
+    operationType: "PIX",
+  }).then((res) => (res.ok ? { ok: true, data: { providerTransferId: res.data.id, status: "processing" as const } } : res));
+}
