@@ -49,3 +49,33 @@ export async function setReservationOutcome(reservationId: string, outcome: Rese
   revalidatePath(`/reservas/${reservationId}`);
   return { error: "", ok: true };
 }
+
+export type PaymentBreakdownDTO = {
+  grossAmountCents: number;
+  platformFeeCents: number;
+  operatorAmountCents: number;
+  status: string;
+} | null;
+
+// Detalhamento da venda (marketplace) -- só os snapshots JÁ congelados na
+// confirmação (get_marketplace_payment_breakdown, migration 0057). Nunca
+// recalcula com a comissão atual -- se a venda ainda não foi confirmada
+// (sem gross_amount_cents), devolve null e a UI não mostra nada.
+export async function getPaymentBreakdown(reservationId: string): Promise<PaymentBreakdownDTO> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .rpc("get_marketplace_payment_breakdown", { p_reservation_id: reservationId })
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  const row = data as { gross_amount_cents: number | null; platform_fee_cents: number | null; operator_amount_cents: number | null; status: string };
+  if (row.gross_amount_cents == null || row.platform_fee_cents == null || row.operator_amount_cents == null) return null;
+
+  return {
+    grossAmountCents: row.gross_amount_cents,
+    platformFeeCents: row.platform_fee_cents,
+    operatorAmountCents: row.operator_amount_cents,
+    status: row.status,
+  };
+}

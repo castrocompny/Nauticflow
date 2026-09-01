@@ -1663,3 +1663,53 @@ Revisão pré-commit da seção 84, com o contrato oficial do `POST /v3/transfer
 **Testes**: 34 cenários (payload oficial, mapeamento dos 5 tipos de chave, conversão cents→reais nos 4 valores pedidos + caso de imprecisão, os 7 eventos oficiais tratados corretamente -- CREATED/PENDING/IN_BANK_PROCESSING → processing sem tocar ledger, BLOCKED mantém reservado, DONE→completed sem devolver saldo, FAILED→failed devolve saldo, CANCELLED→cancelled devolve saldo com entry_type próprio, replay do mesmo evento não duplica em nenhum dos dois casos, eventos fora de ordem processam corretamente, dois eventos diferentes da mesma transferência não bloqueiam um ao outro). **34/34 passaram.** `npx tsc --noEmit`, `npx eslint .` (0 erros, 4 warnings pré-existentes) e `npx next build` -- todos limpos. Nenhum teste acessou `api.asaas.com`/`api-sandbox.asaas.com` de verdade -- confirmado estruturalmente que o modo mock retorna antes de qualquer chamada de rede.
 
 **Migration `0056`**: editada (não uma nova migration) -- autorizado explicitamente pra esta revisão, ainda não aplicada.
+
+## 86. Comissão global do marketplace -- 10% inicial, snapshot de basis points, arquitetura pra override por empresa (sessão de 2026-08-31)
+
+Decisão de produto: comissão global inicial do marketplace ToursFlow = 10% (1000 basis points), vale só pra NOVAS confirmações, nunca retroativa. Migration `0057` (local, **não aplicada**). Decisão de arquitetura completa em `docs/adr/0006-marketplace-global-commission.md`. Nenhuma chamada real ao Asaas, nenhum pagamento real ativado por esta fase.
+
+**`calculateMarketplaceAmounts()` não mudou** -- já era determinística (floor na taxa, operador com o resto, `fee+operator=gross` por construção). Testada agora contra o valor real: 10% de R$100/R$500/R$1000, valores com centavos (R$10,01 → taxa R$1,00, não R$1,01), valor mínimo (1 centavo → taxa 0, operador fica com o centavo inteiro -- nunca some), fee=0 como config válida (distinta de ausência de config), fee>100%/negativa rejeitadas.
+
+**`fee_basis_points_snapshot`**: coluna nova em `payments`, congelada junto com gross/fee/operator/policy/service_at na confirmação -- faltava guardar o PERCENTUAL exato (só dava pra inferir aproximadamente antes). Protegida pelo mesmo trigger de imutabilidade e pelo mesmo CHECK "conjunto completo ou nada" (ambos estendidos nesta migration).
+
+**Mudança futura nunca retroativa**: testado explicitamente -- Venda A confirmada a 10%, config muda pra 12% depois, replay de A continua devolvendo o snapshot original (10%); Venda B, confirmada depois da mudança, usa 12%. Comportamento já garantido pela arquitetura existente (replay de payment `paid` sempre devolve o snapshot gravado) -- confirmado com teste, não alterado.
+
+**Ledger reconfirmado com o valor real**: gross=R$1.000, fee=10% → `platform_revenue` recebe R$100, `operator_blocked` recebe R$900 -- nunca `operator_blocked = gross`.
+
+**Refund usa o snapshot da venda, nunca a config atual**: reconfirmado -- `calculate_marketplace_refund_amounts` deriva a comissão de `payments.operator_amount_cents`/`gross_amount_cents` (snapshot), nunca reconsulta a config. Testado: venda a 10%, config muda pra 20% depois, refund daquela venda continua usando 10%.
+
+**Saque -- isolamento de bucket reconfirmado**: `platform_revenue` nunca soma no saldo sacável do operador -- testado com o valor real (10% de R$1.000: sacável = R$900, os R$100 de comissão ficam num bucket estruturalmente inacessível).
+
+**Arquitetura pronta pra override por empresa, NÃO implementado**: `marketplace_fee_config` ganhou `company_id` nullable (NULL=global, único tipo de linha real hoje). `get_current_marketplace_fee_config(p_company_id)` -- NOVO overload de 1 parâmetro (o de 0 parâmetros, `0053`, continua existindo intocado, sem uso novo -- são funções distintas por assinatura em Postgres). Prioriza override da empresa se existir, fallback pro global. Nenhuma linha com `company_id` preenchido é criada nesta fase.
+
+**Admin sem UI nova**: guard de `0053` (`service_role`/`super_admin` only pra INSERT) reconfirmado, não alterado. `get_current_marketplace_fee_config` nunca concedido a `authenticated` -- operador não lê a config diretamente.
+
+**Achado real -- por que o seed de 10% NÃO está dentro da migration**: `marketplace_fee_config` é protegida por um guard que depende de `auth.role()`/`auth.uid()`, que só resolvem valor real dentro de uma requisição autenticada -- uma migration rodando via `db push` conecta sem contexto de JWT, então `auth.role()` resolveria NULL e o INSERT provavelmente seria barrado pelo próprio guard. Mesmo motivo, mesmo padrão já usado pro pepper de trial (`0045`/`0046`): o INSERT real do valor de 10% fica como um comando SEPARADO, documentado, a ser executado (com autorização própria) depois da migration `0057` já aplicada -- nunca dentro do `db push`. Até essa linha existir de verdade, `MARKETPLACE_FEE_NOT_CONFIGURED` continua bloqueando toda confirmação, mesmo com a migration aplicada.
+
+**UI**: `/reservas/[id]` ganhou um bloco "Venda / Taxa marketplace / Você recebe" (só quando existe pagamento confirmado), valores em R$ direto dos snapshots -- nenhum basis point exposto na UI.
+
+**Testes**: 24 cenários (10% de 3 valores redondos, centavos quebrados com arredondamento determinístico, valor mínimo, fee=0 válida vs. ausência de config, fee>100%/negativa rejeitadas, ausência total de config → fail closed, ledger platform_revenue vs operator_blocked com valor real, mudança 10%→12% não afeta snapshot antigo -- replay confirma, venda nova usa o novo valor, refund usa snapshot mesmo com config já mudada, isolamento de bucket no saque, verificação estrutural de que nenhum grant novo abre a config pro operador). **24/24 passaram.** `npx tsc --noEmit`, `npx eslint .` (0 erros, 4 warnings pré-existentes) e `npx next build` -- todos limpos.
+
+**Migration `0057`**: nova, não sobrescreve `0052`-`0056` (nenhuma aplicada ainda). Não aplicada nesta etapa. Seed de 10% preparado como comando separado, não executado.
+
+## 87. Operação administrativa oficial pra configurar a comissão global -- fecha a pendência do seed (sessão de 2026-08-31)
+
+Fechamento da seção 86: em vez de depender de um `INSERT` solto executado à mão em `marketplace_fee_config`, migration `0058` (local, **não aplicada**) cria `set_marketplace_global_fee_config(p_fee_basis_points, p_note)` -- único caminho oficial pra configurar a comissão global. Decisão de arquitetura completa em `docs/adr/0006-marketplace-global-commission.md` (seções novas). Nenhum pagamento real ativado, nenhuma chamada ao Asaas.
+
+**Por que uma RPC em tempo de execução resolve o que o `INSERT` na migration não resolvia**: o problema encontrado na seção 86 era específico da conexão de `db push` (sem contexto de JWT, `auth.role()` resolve NULL). Uma chamada à RPC em produção -- via `service_role` (script/backend) ou uma sessão `authenticated` real de `super_admin` -- **tem** JWT de verdade, então `auth.role()`/`is_super_admin()` resolvem corretamente e o guard (trigger de `0053` + checagem redundante dentro da própria RPC) funciona como desenhado.
+
+**Autorização testada nos 6 papéis**: `service_role`✓, `super_admin`✓ (via sessão `authenticated` real + `is_super_admin()`), `company_admin`✗, `staff`✗, `authenticated` comum✗, `anon`✗ (`FORBIDDEN` em todos os 4 últimos).
+
+**ACL revisada explicitamente, sem repetir o incidente `0044`/`0048`**: `EXECUTE` concedido a `authenticated` (necessário -- não existe papel Postgres/PostgREST separado pra `super_admin`, a sessão dele é uma `authenticated` normal) e a `service_role` -- não é contradição com "authenticated comum nunca configura", a restrição real é a checagem de role DENTRO da função, não a ACL do Postgres. Confirmado que a função não chama nenhuma outra função com ACL própria por dentro (só `is_super_admin()`) -- sem o padrão de chamada transitiva que gerou o incidente anterior.
+
+**`SECURITY DEFINER` necessário**: a tabela não concede `INSERT` a ninguém além do dono -- sem isso, nem um `super_admin` autenticado teria privilégio de escrita.
+
+**Versionamento reconfirmado**: cada chamada insere uma linha nova, nunca sobrescreve. Testado: 1000→1200 gera duas linhas, config vigente muda pra 1200, mas o snapshot já capturado por uma venda anterior permanece 1000 (protegido pelo trigger de imutabilidade de `payments`, não por esta função).
+
+**Range**: 0 (0%, válido) até 10000 (100%, teto real -- nenhum limite comercial abaixo disso foi inventado) aceitos; negativo e >10000 rejeitados (`INVALID_FEE_BASIS_POINTS`).
+
+**Procedimento futuro exato pra ativar os 10%**: `supabase.rpc('set_marketplace_global_fee_config', { p_fee_basis_points: 1000, p_note: '...' })`, chamado com a `service_role` key ou por sessão de `super_admin`, com autorização própria e SEPARADA, depois de `0057`/`0058` já aplicadas. Até essa chamada acontecer de verdade, `MARKETPLACE_FEE_NOT_CONFIGURED` continua bloqueando toda confirmação -- schema pronto não é configuração ativa.
+
+**Testes**: 23 cenários (matriz de autorização nos 6 papéis, range 0/1000/10000 aceitos e negativo/>10000 rejeitados, versionamento 1000→1200 com snapshot antigo preservado, ausência de config continua fail-closed, verificação estrutural do ACL real no arquivo -- revoke de public/anon, grant só service_role+authenticated, checagem FORBIDDEN presente, SECURITY DEFINER presente, search_path fixo, nenhuma chamada transitiva arriscada). **23/23 passaram.** `npx tsc --noEmit`, `npx eslint .` (0 erros, 4 warnings pré-existentes) e `npx next build` -- todos limpos.
+
+**Migration `0058`**: nova, não sobrescreve `0052`-`0057` (nenhuma aplicada ainda). Não aplicada nesta etapa.
