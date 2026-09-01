@@ -6,6 +6,10 @@ import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { brl, fmtDate, startEndOfToday } from "@/lib/format";
 import { BarsChart } from "../dashboard/bars-chart";
+import { getFinancialSummary } from "./payout-actions";
+import { PayoutAccountForm } from "./payout-account-ui";
+import { listWithdrawals } from "./withdrawal-actions";
+import { WithdrawalPanel, WithdrawalHistory } from "./withdrawal-ui";
 
 const MONTH_NAMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -22,6 +26,9 @@ export default async function FinanceiroPage(props: { searchParams: Promise<{ p?
   // faturamento nao e coisa de operador (staff) ver
   const profile = await getProfile();
   if (profile?.role === "staff") redirect("/dashboard");
+
+  const summary = await getFinancialSummary();
+  const withdrawals = await listWithdrawals();
 
   const searchParams = await props.searchParams;
   const p = searchParams.p === "ano" ? "ano" : "mes";
@@ -84,6 +91,82 @@ export default async function FinanceiroPage(props: { searchParams: Promise<{ p?
   return (
     <>
       <PageHeader title="Financeiro" subtitle="Movimentação do período selecionado, com base nas reservas." />
+
+      <Card className="mb-5">
+        <h2 className="mb-1 font-display text-base font-semibold text-heading">Marketplace ToursFlow — Recebimento</h2>
+        <p className="mb-4 text-xs text-muted">
+          Saldo das vendas feitas pelo marketplace ToursFlow. Nenhuma transferência real acontece enquanto o saque não
+          estiver habilitado e sua chave Pix não estiver verificada.
+        </p>
+        {"error" in summary ? (
+          <p className="text-sm text-danger">{summary.error}</p>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted">Saldo bloqueado</p>
+                  <p className="mt-1 font-display text-lg font-semibold text-heading">{brl(summary.blockedCents)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted">Saldo disponível</p>
+                  <p className="mt-1 font-display text-lg font-semibold text-ok">{brl(summary.availableCents)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted">Em processamento de saque</p>
+                  <p className="mt-1 text-sm text-body">{brl(summary.pendingWithdrawalCents)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted">Já transferido</p>
+                  <p className="mt-1 text-sm text-body">{brl(summary.transferredCents)}</p>
+                </div>
+              </div>
+              <WithdrawalPanel
+                availableCents={summary.availableCents}
+                payoutMasked={summary.payout?.pixKeyMasked ?? null}
+                canWithdraw={Boolean(summary.payout) && summary.payout?.verificationStatus === "verified"}
+                blockedReason={
+                  !summary.payout
+                    ? "Cadastre uma chave Pix para poder sacar."
+                    : summary.payout.verificationStatus !== "verified"
+                      ? "Sua chave Pix ainda não foi verificada -- saque indisponível até a verificação."
+                      : null
+                }
+              />
+            </div>
+            <div className="border-t border-line pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Conta para recebimento</p>
+              {summary.payout ? (
+                <div className="mb-3 flex items-center justify-between rounded-lg border border-line bg-surface px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-heading">{summary.payout.pixKeyMasked}</p>
+                    <p className="text-xs text-muted">Chave {summary.payout.pixKeyType.toUpperCase()}</p>
+                  </div>
+                  <Badge tone={summary.payout.verificationStatus === "verified" ? "green" : summary.payout.verificationStatus === "rejected" ? "red" : "amber"}>
+                    {summary.payout.verificationStatus === "verified"
+                      ? "Verificada"
+                      : summary.payout.verificationStatus === "rejected"
+                        ? "Rejeitada"
+                        : "Titularidade não verificada"}
+                  </Badge>
+                </div>
+              ) : (
+                <p className="mb-3 text-sm text-muted">Nenhuma chave Pix cadastrada ainda.</p>
+              )}
+              <PayoutAccountForm hasExisting={Boolean(summary.payout)} />
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card className="mb-5">
+        <h2 className="mb-3 font-display text-base font-semibold text-heading">Histórico de saques</h2>
+        {Array.isArray(withdrawals) ? (
+          <WithdrawalHistory withdrawals={withdrawals} />
+        ) : (
+          <p className="text-sm text-danger">{withdrawals.error}</p>
+        )}
+      </Card>
 
       <div className="mb-4 flex gap-2">
         <Link

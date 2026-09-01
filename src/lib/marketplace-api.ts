@@ -5,7 +5,7 @@
 //
 // Só importado por código server-only (a própria rota) -- import de "crypto"
 // abaixo nunca entra em bundle de client.
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 
 // Hold de vaga: decisão de produto já aprovada, fixo em 15 minutos (não é
 // parâmetro de configuração de ambiente -- é regra de negócio).
@@ -90,6 +90,27 @@ const CPF_DIGITS_PATTERN = /^\d{11}$/;
 
 export function isValidCpfDigits(digitsOnly: string): boolean {
   return CPF_DIGITS_PATTERN.test(digitsOnly);
+}
+
+// Autenticação server-to-server compartilhada por TODAS as rotas do
+// marketplace (POST /bookings, POST /bookings/[id]/payment, GET
+// /bookings/[id]) -- extraída aqui pra nunca duplicar a comparação de
+// segredo em mais de um lugar. Comparação em tempo constante -- mesmo
+// padrão do webhook do Asaas.
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+export function isAuthorizedToursFlowRequest(request: Request): boolean {
+  const secret = process.env.TOURSFLOW_API_SECRET;
+  if (!secret) return false;
+  const header = request.headers.get("authorization") || "";
+  const match = header.match(/^Bearer (.+)$/);
+  if (!match) return false;
+  return safeEqual(match[1], secret);
 }
 
 export type MarketplaceBookingErrorCode =
@@ -184,3 +205,118 @@ export function computeRequestFingerprint(input: {
   ].join("|");
   return createHash("sha256").update(canonical).digest("hex");
 }
+
+// ============================================================================
+// FASE 4A -- fundação de pagamento (POST /api/marketplace/bookings/[id]/payment,
+// GET /api/marketplace/bookings/[id]). NENHUMA chamada real ao Asaas acontece
+// por causa deste módulo -- ver src/lib/asaas.ts (createMarketplacePayment,
+// nunca invocada fora de teste) e docs/adr/0001-hold-expirado-vs-pagamento-
+// confirmado.md.
+// ============================================================================
+
+// Único método planejado (Fase 4B) -- nenhum outro é aceito, nem PIX de
+// verdade ainda (a chamada ao provider está desligada nesta fase, ver
+// MARKETPLACE_PAYMENTS_ENABLED abaixo).
+export const SUPPORTED_PAYMENT_METHODS = ["pix"] as const;
+export type SupportedPaymentMethod = (typeof SUPPORTED_PAYMENT_METHODS)[number];
+
+export function isSupportedPaymentMethod(value: unknown): value is SupportedPaymentMethod {
+  return typeof value === "string" && (SUPPORTED_PAYMENT_METHODS as readonly string[]).includes(value);
+}
+
+// Feature flag explícita (mesmo padrão de IMAGE_MODERATION_MODE) -- nunca
+// inferida pela presença/ausência de uma chave Asaas. Enquanto false (o
+// default, e o único valor válido nesta fase), o endpoint de pagamento
+// valida e registra a tentativa (idempotente, com o valor recalculado
+// server-side) mas NUNCA chama o Asaas de verdade -- termina em
+// PAYMENT_PROVIDER_NOT_ENABLED. Fica pronta pra Fase 4B só trocar esta env
+// var, sem precisar mexer no contrato do endpoint.
+export function isMarketplacePaymentsEnabled(): boolean {
+  return process.env.MARKETPLACE_PAYMENTS_ENABLED === "true";
+}
+
+export type MarketplacePaymentErrorCode =
+  | "INVALID_REQUEST"
+  | "INVALID_IDEMPOTENCY_KEY"
+  | "INVALID_CLIENT_KEY"
+  | "UNAUTHORIZED"
+  | "BOOKING_NOT_FOUND"
+  | "BOOKING_NOT_PENDING"
+  | "HOLD_EXPIRED"
+  | "DEPARTURE_NOT_FOUND"
+  | "COMPANY_NOT_AVAILABLE"
+  | "PAYMENT_METHOD_NOT_SUPPORTED"
+  | "PAYMENT_IDEMPOTENCY_CONFLICT"
+  | "PAYMENT_ALREADY_ACTIVE"
+  | "PAYMENT_PROVIDER_NOT_ENABLED"
+  | "CUSTOMER_DOCUMENT_REQUIRED"
+  | "PAYMENT_PROVIDER_ERROR"
+  | "RATE_LIMITED"
+  | "INTERNAL_ERROR";
+
+export const MARKETPLACE_PAYMENT_ERROR_STATUS: Record<MarketplacePaymentErrorCode, number> = {
+  INVALID_REQUEST: 400,
+  INVALID_IDEMPOTENCY_KEY: 400,
+  INVALID_CLIENT_KEY: 400,
+  UNAUTHORIZED: 401,
+  // mesmo princípio de "não revelar motivo administrativo"/isolamento entre
+  // companies já usado no resto do marketplace: um bookingId de outra
+  // company, inexistente, ou que nunca foi criado via marketplace são todos
+  // indistinguíveis do ponto de vista de quem chama.
+  BOOKING_NOT_FOUND: 404,
+  BOOKING_NOT_PENDING: 409,
+  HOLD_EXPIRED: 409,
+  DEPARTURE_NOT_FOUND: 404,
+  COMPANY_NOT_AVAILABLE: 404,
+  PAYMENT_METHOD_NOT_SUPPORTED: 422,
+  PAYMENT_IDEMPOTENCY_CONFLICT: 409,
+  // já existe uma tentativa pending/paid pra esta reserva -- só libera nova
+  // tentativa depois que a anterior sair desses dois estados (ver
+  // payments_one_active_per_reservation, migration 0052).
+  PAYMENT_ALREADY_ACTIVE: 409,
+  PAYMENT_PROVIDER_NOT_ENABLED: 501,
+  // Asaas exige CPF/CNPJ pra criar o customer -- reserva sem documento
+  // válido nunca chega a gerar cobrança (ver create_marketplace_payment_
+  // attempt, migration 0059).
+  CUSTOMER_DOCUMENT_REQUIRED: 422,
+  // erro inesperado na chamada ao Asaas (rede, resposta malformada, etc) --
+  // nunca vaza o payload bruto do provider pro ToursFlow.
+  PAYMENT_PROVIDER_ERROR: 502,
+  RATE_LIMITED: 429,
+  INTERNAL_ERROR: 500,
+};
+
+export type MarketplacePixDTO = {
+  payload: string;
+  encodedImage: string;
+  expirationDate: string | null;
+};
+
+export type MarketplacePaymentAttemptDTO = {
+  paymentId: string;
+  // "pending" no caminho normal (tentativa nova ou replay ainda não
+  // liquidada) -- outros valores só aparecem no replay de um pagamento que
+  // já saiu de pending por conta do webhook de liquidação (paid/failed/
+  // refunded/partially_refunded, ver payments.status).
+  status: "pending" | "paid" | "failed" | "refunded" | "partially_refunded";
+  paymentMethod: SupportedPaymentMethod;
+  amountCents: number;
+  currency: "BRL";
+  // presente só quando a cobrança PIX já foi criada/reconciliada no
+  // provider -- ausente se o pagamento já não estava mais pending (nunca
+  // reexibe um QR de uma cobrança já paga).
+  pix?: MarketplacePixDTO;
+};
+
+export type MarketplaceBookingStatusDTO = {
+  bookingId: string;
+  bookingStatus: "pendente" | "confirmada" | "cancelada";
+  holdExpiresAt: string | null;
+  quantity: number;
+  priceCents: number;
+  totalCents: number;
+  payment: { status: string; method: string | null } | null;
+  // presente só enquanto o pagamento está pending E o hold ainda não venceu
+  // -- ver src/app/api/marketplace/bookings/[id]/route.ts.
+  pix?: MarketplacePixDTO;
+};

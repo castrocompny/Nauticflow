@@ -6,13 +6,17 @@ import { Card, Badge } from "@/components/ui";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { AddPassengerForm } from "./passengers-ui";
 import { setPassengerStatus, removePassenger } from "./passenger-actions";
+import { OutcomeButtons } from "./outcome-ui";
+import { getPaymentBreakdown } from "./outcome-actions";
 import { resendVoucher } from "../actions";
 import { VoucherActions } from "@/components/voucher-actions";
+import { brl } from "@/lib/format";
 
 type Detail = {
   id: string;
   people_count: number;
   status: string;
+  outcome: string | null;
   clients: { name: string } | null;
   departures: { departs_at: string; vessels: { name: string } | null } | null;
   passengers: {
@@ -36,7 +40,7 @@ export default async function ReservationDetail(props: { params: Promise<{ id: s
   const { data } = await supabase
     .from("reservations")
     .select(
-      "id, people_count, status, clients(name), departures(departs_at, vessels(name)), passengers(id, name, document, nationality, status)"
+      "id, people_count, status, outcome, clients(name), departures(departs_at, vessels(name)), passengers(id, name, document, nationality, status)"
     )
     .eq("id", params.id)
     .single();
@@ -45,6 +49,9 @@ export default async function ReservationDetail(props: { params: Promise<{ id: s
   const r = data as unknown as Detail;
   const used = r.passengers.length;
   const remaining = r.people_count - used;
+  const embarkedCount = r.passengers.filter((p) => p.status === "embarcado").length;
+  const absentCount = r.passengers.filter((p) => p.status === "ausente").length;
+  const breakdown = await getPaymentBreakdown(r.id);
 
   return (
     <>
@@ -73,6 +80,30 @@ export default async function ReservationDetail(props: { params: Promise<{ id: s
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Voucher do cliente</p>
         <VoucherActions reservationId={r.id} resend={resendVoucher} />
       </div>
+
+      {breakdown && (
+        <div className="mb-5 rounded-card border border-line bg-surface p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Venda (marketplace ToursFlow)</p>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-xs text-muted">Venda</p>
+              <p className="mt-1 text-sm font-medium text-heading">{brl(breakdown.grossAmountCents)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted">Taxa marketplace</p>
+              <p className="mt-1 text-sm font-medium text-danger">-{brl(breakdown.platformFeeCents)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted">Você recebe</p>
+              <p className="mt-1 text-sm font-medium text-ok">{brl(breakdown.operatorAmountCents)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {r.status === "confirmada" && (
+        <OutcomeButtons reservationId={r.id} currentOutcome={r.outcome} embarkedCount={embarkedCount} absentCount={absentCount} />
+      )}
 
       <div className="space-y-2">
         {r.passengers.map((p) => (
