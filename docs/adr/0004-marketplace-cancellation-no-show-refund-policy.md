@@ -247,3 +247,7 @@ resolver, com mais entradas possíveis alimentando a fila.
 ## Atualização (migration `0061`)
 
 A última pendência acima foi fechada: `initiateRealMarketplaceRefund()` (super_admin only, ver ADR `0007`) agora DISPARA um estorno real no Asaas, além de reconciliar o que chega de fora. `create_marketplace_refund_request` continua com a mesma autorização de sempre (`company_admin`/`super_admin`) para o pedido interno -- a restrição a `super_admin` é só na camada nova de acionar o provider de verdade. Migration `0061` não aplicada em produção; nenhum reembolso real possível enquanto `MARKETPLACE_PAYMENTS_ENABLED` estiver desligado.
+
+## Atualização (migration `0062`)
+
+Hotfix de um bug de rollback encontrado em `mark_marketplace_refund_processing` (0061) antes de ir pra produção -- detalhes completos no ADR `0007` e em `DOCUMENTACAO.md` seção 98. `create_marketplace_refund_request` (autorização `company_admin`/`super_admin`, inalterada) não foi afetado pelo bug -- o problema era só no ramo de reconciliação de `provider_refund_id` divergente.

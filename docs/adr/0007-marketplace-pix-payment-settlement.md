@@ -420,3 +420,7 @@ API. Testado estruturalmente.
 ## Atualização (migration `0061`) -- provider refund real ativado
 
 Ver nota inline na seção `PAYMENT_REFUND_IN_PROGRESS`/`PAYMENT_REFUNDED`/`PAYMENT_PARTIALLY_REFUNDED` acima. Pendências que continuam de pé mesmo com o adapter pronto: migration `0061` não aplicada em produção; `MARKETPLACE_PAYMENTS_ENABLED` continua desligado, então nenhum reembolso real pode acontecer ainda (nada pra reembolsar); teste real contra o Asaas Produção (auth + refund controlado) segue pendente pelo mesmo motivo estrutural desta sessão (extração de segredo de produção bloqueada, ver `DOCUMENTACAO.md` seção 96) -- só testável quando um pagamento real existir.
+
+## Atualização (migration `0062`) -- hotfix de rollback em mark_marketplace_refund_processing
+
+Achado em revisão antes de `0061` ir pra produção: o ramo de `provider_refund_id` divergente fazia `UPDATE` seguido de `RAISE EXCEPTION` na mesma chamada -- a exception reverte o `UPDATE` junto (transação por request do PostgREST), então o `manual_review` nunca era persistido de verdade. Corrigido via `RETURN` normal em vez de exception (mesma transação de sucesso). Server action também endurecido -- passa a validar `data`/`error` da RPC de verdade (`interpretMarkProcessingResult()`, `src/lib/marketplace-refund-reconciliation.ts`), nunca reporta `processing` sem confirmação explícita. `0061` não foi alterada; `0062` é uma `create or replace function` nova. Ver `DOCUMENTACAO.md` seção 98 para os detalhes completos e os testes.

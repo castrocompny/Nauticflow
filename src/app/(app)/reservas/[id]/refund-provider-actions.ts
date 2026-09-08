@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
 import { logSecurityEvent } from "@/lib/security-log";
 import { initiateMarketplacePaymentRefund } from "@/lib/asaas";
+import { interpretMarkProcessingResult, type MarkProcessingRpcRow } from "@/lib/marketplace-refund-reconciliation";
 
 type InitiateRealRefundResult = { error: string; ok?: boolean; status?: string; refundId?: string };
 
@@ -94,12 +95,24 @@ export async function initiateRealMarketplaceRefund(reservationId: string): Prom
     return { error: result.error, refundId: req.id };
   }
 
-  await admin.rpc("mark_marketplace_refund_processing", {
-    p_refund_id: req.id,
-    p_provider_refund_id: result.data.providerRefundId,
-  });
+  const { data: markData, error: markError } = await admin
+    .rpc("mark_marketplace_refund_processing", {
+      p_refund_id: req.id,
+      p_provider_refund_id: result.data.providerRefundId,
+    })
+    .maybeSingle();
+
+  const outcome = interpretMarkProcessingResult(markData as MarkProcessingRpcRow, markError ? { message: markError.message } : null);
+  if (!outcome.ok) {
+    // NUNCA reporta sucesso/processing quando a RPC não confirmou
+    // explicitamente -- cobre tanto erro de RPC (provider já pode ter
+    // aceitado o refund, uma nova tentativa reconcilia sem duplicar) quanto
+    // manual_review (mismatch de provider_refund_id, 0062).
+    logSecurityEvent("marketplace_refund_mark_processing_failed", { refundId: req.id, logCode: outcome.logCode });
+    return { error: outcome.error, refundId: req.id };
+  }
 
   logSecurityEvent("marketplace_refund_provider_initiated", { refundId: req.id });
   revalidatePath(`/reservas/${reservationId}`);
-  return { error: "", ok: true, status: "processing", refundId: req.id };
+  return { error: "", ok: true, status: outcome.status, refundId: req.id };
 }
