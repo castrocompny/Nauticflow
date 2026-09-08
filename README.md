@@ -40,35 +40,6 @@ Cada empresa opera dentro do seu próprio espaço isolado, com controle de vagas
 
 ---
 
-## Capturas de tela
-
-### Dashboard
-Indicadores do dia, desempenho por período e agenda da operação.
-
-![Dashboard](docs/screenshots/dashboard.png)
-
-### Saídas
-Cada saída é uma embarcação em uma data e hora, com ocupação e acesso direto ao manifesto.
-
-![Saídas](docs/screenshots/saidas.png)
-
-### Embarcações
-Capacidade oficial e capacidade comercial calculada por embarcação.
-
-![Embarcações](docs/screenshots/embarcacoes.png)
-
-### Financeiro
-Receita do período e recebimento das vendas do marketplace via Pix, com saldo bloqueado, saldo disponível e histórico de saques.
-
-![Financeiro](docs/screenshots/financeiro.png)
-
-### Relatórios
-Indicadores por período e ranking de embarcações mais utilizadas.
-
-![Relatórios](docs/screenshots/relatorios.png)
-
----
-
 ## Módulos
 
 | Módulo | O que faz |
