@@ -424,3 +424,7 @@ Ver nota inline na seção `PAYMENT_REFUND_IN_PROGRESS`/`PAYMENT_REFUNDED`/`PAYM
 ## Atualização (migration `0062`) -- hotfix de rollback em mark_marketplace_refund_processing
 
 Achado em revisão antes de `0061` ir pra produção: o ramo de `provider_refund_id` divergente fazia `UPDATE` seguido de `RAISE EXCEPTION` na mesma chamada -- a exception reverte o `UPDATE` junto (transação por request do PostgREST), então o `manual_review` nunca era persistido de verdade. Corrigido via `RETURN` normal em vez de exception (mesma transação de sucesso). Server action também endurecido -- passa a validar `data`/`error` da RPC de verdade (`interpretMarkProcessingResult()`, `src/lib/marketplace-refund-reconciliation.ts`), nunca reporta `processing` sem confirmação explícita. `0061` não foi alterada; `0062` é uma `create or replace function` nova. Ver `DOCUMENTACAO.md` seção 98 para os detalhes completos e os testes.
+
+## Atualização (2026-09-08) -- 0061/0062 aplicadas em produção
+
+Ambas aplicadas manualmente via Supabase Dashboard → SQL Editor (conectividade do CLI indisponível). RPCs, `SECURITY DEFINER` e ACL `service_role`-only confirmados ao vivo; versão final de `mark_marketplace_refund_processing` é a corrigida (0062), não a com o bug de rollback. Reembolso real controlado está pronto no banco -- falta só `MARKETPLACE_PAYMENTS_ENABLED` (ainda OFF) e um pagamento real existir. Detalhes completos em `DOCUMENTACAO.md` seção 99.

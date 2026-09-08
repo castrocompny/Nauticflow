@@ -251,3 +251,7 @@ A última pendência acima foi fechada: `initiateRealMarketplaceRefund()` (super
 ## Atualização (migration `0062`)
 
 Hotfix de um bug de rollback encontrado em `mark_marketplace_refund_processing` (0061) antes de ir pra produção -- detalhes completos no ADR `0007` e em `DOCUMENTACAO.md` seção 98. `create_marketplace_refund_request` (autorização `company_admin`/`super_admin`, inalterada) não foi afetado pelo bug -- o problema era só no ramo de reconciliação de `provider_refund_id` divergente.
+
+## Atualização (2026-09-08) -- 0061/0062 aplicadas em produção
+
+Aplicadas manualmente via SQL Editor do Supabase Dashboard. `initiateRealMarketplaceRefund()` (super_admin only) já pode ser usada assim que `MARKETPLACE_PAYMENTS_ENABLED` for ligada e existir um pagamento real -- ainda não ligada. Detalhes em `DOCUMENTACAO.md` seção 99.
