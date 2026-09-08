@@ -243,3 +243,7 @@ resolver, com mais entradas possíveis alimentando a fila.
 - Percentuais reais de política de cancelamento -- ainda nenhum tour tem `marketplace_refund_policy` configurada; nenhum valor oficial definido.
 - Taxas do provider Asaas em reembolso -- pendência já registrada no ADR `0002`, ainda não endereçada.
 - Ativação real de qualquer coisa desta fase depende da Fase de integração real com o Asaas -- o webhook de confirmação de estorno assíncrono em si já existe (ADR `0007`), mas nenhum estorno real é DISPARADO por este projeto ainda (só reconciliado quando chega de fora).
+
+## Atualização (migration `0061`)
+
+A última pendência acima foi fechada: `initiateRealMarketplaceRefund()` (super_admin only, ver ADR `0007`) agora DISPARA um estorno real no Asaas, além de reconciliar o que chega de fora. `create_marketplace_refund_request` continua com a mesma autorização de sempre (`company_admin`/`super_admin`) para o pedido interno -- a restrição a `super_admin` é só na camada nova de acionar o provider de verdade. Migration `0061` não aplicada em produção; nenhum reembolso real possível enquanto `MARKETPLACE_PAYMENTS_ENABLED` estiver desligado.

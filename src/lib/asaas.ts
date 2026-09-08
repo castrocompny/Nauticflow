@@ -454,3 +454,58 @@ export async function cancelMarketplacePendingPayment(providerPaymentId: string)
 
   return { ok: true, data: { cancelled: true } };
 }
+
+// ============================================================================
+// REEMBOLSO REAL -- fecha o gap documentado no ADR 0007 ("nenhum provider
+// refund real está ativado"). Contrato oficial: POST /v3/payments/{id}/refund,
+// body { value } em reais (omitir value = reembolso integral -- este adapter
+// SEMPRE envia value explícito, nunca depende do comportamento implícito).
+// Resposta é o payment inteiro, com um array `refunds` -- o item mais recente
+// é o que acabou de ser criado.
+//
+// Sem campo de idempotência/externalReference no contrato de refund (só
+// existe pra customer/payment) -- a estratégia aqui é DIFERENTE da usada
+// nesses dois casos: antes de criar, consulta o payment e recusa (fail
+// closed, nunca adivinha) se já existir QUALQUER refund registrado nele.
+// Isso cobre tanto "outra pessoa/processo já reembolsou essa cobrança" (nunca
+// visto por nós antes) quanto "uma chamada anterior nossa teve a resposta
+// perdida, mas o POST já tinha ido pro Asaas" -- em ambos os casos, a decisão
+// certa é parar e deixar um humano reconciliar, nunca criar um segundo
+// reembolso às cegas. Limitação conhecida e aceita, mesmo espírito do
+// AMBIGUOUS_CUSTOMER_MATCH/AMBIGUOUS_PAYMENT_MATCH já existentes.
+// ============================================================================
+
+type AsaasRefundEntry = { id: string; value: number; status: string };
+type AsaasPaymentWithRefunds = { refunds?: AsaasRefundEntry[] };
+
+export type MarketplaceRefundInitiationResult = { providerRefundId: string; status: string };
+
+export async function initiateMarketplacePaymentRefund(params: {
+  providerPaymentId: string;
+  amountCents: number; // customer_refund_cents já calculado pelo banco -- nunca vindo do browser
+}): Promise<AsaasResult<MarketplaceRefundInitiationResult>> {
+  const guard = guardMarketplacePixCall();
+  if ("error" in guard) return { ok: false, error: guard.error };
+
+  if (guard.mode === "mock") {
+    return { ok: true, data: { providerRefundId: `mock-refund-${params.providerPaymentId}`, status: "PENDING" } };
+  }
+
+  const existing = await asaasFetch<AsaasPaymentWithRefunds>(`/payments/${encodeURIComponent(params.providerPaymentId)}`, "GET");
+  if (!existing.ok) return existing;
+
+  if ((existing.data.refunds ?? []).length > 0) {
+    return { ok: false, error: "AMBIGUOUS_EXISTING_REFUND" };
+  }
+
+  const created = await asaasFetch<AsaasPaymentWithRefunds>(`/payments/${encodeURIComponent(params.providerPaymentId)}/refund`, "POST", {
+    value: centsToReaisForProvider(params.amountCents),
+  });
+  if (!created.ok) return created;
+
+  const refunds = created.data.refunds ?? [];
+  const last = refunds[refunds.length - 1];
+  if (!last) return { ok: false, error: "REFUND_ID_MISSING_IN_RESPONSE" };
+
+  return { ok: true, data: { providerRefundId: last.id, status: last.status } };
+}

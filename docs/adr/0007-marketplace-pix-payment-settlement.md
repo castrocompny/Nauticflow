@@ -219,6 +219,25 @@ refunds` específico fica pra quando a integração de estorno real existir
 -- decisão explícita de não inventar essa lógica sem um caminho real de
 refund pra testar contra.
 
+> **Atualização (migration `0060`)**: a correlação automática acima JÁ
+> existe -- `reconcile_marketplace_refund_webhook_event` (0060) é o ponto
+> único de entrada pros 4 eventos de refund. Ver seção "Fechamento" mais
+> abaixo.
+>
+> **Atualização (migration `0061`)**: **o provider refund real agora está
+> ativado.** `initiateMarketplacePaymentRefund()` (`src/lib/asaas.ts`)
+> chama `POST /v3/payments/{id}/refund` de verdade, acionável só por
+> `super_admin` via `initiateRealMarketplaceRefund()`
+> (`src/app/(app)/reservas/[id]/refund-provider-actions.ts`). Sem campo de
+> idempotência/externalReference no contrato oficial de refund (diferente
+> de customer/payment) -- a estratégia de idempotência é checar `GET
+> /payments/{id}` antes de criar: qualquer refund já existente ali recusa
+> com `AMBIGUOUS_EXISTING_REFUND`, nunca cria um segundo às cegas.
+> `mark_marketplace_refund_processing` (0061, `service_role`-only) persiste
+> `provider_refund_id` assim que o POST responde com sucesso -- **nunca
+> marca `completed`**, o webhook continua sendo a única autoridade. Migration
+> `0061` local, não aplicada em produção ainda.
+
 ## Webhook -- três fluxos independentes, nenhum quebrado
 
 `src/app/api/webhooks/asaas/route.ts` agora trata três famílias de evento:
@@ -397,3 +416,7 @@ API. Testado estruturalmente.
 - Cron real pra cleanup de cobranças pending -- não criado (infraestrutura de cron complexa fora de escopo); `attemptMarketplacePaymentCleanup` já está pronta pra ser o corpo de um cron futuro, chamada hoje só de forma lazy (status endpoint + retry do payment endpoint).
 - Comissão global (10%) continua não configurada em produção -- nenhuma liquidação real é possível até `set_marketplace_global_fee_config` ser chamada de verdade (ADR `0006`).
 - ToursFlow não foi alterado -- fora de escopo desta etapa, conforme instrução explícita.
+
+## Atualização (migration `0061`) -- provider refund real ativado
+
+Ver nota inline na seção `PAYMENT_REFUND_IN_PROGRESS`/`PAYMENT_REFUNDED`/`PAYMENT_PARTIALLY_REFUNDED` acima. Pendências que continuam de pé mesmo com o adapter pronto: migration `0061` não aplicada em produção; `MARKETPLACE_PAYMENTS_ENABLED` continua desligado, então nenhum reembolso real pode acontecer ainda (nada pra reembolsar); teste real contra o Asaas Produção (auth + refund controlado) segue pendente pelo mesmo motivo estrutural desta sessão (extração de segredo de produção bloqueada, ver `DOCUMENTACAO.md` seção 96) -- só testável quando um pagamento real existir.
