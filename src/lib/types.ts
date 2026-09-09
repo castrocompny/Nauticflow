@@ -112,6 +112,23 @@ export type Departure = {
   status: DepartureStatus;
   price_cents: number | null;
   price_type: TourPriceType | null;
+  schedule_rule_id?: string | null;
+};
+
+export type TourScheduleRule = {
+  id: string;
+  company_id: string;
+  tour_id: string;
+  vessel_id: string;
+  days_of_week: number[];
+  times: string[];
+  horizon_days: number;
+  capacity_override: number | null;
+  price_cents_override: number | null;
+  auto_extend: boolean;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Reservation = {
