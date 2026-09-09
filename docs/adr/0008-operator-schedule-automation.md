@@ -215,3 +215,71 @@ manual excepcional.
   com um segundo componente de progresso agora.
 - Branch não mesclada em `main`, nada deployado, nenhuma migration
   aplicada, nenhum dinheiro movimentado.
+
+## Revisão independente -- blockers reais corrigidos antes de aplicar
+
+**Bug real, teria impedido a aplicação**: o CHECK constraint de validação
+de `days_of_week` usava um sub-select (`not exists (select ... from
+unnest(...))`) -- Postgres proíbe sub-selects na expressão de um CHECK
+constraint (regra do banco, a migration inteira teria falhado ao aplicar).
+Corrigido pra `days_of_week <@ array[0,1,2,3,4,5,6]::smallint[]` (operador
+de array, sem sub-select). Duplicatas de dias/horários e janela de horário
+(08:00-19:00, mesma de `createDeparture`) viraram um trigger novo -- código
+PL/pgSQL comum pode usar sub-select livremente, só a expressão do CHECK em
+si não pode.
+
+**`UNIQUE (tour_id)`**: a garantia de "uma regra por passeio" agora é do
+banco, não de um `SELECT` seguido de `INSERT`/`UPDATE` no server action
+(que tinha uma corrida real). Server action trocado por
+`upsert(payload, { onConflict: "tour_id" })`.
+
+**Sellability ≠ preservação operacional**: nova coluna
+`departures.marketplace_sales_enabled`. "Preservar a saída" (nunca apagar,
+nunca mexer em reserva/preço/capacidade de algo com reserva relevante) e
+"continuar vendendo a saída" são decisões DIFERENTES -- uma departure
+protegida que deixou de bater com a regra atual (editada ou pausada) fica
+`sales_enabled=false`: continua existindo, operacional, com a reserva
+intacta, mas para de aceitar reserva NOVA. Calculado dentro de
+`reconcile_departures_for_schedule_rule` (a mesma função já reconciliava
+preço/capacidade -- sellability é só mais uma dimensão da mesma
+reconciliação, ver comentário na migration). `POST /api/marketplace/
+bookings` e `GET /api/public/tours/[slug]/departures` checam essa coluna
+-- únicos dois arquivos de marketplace tocados, contrato HTTP inalterado
+(reusam `DEPARTURE_NOT_SELLABLE` e o padrão de filtro que já existia pra
+`price_cents is not null`).
+
+**Herança de preço em "Datas específicas"**: `createDeparture()`
+(reaproveitada, inalterada) grava `NULL` quando o preço vem vazio -- certo
+pro contexto genérico de `/saidas`, errado pra UX da página do passeio
+("opcional -- usa o preço do passeio"). Resolvido só na camada nova
+(`createOneOffDepartureForTour`, via `resolveOneOffPriceReais()`, pura e
+testável): campo vazio → resolve `tours.base_price_cents` no servidor
+antes de delegar.
+
+**Preço-base do passeio reconcilia**: `updateTourFull()` chama a nova
+`reconcile_departures_for_tour(uuid)` (itera as regras do passeio) quando
+`base_price_cents` muda de verdade. Regra com `price_cents_override`
+nunca é afetada -- o `coalesce` já ignora o novo `base_price` sozinho.
+
+**Cron -- reconcile antes de generate**: sem isso, o horizonte
+auto-estendido nunca refletiria uma edição/pausa manual feita entre duas
+execuções do cron.
+
+**Timezone -- avaliado e mantido `-03:00` fixo**: `America/Sao_Paulo`
+nomeado foi considerado e descartado -- introduziria uma divergência real
+com `saoPauloToUTC()` (offset fixo, usada por "Datas específicas") se o
+Brasil algum dia reintroduzir horário de verão. Hoje os dois são
+numericamente idênticos; "modernizar" só um lado seria risco sem
+benefício. Teste explícito com a função real confirma `2026-09-20 10:00
+America/Sao_Paulo -> 2026-09-20T13:00:00Z`.
+
+**ACL de todas as 6 funções novas**: as 4 funções-trigger ganharam
+`revoke all` explícito (Supabase concede `EXECUTE` por padrão em função
+nova pra `anon`/`authenticated`/`service_role`, mesmo achado já
+documentado em `0044`) -- revogar não quebra o disparo do trigger em si.
+
+**Honestidade sobre o que não foi testado**: `0063` não foi aplicada nem
+validada contra um Postgres real nesta sessão (sem Docker/Supabase local).
+O bug do CHECK constraint foi encontrado por conhecimento da regra
+documentada do Postgres, não por execução observada. Toda a lógica de
+reconciliação foi verificada por revisão de código, não por execução.

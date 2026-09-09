@@ -81,3 +81,15 @@ export function summarizeGenerateRows(rows: GenerateRow[]): GenerateSummary {
   }
   return { generated, conflicts };
 }
+
+// Herança de preço pra "Datas específicas" (achado de hardening --
+// createDeparture(), reaproveitada sem alteração, grava NULL quando o campo
+// vem vazio; a UX aqui promete "opcional -- usa o preço do passeio"). Devolve
+// a STRING em reais que createOneOffDepartureForTour injeta no formData
+// antes de delegar -- nunca confia em preço vindo do browser: quando vazio,
+// resolve a partir de base_price_cents, sempre lido do servidor.
+export function resolveOneOffPriceReais(priceRaw: string, basePriceCents: number): string {
+  const trimmed = priceRaw.trim();
+  if (trimmed) return trimmed;
+  return (basePriceCents / 100).toFixed(2);
+}

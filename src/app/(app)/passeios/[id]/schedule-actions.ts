@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
 import { createDeparture } from "../../saidas/actions";
-import { validateRecurringScheduleInput, summarizeGenerateRows, type GenerateRow } from "@/lib/tour-schedule";
+import { validateRecurringScheduleInput, summarizeGenerateRows, resolveOneOffPriceReais, type GenerateRow } from "@/lib/tour-schedule";
 import type { TourScheduleRule } from "@/lib/types";
 
 type ActionResult = {
@@ -94,13 +94,6 @@ export async function saveRecurringSchedule(tourId: string, _prev: ActionResult,
   const { data: vessel } = await supabase.from("vessels").select("company_id").eq("id", vesselId).maybeSingle();
   if (!vessel || vessel.company_id !== profile.company_id) return { error: "Embarcação inválida." };
 
-  const { data: existing } = await supabase
-    .from("tour_schedule_rules")
-    .select("id")
-    .eq("tour_id", tourId)
-    .eq("company_id", profile.company_id)
-    .maybeSingle();
-
   const payload = {
     company_id: profile.company_id,
     tour_id: tourId,
@@ -114,12 +107,19 @@ export async function saveRecurringSchedule(tourId: string, _prev: ActionResult,
     active: true,
   };
 
-  const { data: ruleRow, error } = existing
-    ? await supabase.from("tour_schedule_rules").update(payload).eq("id", existing.id).select("id").single()
-    : await supabase.from("tour_schedule_rules").insert(payload).select("id").single();
+  // upsert no unique(tour_id) (migration 0063) -- garantia de UMA regra por
+  // passeio é do BANCO, não de um SELECT-before-INSERT (que teria uma
+  // corrida real entre duas chamadas concorrentes: as duas veriam "não
+  // existe" e as duas tentariam INSERT). ON CONFLICT resolve atomicamente.
+  const { data: ruleRow, error } = await supabase
+    .from("tour_schedule_rules")
+    .upsert(payload, { onConflict: "tour_id" })
+    .select("id")
+    .single();
 
   if (error) {
     if (error.message.includes("capacidade comercial")) return { error: error.message };
+    if (error.message.includes("duplicados") || error.message.includes("08:00 e 19:00")) return { error: error.message };
     console.error("saveRecurringSchedule:", error);
     return { error: "Não foi possível salvar a agenda. Tente novamente." };
   }
@@ -209,8 +209,35 @@ export async function reactivateRecurringSchedule(tourId: string): Promise<Actio
 // "Datas específicas" -- reaproveita createDeparture (src/app/(app)/saidas/actions.ts)
 // direto, sem duplicar validação/insert -- só garante tour_id pré-preenchido
 // e revalida a página do passeio também.
+//
+// Herança de preço (achado de hardening): createDeparture(), quando
+// price_cents vem vazio, grava NULL -- correto pro contexto de /saidas
+// (uso genérico, sem "preço do passeio" implícito na UX daquela tela), mas
+// contradiz a UX aqui ("Preço opcional -- usar preço do passeio"). Resolvido
+// SÓ nesta camada (nunca em createDeparture, que fica inalterado pra não
+// mudar o comportamento existente de /saidas): se o campo vier vazio,
+// resolve tours.base_price_cents no servidor (nunca confia no browser) e
+// pré-preenche o formData ANTES de delegar -- a departure nasce com
+// price_cents efetivo, porque departures.price_cents continua sendo a
+// única fonte de verdade do marketplace (sem fallback pra tours em tempo de
+// leitura).
 export async function createOneOffDepartureForTour(tourId: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   formData.set("tour_id", tourId);
+
+  const priceRaw = String(formData.get("price_cents") || "");
+  if (!priceRaw.trim()) {
+    const profile = await getProfile();
+    if (!profile?.company_id) return { error: "Sessão inválida." };
+    const supabase = createClient();
+    const { data: tour } = await supabase
+      .from("tours")
+      .select("base_price_cents")
+      .eq("id", tourId)
+      .eq("company_id", profile.company_id)
+      .maybeSingle();
+    if (tour) formData.set("price_cents", resolveOneOffPriceReais(priceRaw, tour.base_price_cents));
+  }
+
   const result = await createDeparture(_prev, formData);
   if (!result.error) revalidatePath(`/passeios/${tourId}`);
   return result;

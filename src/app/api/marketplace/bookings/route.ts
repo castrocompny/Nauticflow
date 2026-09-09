@@ -175,7 +175,7 @@ export async function POST(request: Request) {
   const { data: departure, error: departureError } = await admin
     .from("departures")
     .select(
-      "id, company_id, departs_at, status, price_cents, price_type, tours(id, slug, name, active, marketplace_status, marketplace_suspended_at, price_type), companies(suspended_at)"
+      "id, company_id, departs_at, status, price_cents, price_type, marketplace_sales_enabled, tours(id, slug, name, active, marketplace_status, marketplace_suspended_at, price_type), companies(suspended_at)"
     )
     .eq("id", departureId)
     .maybeSingle();
@@ -206,6 +206,15 @@ export async function POST(request: Request) {
     return fail("DEPARTURE_IN_PAST", "Esta saída já ocorreu.");
   }
   if (departure.status !== "agendada") {
+    return fail("DEPARTURE_NOT_SELLABLE", "Esta saída não está disponível para venda.");
+  }
+  // sales_enabled=false: saída automática que deixou de bater com a regra
+  // recorrente atual (editada ou pausada), ou uma protegida por reserva
+  // relevante que também saiu da regra (migration 0063, reconcile_
+  // departures_for_schedule_rule) -- continua operacional (reserva/pagamento
+  // existentes intactos), só não aceita NOVA reserva. Mesmo código de erro
+  // de "não vendável" -- nunca revela esse detalhe interno ao ToursFlow.
+  if (departure.marketplace_sales_enabled === false) {
     return fail("DEPARTURE_NOT_SELLABLE", "Esta saída não está disponível para venda.");
   }
   if (departure.price_cents == null) {

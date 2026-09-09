@@ -41,6 +41,10 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
     .gte("departs_at", new Date().toISOString())
     // saída sem preço definido ainda não está pronta pra venda no marketplace
     .not("price_cents", "is", null)
+    // marketplace_sales_enabled=false (migration 0063) -- automática que
+    // deixou de bater com a regra atual (editada/pausada), preservada por
+    // reserva mas fechada pra NOVA venda -- nunca listada aqui.
+    .eq("marketplace_sales_enabled", true)
     .order("departs_at", { ascending: true })
     .limit(MAX_DEPARTURES);
 

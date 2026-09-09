@@ -20,8 +20,17 @@ create table public.tour_schedule_rules (
   -- Postgres -- evita reinventar/reconverter em outro lugar.
   days_of_week smallint[] not null,
   -- horário local (São Paulo, sem tz) -- convertido pra UTC só no momento da
-  -- geração, mesmo espírito de saoPauloToUTC() (src/lib/format.ts), que usa
-  -- o mesmo offset fixo -03:00 (Brasil não observa mais horário de verão).
+  -- geração/reconciliação, sempre via `AT TIME ZONE '-03:00'` (offset fixo),
+  -- NUNCA `AT TIME ZONE 'America/Sao_Paulo'`. Decisão deliberada, avaliada e
+  -- descartada em hardening: o resto do projeto (saoPauloToUTC(),
+  -- src/lib/format.ts, usado por "Datas específicas"/createDeparture) já usa
+  -- o offset fixo -03:00 -- os dois são numericamente idênticos HOJE (Brasil
+  -- aboliu horário de verão em 2019), mas trocar só o lado SQL pro nome de
+  -- zona introduziria uma DIVERGÊNCIA real entre os dois modos se o horário
+  -- de verão algum dia voltar (já aconteceu antes no Brasil). Manter o
+  -- mesmo offset fixo dos dois lados é estritamente mais seguro do que
+  -- "modernizar" só um -- ver teste explícito de conversão na suíte desta
+  -- migration (2026-09-20 10:00 local -> 2026-09-20T13:00:00Z).
   times time[] not null,
   horizon_days int not null default 90 check (horizon_days in (30, 60, 90)),
   capacity_override int check (capacity_override is null or capacity_override > 0),
@@ -31,14 +40,22 @@ create table public.tour_schedule_rules (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint tour_schedule_rules_days_not_empty check (cardinality(days_of_week) > 0),
-  constraint tour_schedule_rules_days_valid check (not exists (
-    select 1 from unnest(days_of_week) d where d < 0 or d > 6
-  )),
-  constraint tour_schedule_rules_times_not_empty check (cardinality(times) > 0)
+  -- CORRIGIDO em hardening: a versão anterior usava `check (not exists
+  -- (select ... from unnest(...)))` -- Postgres REJEITA sub-selects dentro de
+  -- CHECK constraint (não é uma limitação de estilo, é uma regra do banco --
+  -- essa migration nunca teria conseguido nem ser aplicada). `<@` (contido
+  -- por) é um operador de array puro, sem sub-select, válido em CHECK --
+  -- expressa exatamente "todo elemento de days_of_week está em 0..6".
+  constraint tour_schedule_rules_days_valid check (days_of_week <@ array[0,1,2,3,4,5,6]::smallint[]),
+  constraint tour_schedule_rules_times_not_empty check (cardinality(times) > 0),
+  -- só UMA regra recorrente por passeio (modelo simples: "quando esse
+  -- passeio acontece", não uma lista de agendas nomeadas) -- garantia de
+  -- BANCO, não SELECT-before-INSERT (que teria uma corrida real entre duas
+  -- chamadas concorrentes). O server action agora faz upsert nesse unique.
+  constraint tour_schedule_rules_one_per_tour unique (tour_id)
 );
 
 create index on public.tour_schedule_rules (company_id);
-create index on public.tour_schedule_rules (tour_id);
 
 alter table public.tour_schedule_rules enable row level security;
 
@@ -76,9 +93,54 @@ begin
 end;
 $$;
 
+-- Trigger function -- só invocada pelo mecanismo de trigger (referencia
+-- NEW/OLD, chamada direta fora de um trigger simplesmente erra), mas
+-- revogada explicitamente mesmo assim (achado de hardening: Supabase
+-- concede EXECUTE em função nova pra anon/authenticated/service_role por
+-- padrão, independente de "revoke ... from public" sozinho -- mesmo
+-- achado já documentado em 0044 pra create_marketplace_booking). Custa
+-- nada, remove qualquer dependência do comportamento padrão.
+revoke all on function public.check_tour_schedule_rule_fk_company() from public, anon, authenticated, service_role;
+
 create trigger trg_tour_schedule_rule_fk_company
   before insert or update of company_id, vessel_id, tour_id on public.tour_schedule_rules
   for each row execute function public.check_tour_schedule_rule_fk_company();
+
+-- "não depender só de validação TypeScript" -- duplicatas e janela de
+-- horário (08:00-19:00, mesma janela já usada por createDeparture,
+-- saidas/actions.ts) validadas de novo aqui, no banco. Sub-selects/`array()`
+-- SÃO permitidos dentro do CORPO de uma função PL/pgSQL (a restrição do
+-- Postgres é só sobre a expressão de um CHECK constraint em si) -- por isso
+-- isso vira trigger, não um CHECK.
+create or replace function public.check_tour_schedule_rule_days_times()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_time time;
+begin
+  if cardinality(new.days_of_week) <> cardinality(array(select distinct d from unnest(new.days_of_week) d)) then
+    raise exception 'Dias da semana duplicados.';
+  end if;
+  if cardinality(new.times) <> cardinality(array(select distinct t from unnest(new.times) t)) then
+    raise exception 'Horários duplicados.';
+  end if;
+
+  foreach v_time in array new.times loop
+    if v_time < time '08:00' or v_time > time '19:00' then
+      raise exception 'O horário de saída deve ser entre 08:00 e 19:00.';
+    end if;
+  end loop;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.check_tour_schedule_rule_days_times() from public, anon, authenticated, service_role;
+
+create trigger trg_tour_schedule_rule_days_times
+  before insert or update of days_of_week, times on public.tour_schedule_rules
+  for each row execute function public.check_tour_schedule_rule_days_times();
 
 -- Mesma regra de set_departure_capacity (0000): a capacidade nunca pode
 -- passar da capacidade comercial da embarcação. Aqui validado no SAVE da
@@ -104,6 +166,8 @@ begin
 end;
 $$;
 
+revoke all on function public.check_tour_schedule_rule_capacity() from public, anon, authenticated, service_role;
+
 create trigger trg_tour_schedule_rule_capacity
   before insert or update of capacity_override, vessel_id on public.tour_schedule_rules
   for each row execute function public.check_tour_schedule_rule_capacity();
@@ -120,6 +184,8 @@ begin
 end;
 $$;
 
+revoke all on function public.touch_tour_schedule_rules_updated_at() from public, anon, authenticated, service_role;
+
 create trigger trg_tour_schedule_rules_updated_at
   before update on public.tour_schedule_rules
   for each row execute function public.touch_tour_schedule_rules_updated_at();
@@ -135,6 +201,17 @@ alter table public.departures
   add column if not exists schedule_rule_id uuid references public.tour_schedule_rules (id) on delete set null;
 
 create index on public.departures (schedule_rule_id) where schedule_rule_id is not null;
+
+-- "PRESERVAR a saída" é diferente de "CONTINUAR VENDENDO a saída" (achado
+-- de hardening): uma departure protegida por reserva relevante nunca é
+-- removida/alterada, mas se ela deixou de bater com a regra ATUAL (horário
+-- mudou, regra pausada) ela NÃO pode continuar aceitando reserva NOVA.
+-- Default true -- manual normal e automática recém-gerada sempre nascem
+-- vendáveis; reconcile_departures_for_schedule_rule é o único lugar que
+-- desliga isso (e só quando a departure é automática, protegida, e não
+-- bate mais com a regra), nunca cancela a reserva/pagamento já existente.
+alter table public.departures
+  add column if not exists marketplace_sales_enabled boolean not null default true;
 
 -- Unique adicional pedida explicitamente -- garante que a MESMA regra nunca
 -- gera duas linhas pro mesmo instante, independente do unique(vessel_id,
@@ -338,18 +415,16 @@ begin
   v_horizon_end := (now() at time zone '-03:00')::date + v_rule.horizon_days;
 
   for v_dep in
-    select id, vessel_id, departs_at, capacity, price_cents
+    select id, vessel_id, departs_at, capacity, price_cents, marketplace_sales_enabled, status
     from public.departures
     where schedule_rule_id = p_schedule_rule_id
       and status = 'agendada'
       and departs_at > now()
     for update
   loop
-    if public.tour_schedule_departure_has_active_reservation(v_dep.id) then
-      v_protected := v_protected + 1;
-      continue;
-    end if;
-
+    -- "válida" é calculada SEMPRE, protegida ou não -- preservar a saída
+    -- (nunca remover/tocar reserva) é uma decisão separada de continuar
+    -- vendendo ela (marketplace_sales_enabled).
     v_valid := false;
     if v_rule.active and v_dep.vessel_id = v_rule.vessel_id then
       v_target_day := (v_dep.departs_at at time zone '-03:00')::date;
@@ -362,11 +437,30 @@ begin
       end if;
     end if;
 
+    if public.tour_schedule_departure_has_active_reservation(v_dep.id) then
+      v_protected := v_protected + 1;
+      -- PROTEGIDA: nunca removida, nunca tem preço/capacidade alterados
+      -- (contrato já formado com o cliente é intocável) -- mas a
+      -- VENDABILIDADE reflete se ela ainda faz parte da regra atual. Deixou
+      -- de bater (regra editada/pausada) -> fecha pra novas vendas, mantém
+      -- a reserva/saída existente operacional. Voltou a bater (regra
+      -- reativada com os mesmos parâmetros) -> reabre.
+      if v_dep.marketplace_sales_enabled is distinct from v_valid then
+        update public.departures set marketplace_sales_enabled = v_valid where id = v_dep.id;
+        v_updated := v_updated + 1;
+      end if;
+      continue;
+    end if;
+
     if v_valid then
-      if v_dep.price_cents is distinct from v_effective_price_cents or v_dep.capacity is distinct from v_effective_capacity then
+      if v_dep.price_cents is distinct from v_effective_price_cents
+         or v_dep.capacity is distinct from v_effective_capacity
+         or not v_dep.marketplace_sales_enabled
+      then
         update public.departures
           set price_cents = v_effective_price_cents,
-              capacity = v_effective_capacity
+              capacity = v_effective_capacity,
+              marketplace_sales_enabled = true
           where id = v_dep.id;
         v_updated := v_updated + 1;
       end if;
@@ -386,6 +480,42 @@ $$;
 
 revoke all on function public.reconcile_departures_for_schedule_rule(uuid) from public, anon, authenticated;
 grant execute on function public.reconcile_departures_for_schedule_rule(uuid) to service_role;
+
+-- ============================================================================
+-- Chamada quando tours.base_price_cents muda (updateTourFull, passeios/
+-- actions.ts) -- reconcilia TODAS as regras do passeio de uma vez. Nenhuma
+-- lógica de preço nova aqui: reconcile_departures_for_schedule_rule já
+-- recalcula effective_price_cents = coalesce(price_cents_override,
+-- tour.base_price_cents) sozinha -- rodar reconcile de novo, pra cada
+-- regra, é suficiente. Regra com price_cents_override preenchido
+-- corretamente NÃO muda (o coalesce ignora o novo base_price), satisfaz
+-- "schedule override não é sobrescrito pelo base price" sem nenhum código
+-- extra. Falha em uma regra nunca impede as demais.
+-- ============================================================================
+create or replace function public.reconcile_departures_for_tour(p_tour_id uuid)
+returns table (schedule_rule_id uuid, removed_count int, updated_count int, protected_count int)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rule_id uuid;
+  v_result record;
+begin
+  for v_rule_id in select id from public.tour_schedule_rules where tour_id = p_tour_id loop
+    select * into v_result from public.reconcile_departures_for_schedule_rule(v_rule_id);
+    schedule_rule_id := v_rule_id;
+    removed_count := v_result.removed_count;
+    updated_count := v_result.updated_count;
+    protected_count := v_result.protected_count;
+    return next;
+  end loop;
+  return;
+end;
+$$;
+
+revoke all on function public.reconcile_departures_for_tour(uuid) from public, anon, authenticated;
+grant execute on function public.reconcile_departures_for_tour(uuid) to service_role;
 
 -- ============================================================================
 -- EXTENSÃO de validate_tour_for_publishing (0039/0044) -- "sem agenda" passa

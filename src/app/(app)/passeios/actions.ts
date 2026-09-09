@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { validateTourForPublishing, friendlyContentErrorMessage } from "@/lib/tour-publishing";
@@ -73,7 +74,7 @@ export async function updateTourFull(_prev: unknown, formData: FormData) {
   if (!company_id) return { error: "Sessão inválida ou usuário sem empresa." };
 
   const id = String(formData.get("id"));
-  const { data: existing } = await supabase.from("tours").select("company_id, published_at").eq("id", id).maybeSingle();
+  const { data: existing } = await supabase.from("tours").select("company_id, published_at, base_price_cents").eq("id", id).maybeSingle();
   if (!existing || existing.company_id !== company_id) return { error: "Passeio inválido." };
 
   const name = String(formData.get("name") || "").trim();
@@ -125,6 +126,19 @@ export async function updateTourFull(_prev: unknown, formData: FormData) {
     // proibido; o erro chega como o código cru (ex: "PHONE_IN_DESCRIPTION"),
     // traduz pra mensagem legível.
     return { error: friendlyContentErrorMessage(error.message) };
+  }
+
+  // preço-base mudou -- reconcilia as departures automáticas futuras SEM
+  // reserva/hold relevante das regras que herdam o preço do passeio
+  // (price_cents_override null). reconcile_departures_for_tour (0063) já
+  // faz isso sozinha (recalcula coalesce(override, base_price) por regra) --
+  // uma regra COM override nunca é afetada, o coalesce ignora o novo
+  // base_price. Falha aqui nunca é fatal -- o passeio já foi salvo, e
+  // reconciliação é idempotente (pode rodar de novo num próximo save).
+  if (patch.base_price_cents !== existing.base_price_cents) {
+    const admin = createAdminClient();
+    const { error: reconcileError } = await admin.rpc("reconcile_departures_for_tour", { p_tour_id: id });
+    if (reconcileError) console.error("updateTourFull/reconcile:", reconcileError);
   }
 
   revalidatePath("/passeios");
