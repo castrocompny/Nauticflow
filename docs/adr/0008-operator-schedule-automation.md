@@ -283,3 +283,38 @@ validada contra um Postgres real nesta sessão (sem Docker/Supabase local).
 O bug do CHECK constraint foi encontrado por conhecimento da regra
 documentada do Postgres, não por execução observada. Toda a lógica de
 reconciliação foi verificada por revisão de código, não por execução.
+
+## Release candidate -- defesa no banco, vendabilidade exata, atomicidade
+
+**Corrida real fechada na autoridade transacional**: a checagem de
+`marketplace_sales_enabled` só existia em TypeScript (`route.ts`), ANTES
+de chamar `create_marketplace_booking` -- janela real entre a leitura e a
+chamada da RPC (a agenda pode ser pausada/reconciliada nesse meio tempo).
+`create_marketplace_booking` (0042/0044, estendida via `create or replace`
+em `0063`, corpo idêntico + uma checagem nova) revalida `status='agendada'`
+e `marketplace_sales_enabled=true` **na mesma transação que cria a
+reserva**, mesmo código de erro (`DEPARTURE_NOT_SELLABLE`) que a rota já
+usava -- nenhum contrato HTTP novo.
+
+**"Future sellable departure" definido uma única vez**: `NO_FUTURE_
+DEPARTURES` usava `status <> 'cancelada'` (contava `em_andamento`/
+`encerrada`/protegidas-mas-fechadas como "válido"). Corrigido pra exigir
+`status='agendada' AND departs_at>now() AND price_cents is not null AND
+marketplace_sales_enabled=true` -- a MESMA definição que `create_
+marketplace_booking` usa pra aceitar uma reserva, nunca duas fontes de
+verdade.
+
+**Atomicidade real -- fim do estado parcial**: `save_recurring_schedule`/
+`pause_recurring_schedule`/`reactivate_recurring_schedule` (novas,
+`authenticated`-scoped, derivam `company_id` de `auth.uid()`) substituem a
+orquestração de 2-3 chamadas PostgREST separadas por UMA função cada,
+fazendo upsert/update da regra + `reconcile` + `generate` na mesma
+transação. Qualquer falha interna aborta tudo -- nunca existe "regra
+salva mas nunca reconciliada" ou "pausada mas saída antiga continua
+vendável". `authenticated` perdeu `INSERT`/`UPDATE`/`DELETE` direto na
+tabela (só `SELECT` continua) -- toda escrita passa pelas três RPCs.
+Mudança de preço-base ganhou o mesmo tratamento via TRIGGER (`AFTER
+UPDATE OF base_price_cents ON tours`, não uma segunda chamada RPC do
+server action) -- genuinamente atômico com o próprio `UPDATE` do preço.
+
+Detalhes completos em `DOCUMENTACAO.md` seção 103.

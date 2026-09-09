@@ -66,7 +66,16 @@ create policy "agenda do passeio da empresa" on public.tour_schedule_rules
   using (company_id = public.current_company_id())
   with check (company_id = public.current_company_id());
 
-grant select, insert, update, delete on public.tour_schedule_rules to authenticated;
+-- SÓ leitura direta pra authenticated (achado de hardening -- release
+-- candidate). Escrita agora passa exclusivamente por save_recurring_
+-- schedule()/pause_recurring_schedule()/reactivate_recurring_schedule()
+-- (mais abaixo, authenticated-scoped, SECURITY DEFINER) -- cada uma faz
+-- upsert/update da regra E reconcile E generate na MESMA transação, nunca
+-- em requests PostgREST separados. Isso fecha de vez a possibilidade de um
+-- estado parcial (regra salva mas reconciliação nunca rodou) -- se
+-- qualquer parte falhar, a exception aborta a transação inteira, a regra
+-- em si também não fica salva.
+grant select on public.tour_schedule_rules to authenticated;
 
 -- Mesmo padrão de check_departure_fk_company (0019) -- nunca confia em
 -- vessel_id/tour_id vindos do formulário sem confirmar que pertencem à
@@ -518,6 +527,366 @@ revoke all on function public.reconcile_departures_for_tour(uuid) from public, a
 grant execute on function public.reconcile_departures_for_tour(uuid) to service_role;
 
 -- ============================================================================
+-- RELEASE CANDIDATE: RPCs ATÔMICAS pro operador (authenticated-scoped,
+-- deriva company_id de auth.uid() -- mesmo padrão de create_marketplace_
+-- refund_request/request_marketplace_withdrawal, nunca aceita company_id
+-- como parâmetro). Fecham o achado de "estado parcial": salvar/pausar/
+-- reativar a regra e reconciliar/gerar as departures agora acontece na
+-- MESMA transação, uma única chamada RPC -- nunca duas requests PostgREST
+-- separadas onde a segunda pode falhar depois da primeira já ter
+-- commitado. Se QUALQUER parte falhar (upsert da regra, reconcile,
+-- generate), a exception aborta a transação inteira -- a regra em si
+-- também não fica salva, nunca existe "regra ativa mas nunca
+-- reconciliada". Chamam reconcile_departures_for_schedule_rule/generate_
+-- departures_for_schedule_rule internamente -- essas continuam
+-- service_role-only na ACL, mas uma função SECURITY DEFINER chamando outra
+-- do mesmo dono roda com o privilégio do DONO, não do authenticated
+-- original (mesmo padrão usado em toda RPC financeira deste projeto).
+-- ============================================================================
+
+create or replace function public.save_recurring_schedule(
+  p_tour_id uuid,
+  p_vessel_id uuid,
+  p_days_of_week smallint[],
+  p_times time[],
+  p_horizon_days int,
+  p_capacity_override int,
+  p_price_cents_override int,
+  p_auto_extend boolean
+) returns table (
+  schedule_rule_id uuid,
+  generated_count int,
+  updated_count int,
+  removed_count int,
+  protected_count int,
+  conflict_count int
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_rule_id uuid;
+  v_reconcile record;
+  v_gen_row record;
+  v_generated int := 0;
+  v_conflicts int := 0;
+begin
+  select company_id into v_company_id from public.profiles where id = auth.uid();
+  if v_company_id is null then
+    raise exception 'SESSION_INVALID';
+  end if;
+
+  if not exists (select 1 from public.tours where id = p_tour_id and company_id = v_company_id) then
+    raise exception 'TOUR_NOT_FOUND';
+  end if;
+  if not exists (select 1 from public.vessels where id = p_vessel_id and company_id = v_company_id) then
+    raise exception 'VESSEL_NOT_FOUND';
+  end if;
+
+  insert into public.tour_schedule_rules (
+    company_id, tour_id, vessel_id, days_of_week, times, horizon_days,
+    capacity_override, price_cents_override, auto_extend, active
+  ) values (
+    v_company_id, p_tour_id, p_vessel_id, p_days_of_week, p_times, p_horizon_days,
+    p_capacity_override, p_price_cents_override, p_auto_extend, true
+  )
+  on conflict (tour_id) do update set
+    vessel_id = excluded.vessel_id,
+    days_of_week = excluded.days_of_week,
+    times = excluded.times,
+    horizon_days = excluded.horizon_days,
+    capacity_override = excluded.capacity_override,
+    price_cents_override = excluded.price_cents_override,
+    auto_extend = excluded.auto_extend,
+    active = true
+  returning id into v_rule_id;
+
+  select * into v_reconcile from public.reconcile_departures_for_schedule_rule(v_rule_id);
+
+  for v_gen_row in select * from public.generate_departures_for_schedule_rule(v_rule_id) loop
+    if v_gen_row.was_conflict then
+      v_conflicts := v_conflicts + 1;
+    else
+      v_generated := v_generated + 1;
+    end if;
+  end loop;
+
+  schedule_rule_id := v_rule_id;
+  generated_count := v_generated;
+  updated_count := v_reconcile.updated_count;
+  removed_count := v_reconcile.removed_count;
+  protected_count := v_reconcile.protected_count;
+  conflict_count := v_conflicts;
+  return next;
+end;
+$$;
+
+revoke all on function public.save_recurring_schedule(uuid, uuid, smallint[], time[], int, int, int, boolean) from public, anon, service_role;
+grant execute on function public.save_recurring_schedule(uuid, uuid, smallint[], time[], int, int, int, boolean) to authenticated;
+
+create or replace function public.pause_recurring_schedule(p_tour_id uuid)
+returns table (schedule_rule_id uuid, removed_count int, protected_count int)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_rule_id uuid;
+  v_reconcile record;
+begin
+  select company_id into v_company_id from public.profiles where id = auth.uid();
+  if v_company_id is null then
+    raise exception 'SESSION_INVALID';
+  end if;
+
+  update public.tour_schedule_rules set active = false
+    where tour_id = p_tour_id and company_id = v_company_id
+    returning id into v_rule_id;
+
+  if v_rule_id is null then
+    raise exception 'SCHEDULE_RULE_NOT_FOUND';
+  end if;
+
+  select * into v_reconcile from public.reconcile_departures_for_schedule_rule(v_rule_id);
+
+  schedule_rule_id := v_rule_id;
+  removed_count := v_reconcile.removed_count;
+  protected_count := v_reconcile.protected_count;
+  return next;
+end;
+$$;
+
+revoke all on function public.pause_recurring_schedule(uuid) from public, anon, service_role;
+grant execute on function public.pause_recurring_schedule(uuid) to authenticated;
+
+create or replace function public.reactivate_recurring_schedule(p_tour_id uuid)
+returns table (
+  schedule_rule_id uuid,
+  generated_count int,
+  updated_count int,
+  removed_count int,
+  protected_count int,
+  conflict_count int
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_rule_id uuid;
+  v_reconcile record;
+  v_gen_row record;
+  v_generated int := 0;
+  v_conflicts int := 0;
+begin
+  select company_id into v_company_id from public.profiles where id = auth.uid();
+  if v_company_id is null then
+    raise exception 'SESSION_INVALID';
+  end if;
+
+  update public.tour_schedule_rules set active = true
+    where tour_id = p_tour_id and company_id = v_company_id
+    returning id into v_rule_id;
+
+  if v_rule_id is null then
+    raise exception 'SCHEDULE_RULE_NOT_FOUND';
+  end if;
+
+  select * into v_reconcile from public.reconcile_departures_for_schedule_rule(v_rule_id);
+
+  for v_gen_row in select * from public.generate_departures_for_schedule_rule(v_rule_id) loop
+    if v_gen_row.was_conflict then
+      v_conflicts := v_conflicts + 1;
+    else
+      v_generated := v_generated + 1;
+    end if;
+  end loop;
+
+  schedule_rule_id := v_rule_id;
+  generated_count := v_generated;
+  updated_count := v_reconcile.updated_count;
+  removed_count := v_reconcile.removed_count;
+  protected_count := v_reconcile.protected_count;
+  conflict_count := v_conflicts;
+  return next;
+end;
+$$;
+
+revoke all on function public.reactivate_recurring_schedule(uuid) from public, anon, service_role;
+grant execute on function public.reactivate_recurring_schedule(uuid) to authenticated;
+
+-- ============================================================================
+-- RECONCILIAÇÃO DE PREÇO-BASE, DE VERDADE ATÔMICA -- trigger, não uma
+-- segunda chamada RPC do server action. AFTER UPDATE OF base_price_cents
+-- roda reconcile_departures_for_tour NA MESMA transação do UPDATE em
+-- tours -- se a reconciliação falhar, a exception reverte o UPDATE do
+-- preço-base junto (nunca fica "preço mudou, mas as saídas não foram
+-- reconciliadas"). SECURITY DEFINER necessário: quem chama updateTourFull
+-- é o client de SESSÃO (authenticated comum), que não tem EXECUTE em
+-- reconcile_departures_for_tour (service_role only) -- a trigger, sendo
+-- dona do mesmo owner, chama por dentro com o privilégio do dono (mesmo
+-- padrão de bypass interno usado em toda RPC financeira deste projeto).
+-- ============================================================================
+create or replace function public.trg_tours_base_price_reconcile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.base_price_cents is distinct from old.base_price_cents then
+    perform public.reconcile_departures_for_tour(new.id);
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.trg_tours_base_price_reconcile() from public, anon, authenticated, service_role;
+
+create trigger trg_tours_base_price_reconcile
+  after update of base_price_cents on public.tours
+  for each row execute function public.trg_tours_base_price_reconcile();
+
+-- ============================================================================
+-- EXTENSÃO de create_marketplace_booking (0042/0044) -- defesa em
+-- profundidade contra a corrida real identificada em revisão: (1) a rota
+-- lê marketplace_sales_enabled=true; (2) a agenda é pausada/reconciliada
+-- e vira false; (3) a rota chama esta RPC; (4) sem essa revalidação, a
+-- RPC criaria a reserva mesmo assim. A checagem de status/sales_enabled
+-- que só existia em TypeScript (route.ts) agora também vive na autoridade
+-- transacional real -- a mesma transação que cria a reserva. Mesmo código
+-- de erro (`DEPARTURE_NOT_SELLABLE`) que a rota já usa -- nenhum contrato
+-- novo, a rota só passa a poder receber esse erro de duas origens (a
+-- própria checagem dela E a RPC), traduzindo pro mesmo JSON de sempre.
+-- Nenhum outro comportamento desta função foi alterado -- corpo idêntico
+-- ao de 0044, só a checagem nova inserida logo após COMPANY_NOT_AVAILABLE.
+-- ============================================================================
+create or replace function public.create_marketplace_booking(
+  p_departure_id uuid,
+  p_quantity int,
+  p_total_cents int,
+  p_customer_name text,
+  p_customer_email text,
+  p_customer_phone text,
+  p_customer_cpf text,
+  p_idempotency_key text,
+  p_request_fingerprint text,
+  p_hold_minutes int
+) returns table (
+  booking_id uuid,
+  hold_expires_at timestamptz,
+  people_count int,
+  total_cents int,
+  is_replay boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_departure_status text;
+  v_sales_enabled boolean;
+  v_client_id uuid;
+  v_existing record;
+  v_new_id uuid;
+  v_hold timestamptz;
+begin
+  perform pg_advisory_xact_lock(hashtext('marketplace_booking'), hashtext(p_idempotency_key));
+
+  select r.id, r.hold_expires_at, r.people_count, r.total_cents, r.request_fingerprint
+    into v_existing
+    from public.reservations r
+    where r.source = 'marketplace' and r.idempotency_key = p_idempotency_key;
+
+  if found then
+    if v_existing.request_fingerprint is distinct from p_request_fingerprint then
+      raise exception 'IDEMPOTENCY_CONFLICT';
+    end if;
+    return query select v_existing.id, v_existing.hold_expires_at, v_existing.people_count, v_existing.total_cents, true;
+    return;
+  end if;
+
+  select company_id, status, marketplace_sales_enabled
+    into v_company_id, v_departure_status, v_sales_enabled
+    from public.departures where id = p_departure_id;
+  if v_company_id is null then
+    raise exception 'DEPARTURE_NOT_FOUND';
+  end if;
+
+  if exists (select 1 from public.companies where id = v_company_id and suspended_at is not null) then
+    raise exception 'COMPANY_NOT_AVAILABLE';
+  end if;
+
+  -- defesa em profundidade (0063) -- mesma checagem já feita em route.ts
+  -- ANTES de chamar esta RPC, revalidada aqui dentro da MESMA transação
+  -- que cria a reserva, fechando a janela de corrida entre a leitura da
+  -- rota e este INSERT.
+  if v_departure_status <> 'agendada' or not v_sales_enabled then
+    raise exception 'DEPARTURE_NOT_SELLABLE';
+  end if;
+
+  begin
+    if p_customer_cpf is not null then
+      insert into public.clients (company_id, name, cpf, phone, email)
+      values (v_company_id, p_customer_name, p_customer_cpf, p_customer_phone, p_customer_email)
+      on conflict (company_id, cpf) do update set cpf = excluded.cpf
+      returning id into v_client_id;
+    else
+      insert into public.clients (company_id, name, phone, email)
+      values (v_company_id, p_customer_name, p_customer_phone, p_customer_email)
+      returning id into v_client_id;
+    end if;
+
+    v_hold := now() + make_interval(mins => p_hold_minutes);
+
+    insert into public.reservations (
+      company_id, departure_id, client_id, people_count, total_cents,
+      status, source, origin_name, created_by, partner_id,
+      hold_expires_at, idempotency_key, request_fingerprint
+    ) values (
+      v_company_id, p_departure_id, v_client_id, p_quantity, p_total_cents,
+      'pendente', 'marketplace', 'ToursFlow', null, null,
+      v_hold, p_idempotency_key, p_request_fingerprint
+    )
+    returning id into v_new_id;
+
+    return query select v_new_id, v_hold, p_quantity, p_total_cents, false;
+    return;
+  exception
+    when unique_violation then
+      if sqlerrm not like '%reservations_marketplace_idempotency_key_unique%' then
+        raise;
+      end if;
+
+      select r.id, r.hold_expires_at, r.people_count, r.total_cents, r.request_fingerprint
+        into v_existing
+        from public.reservations r
+        where r.source = 'marketplace' and r.idempotency_key = p_idempotency_key;
+
+      if not found then
+        raise;
+      end if;
+      if v_existing.request_fingerprint is distinct from p_request_fingerprint then
+        raise exception 'IDEMPOTENCY_CONFLICT';
+      end if;
+
+      return query select v_existing.id, v_existing.hold_expires_at, v_existing.people_count, v_existing.total_cents, true;
+      return;
+  end;
+end;
+$$;
+
+-- ACL idêntica à de 0044 (mesmo achado documentado lá -- revoke ... from
+-- public sozinho não basta, Supabase concede EXECUTE por padrão).
+revoke all on function public.create_marketplace_booking(uuid, int, int, text, text, text, text, text, text, int) from public, anon, authenticated;
+grant execute on function public.create_marketplace_booking(uuid, int, int, text, text, text, text, text, text, int) to service_role;
+
+-- ============================================================================
 -- EXTENSÃO de validate_tour_for_publishing (0039/0044) -- "sem agenda" passa
 -- de warning pra error. Mesmo código NO_FUTURE_DEPARTURES, só a severidade e
 -- a mensagem mudam -- continua checando departures futuras de verdade
@@ -651,13 +1020,24 @@ begin
   end if;
 
   -- EXTENSÃO (0063): "sem agenda" agora BLOQUEIA publicação (era warning).
-  -- price_cents is not null é obrigatório aqui -- uma departure futura sem
-  -- preço configurado NÃO é vendável de verdade (create_marketplace_booking,
-  -- 0042, recusa com PRICE_NOT_CONFIGURED) -- contar ela como "agenda válida"
-  -- deixaria o passeio publicar sem nenhum jeito real de ser comprado.
+  -- CORRIGIDO em release candidate: a condição original (status <>
+  -- 'cancelada') contava também 'em_andamento'/'encerrada' e departures
+  -- protegidas mas fechadas pra venda (marketplace_sales_enabled=false,
+  -- ver reconcile_departures_for_schedule_rule) como "agenda válida" -- não
+  -- são, de verdade, compráveis. Definição exata de "future sellable
+  -- departure", a mesma autoridade que create_marketplace_booking (0063,
+  -- versão estendida acima) usa pra aceitar uma reserva: status='agendada'
+  -- (não em_andamento/encerrada/cancelada/pendente-de-outra-coisa),
+  -- departs_at no futuro, price_cents configurado, marketplace_sales_
+  -- enabled=true. Cobre os dois modos (recorrente e datas específicas) por
+  -- igual -- nenhuma referência a tour_schedule_rules aqui.
   select count(*) into v_future_departure_count
     from public.departures
-    where tour_id = p_tour_id and status <> 'cancelada' and departs_at > now() and price_cents is not null;
+    where tour_id = p_tour_id
+      and status = 'agendada'
+      and departs_at > now()
+      and price_cents is not null
+      and marketplace_sales_enabled = true;
   if v_future_departure_count = 0 then
     return query select 'NO_FUTURE_DEPARTURES', 'departures', 'Escolha quando esse passeio acontece -- adicione uma agenda ou pelo menos uma data.', 'error';
   end if;

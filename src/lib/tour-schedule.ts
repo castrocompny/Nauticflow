@@ -93,3 +93,49 @@ export function resolveOneOffPriceReais(priceRaw: string, basePriceCents: number
   if (trimmed) return trimmed;
   return (basePriceCents / 100).toFixed(2);
 }
+
+// Interpreta o retorno de save_recurring_schedule/pause_recurring_schedule/
+// reactivate_recurring_schedule (0063, release candidate) -- as três fazem
+// upsert/update da regra + reconcile + generate numa ÚNICA transação
+// atômica, então NÃO existe mais "reconcile falhou mas generate rodou" --
+// qualquer erro da RPC, não importa qual passo interno falhou, significa que
+// a transação inteira foi revertida pelo Postgres (nada foi salvo). Esta
+// função só garante, do lado TS, que um erro NUNCA vira `ok: true` -- a
+// garantia real de atomicidade é do banco, não testável nesta sessão sem
+// Postgres disponível (ver DOCUMENTACAO.md).
+export type ScheduleRpcRow = {
+  schedule_rule_id: string;
+  generated_count?: number;
+  updated_count?: number;
+  removed_count?: number;
+  protected_count?: number;
+  conflict_count?: number;
+};
+export type ScheduleRpcOutcome =
+  | { ok: true; generated: number; conflicts: number; removed: number; updated: number; protected: number }
+  | { ok: false; error: string };
+
+export function interpretScheduleRpcResult(
+  data: ScheduleRpcRow | null,
+  error: { message: string } | null,
+  fallbackError: string
+): ScheduleRpcOutcome {
+  if (error) {
+    if (error.message.includes("capacidade comercial")) return { ok: false, error: error.message };
+    if (error.message.includes("duplicados") || error.message.includes("08:00 e 19:00")) return { ok: false, error: error.message };
+    if (error.message.includes("VESSEL_NOT_FOUND")) return { ok: false, error: "Embarcação inválida." };
+    if (error.message.includes("TOUR_NOT_FOUND")) return { ok: false, error: "Passeio inválido." };
+    if (error.message.includes("SCHEDULE_RULE_NOT_FOUND")) return { ok: false, error: "Agenda não encontrada." };
+    return { ok: false, error: fallbackError };
+  }
+  if (!data) return { ok: false, error: fallbackError };
+
+  return {
+    ok: true,
+    generated: data.generated_count ?? 0,
+    conflicts: data.conflict_count ?? 0,
+    removed: data.removed_count ?? 0,
+    updated: data.updated_count ?? 0,
+    protected: data.protected_count ?? 0,
+  };
+}
