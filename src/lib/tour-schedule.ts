@@ -63,3 +63,21 @@ export function validateRecurringScheduleInput(input: RecurringScheduleInput): V
     value: { vesselId: input.vesselId, daysOfWeek, times, horizonDays: input.horizonDays, priceCentsOverride, capacityOverride },
   };
 }
+
+// Agrega o retorno de generate_departures_for_schedule_rule (0063) -- uma
+// linha por slot TENTADO, was_conflict distinguindo sucesso de conflito real
+// (o SQL já filtra bookkeeping normal da própria regra antes de marcar
+// was_conflict=true, ver comentário na migration). Separado do server action
+// pra ser testável sem mockar o client Supabase inteiro.
+export type GenerateRow = { departure_id: string | null; departs_at: string; was_conflict: boolean };
+export type GenerateSummary = { generated: number; conflicts: number };
+
+export function summarizeGenerateRows(rows: GenerateRow[]): GenerateSummary {
+  let generated = 0;
+  let conflicts = 0;
+  for (const row of rows) {
+    if (row.was_conflict) conflicts++;
+    else generated++;
+  }
+  return { generated, conflicts };
+}

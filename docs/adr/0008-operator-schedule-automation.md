@@ -85,22 +85,62 @@ depois de uma falha de rede/persistência (o server action chama a RPC
 depois de já ter salvo a regra) é seguro pelo mesmo motivo: idempotência
 vem do `ON CONFLICT`, não de nenhum estado adicional no server action.
 
-## Editar/pausar uma regra nunca apaga nada
+## Editar/pausar uma regra reconcilia -- nunca deixa saída obsoleta vendável
 
-Pedido explícito: "nunca apagar silenciosamente saída com reserva; nunca
-alterar histórico passado; nunca apagar reserva; nunca alterar saída
-encerrada/cancelada". A decisão mais simples e mais segura: **editar uma
-regra e salvar de novo só GERA saídas novas pra frente** (via a mesma
-`generate_departures_for_schedule_rule`, que só faz `INSERT`) -- nunca
-remove/edita `departures` já existentes, mesmo que elas não batam mais com
-os novos parâmetros da regra (ex: operador tira quinta-feira da lista de
-dias -- as quintas já geradas continuam existindo, válidas e reserváveis).
-Isso elimina inteiramente a necessidade de uma lógica de diffing/cleanup
-complexa -- e é consistente com o fato de que `deleteDeparture` (em
-`saidas/actions.ts`, inalterado) já bloqueia remoção quando existem
-reservas. "Pausar agenda" (`active = false`) só impede geração FUTURA
-(nova chamada da RPC, seja manual ou via cron, não faz nada pra uma regra
-inativa) -- não toca em nenhuma `departure` já gerada.
+**Revisado em hardening antes do merge.** A primeira versão desta decisão
+("editar só gera pra frente, nunca remove") permitia que uma saída
+automática obsoleta (ex: horário antigo, depois de trocar 10h por 14h)
+continuasse vendável indefinidamente -- inaceitável: o operador editaria a
+agenda esperando que ela refletisse a mudança, mas o ToursFlow continuaria
+oferecendo o horário errado. Corrigido com `reconcile_departures_for_
+schedule_rule(uuid)` (nova RPC, `service_role` only), chamada SEMPRE antes
+de `generate_departures_for_schedule_rule` pelo server action.
+
+Pra cada departure automática (`schedule_rule_id` = a regra), futura, ainda
+`agendada` (o próprio `WHERE` já exclui passada/encerrada/cancelada/manual
+-- nunca tocadas, por construção da query, não por uma checagem condicional
+que poderia ter um bug):
+
+1. **Tem reserva/hold "relevante"** -- `confirmada`, ou `pendente` com hold
+   ainda válido (MESMA definição de "consome capacidade" de
+   `check_departure_capacity`, 0042). Deliberadamente mais estreita que
+   `deleteDeparture()` (bloqueia remoção manual por qualquer reserva
+   histórica, mesmo cancelada) -- reconciliação automática usa um critério
+   mais preciso porque é uma ação do sistema, não uma decisão humana
+   explícita. → **protegida**: nunca removida, nunca tem preço/capacidade
+   alterados, contrato com o cliente intocado.
+2. **Sem reserva relevante, ainda bate com a regra atual** (mesma
+   embarcação, dia/horário dentro do horizonte, regra ativa) → **mantida**,
+   mas preço/capacidade são reconciliados pra refletir a configuração
+   ATUAL (`coalesce(price_cents_override, tour.base_price_cents)` /
+   `coalesce(capacity_override, vessel.commercial_capacity)`).
+3. **Sem reserva relevante, não bate mais** (regra editada, ou pausada) →
+   **removida de verdade** (`DELETE`, mesmo estilo de `deleteDeparture`:
+   apaga `manifests` primeiro, redundante com `ON DELETE CASCADE` mas
+   consistente com o padrão já existente).
+
+Idempotente por construção -- é um "diff contra a verdade atual", não um
+contador com estado: rodar duas vezes seguidas a segunda vez não encontra
+mais nada obsoleto. `pg_advisory_xact_lock` (mesma chave usada por
+`generate_departures_for_schedule_rule`) serializa as duas contra execuções
+concorrentes da mesma regra.
+
+**Pausar** (`active=false`) roda a MESMA reconciliação -- como nenhum slot
+é "válido" pra uma regra inativa, toda departure automática sem reserva
+relevante é removida (retira da disponibilidade), as protegidas continuam
+vendáveis normalmente (têm um cliente real, pausar a automação não deveria
+fazer o compromisso já assumido desaparecer). **Reativar** (`active=true`)
+só chama `generate` de novo -- idempotente, recria apenas o que falta,
+nada precisa ser "restaurado" porque nada além do que a pausa já fez foi
+alterado.
+
+**Conflito de embarcação/horário, sempre reportado, nunca silencioso**:
+`generate_departures_for_schedule_rule` retorna uma linha por slot
+TENTADO (não só os criados), com `was_conflict`. Bookkeeping normal (o
+slot já pertence a ESTA regra -- reconciliação já cuidou dele) nunca é
+reportado; só um conflito REAL (outra origem no mesmo vessel+horário) é
+contado e mostrado ao operador ("N horário(s) não criado(s) porque a
+embarcação já tinha outra saída").
 
 ## Publicação -- "sem agenda" passa de aviso pra bloqueio
 
@@ -108,13 +148,20 @@ inativa) -- não toca em nenhuma `departure` já gerada.
 futuras", mas como **warning** (nunca bloqueava). Migration `0063` eleva
 esse MESMO check (`NO_FUTURE_DEPARTURES`) pra `error`, com mensagem nova
 ("Escolha quando esse passeio acontece -- adicione uma agenda ou pelo
-menos uma data."). Nenhuma outra regra do checklist foi tocada -- diff
-byte-a-byte confirmado contra a versão de `0044` antes de commitar.
-Deliberadamente **não** existe um check separado sobre `tour_schedule_
-rules` -- checar `departures` futuras reais é mais geral e correto (cobre
-tanto agenda recorrente quanto datas específicas, e corretamente continua
-bloqueando se uma regra existe mas ainda não gerou nenhuma saída, por
-exemplo horizonte mal configurado). Como o trigger de transição
+menos uma data."). **Corrigido em hardening**: o count original contava
+qualquer `departure` futura não-cancelada, mesmo sem `price_cents`
+configurado -- uma departure sem preço não é vendável de verdade
+(`create_marketplace_booking` recusa com `PRICE_NOT_CONFIGURED`), então
+deixaria publicar um passeio sem nenhum jeito real de ser comprado. O
+`count(*)` agora exige `price_cents is not null` também. Nenhuma outra
+regra do checklist foi tocada -- diff byte-a-byte confirmado contra a
+versão de `0044` antes de commitar. Deliberadamente **não** existe um
+check separado sobre `tour_schedule_rules` -- checar `departures` futuras
+reais com preço é mais geral e correto (cobre tanto agenda recorrente
+quanto datas específicas -- publicar sem nenhuma regra recorrente sempre
+foi possível e continua sendo -- e corretamente continua bloqueando se
+uma regra existe mas ainda não gerou nenhuma saída, por exemplo horizonte
+mal configurado). Como o trigger de transição
 (`check_tour_marketplace_transition`) só reavalida no MOMENTO da
 transição pra `published`, essa mudança não despublica retroativamente
 nenhum passeio já publicado sob a regra antiga.

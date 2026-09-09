@@ -2015,3 +2015,33 @@ Objetivo de produto: reduzir o trabalho manual do operador de criar `departures`
 **Local**: `tsc --noEmit` limpo, `eslint .` 0 erros (4 warnings pré-existentes, não relacionados), `next build` sucesso -- rota nova `/api/cron/extend-schedules` presente, todas as rotas existentes intactas.
 
 **Estado**: branch `feature/operator-schedule-automation`, commit local feito, **não mesclada em `main`**, nada pushado, nada deployado, `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` continuam OFF, R$ 0,00 movimentado.
+
+## 101. Hardening da reconciliação de agenda -- edição/pausa não deixa saída obsoleta vendável (mesma branch, sessão de 2026-09-08)
+
+Correção de um comportamento inaceitável identificado em revisão antes do merge: a primeira versão (`0063` original) deixava saídas automáticas antigas continuarem vendáveis depois de editar/pausar a regra ("editar nunca apaga, só adiciona"). Isso permitiria, por exemplo, trocar o horário de 10h pra 14h e o horário das 10h continuar aberto pra venda indefinidamente. Migration `0063` **editada diretamente** (ainda não aplicada nem pushada -- permitido corrigir uma migration própria não publicada, mesmo padrão já usado outras vezes nesta sessão para migrations locais ainda não compartilhadas). Decisão de arquitetura completa em `docs/adr/0008-operator-schedule-automation.md`.
+
+**`reconcile_departures_for_schedule_rule(uuid)` (nova, service_role only)**: roda SEMPRE antes de `generate_departures_for_schedule_rule` (server action chama as duas em sequência, `save`/`pause`/`reactivate`). Pra cada departure automática (`schedule_rule_id` = a regra), futura, ainda `agendada` -- nunca toca em passada/encerrada/cancelada/manual, excluídas pelo próprio `WHERE`:
+
+- **Tem reserva/hold "relevante"** (mesma definição de "consome capacidade" já usada por `check_departure_capacity`, 0042: `confirmada` OU `pendente` com hold ainda válido -- deliberadamente MAIS ESTREITA que `deleteDeparture()`, que bloqueia remoção manual por qualquer reserva histórica mesmo cancelada; reconciliação automática usa um critério mais preciso, "relevante" de verdade) → **protegida**, nunca removida, nunca alterada, contada em `protected_count`.
+- **Sem reserva relevante, ainda bate com a regra atual** (mesma embarcação, dia/horário dentro do horizonte, regra ativa) → **mantida**, mas preço/capacidade são reconciliados pra configuração atual (`coalesce(price_cents_override, tour.base_price_cents)` / `coalesce(capacity_override, vessel.commercial_capacity)`), contada em `updated_count` só quando algo de fato mudou.
+- **Sem reserva relevante, não bate mais** (regra editada -- outro horário/dia/embarcação -- ou pausada) → **removida de verdade** (`DELETE`, mesmo padrão de `deleteDeparture`: apaga `manifests` primeiro, redundante com o `ON DELETE CASCADE` das duas FKs mas mantém o mesmo estilo explícito já usado ali), contada em `removed_count`.
+
+**Idempotência**: rodar a reconciliação duas vezes seguidas na segunda vez não encontra mais nada pra remover/atualizar -- o que sobrou já bate com a regra atual ou está protegido. `pg_advisory_xact_lock` (mesma chave de `generate_departures_for_schedule_rule`) serializa reconciliação e geração da mesma regra.
+
+**Preço/capacidade**: política definida e documentada -- automáticas futuras SEM reserva relevante sempre refletem a configuração atual (agenda ou passeio); QUALQUER departure com reserva relevante nunca tem preço/capacidade alterados automaticamente, preservando o contrato já formado com o cliente.
+
+**Pausar/reativar**: pausar seta `active=false` e roda `reconcile` (toda departure automática vira "não bate mais" exceto as protegidas -- reconciliação natural, nenhuma lógica extra). Reativar seta `active=true` e roda só `generate` de novo (idempotente, recria só o que falta -- nada precisa ser "restaurado", nada tinha sido alterado além do que a pausa já tinha feito).
+
+**Conflito de embarcação/horário reportado, nunca silencioso**: `generate_departures_for_schedule_rule` agora retorna uma linha por slot TENTADO (não só os criados), com `was_conflict`. Distingue bookkeeping normal (o slot já existe e já pertence a ESTA regra -- reconciliação já cuidou dele, nunca reportado) de conflito real (existe algo de OUTRA origem -- outra regra, ou uma departure manual -- nesse vessel+horário). Server action agrega e mostra ao operador: "N horário(s) não criado(s) porque a embarcação já tinha outra saída."
+
+**Publicação -- "sem agenda" corrigido pra exigir preço**: `validate_tour_for_publishing` tinha um gap real -- contava qualquer departure futura não-cancelada como "agenda válida", mesmo sem `price_cents` configurado (uma departure sem preço não é vendável de verdade, `create_marketplace_booking` recusa com `PRICE_NOT_CONFIGURED`). Corrigido: o `count(*)` agora exige `price_cents is not null`. Confirma também, sem precisar de mudança nenhuma (já era assim por desenho): o check olha `departures` diretamente, nunca `tour_schedule_rules` -- "datas específicas" sempre pôde publicar sem nenhuma regra recorrente, e continua podendo.
+
+**Server actions**: `saveRecurringSchedule`/`pauseRecurringSchedule` agora chamam reconciliação + geração (ou só reconciliação, no caso de pause) e devolvem contagens (`generated`/`updated`/`removed`/`protected`/`conflicts`) pra UI mostrar feedback humano, nunca expõe `departure`/`schedule_rule` como conceito pro operador. Nova `reactivateRecurringSchedule`.
+
+**UI**: `schedule-manager.tsx` mostra o resumo da reconciliação depois de salvar/pausar/reativar (ex: "Agenda salva -- 2 nova(s) saída(s) gerada(s), 1 removida(s)..."), indicador de "Agenda automática pausada", botão "Reativar agenda automática" quando pausada.
+
+**Testes**: `summarizeGenerateRows()` (novo, `src/lib/tour-schedule.ts`) -- 3 novos testes cobrindo conflito real contado sem duplicar, todos-sucesso sem conflito reportado, lista vazia. Suíte de validação de input (20 testes) reconfirmada sem regressão. **Total 23/23 mock passaram nesta etapa.** Reconciliação em si (remoção/atualização condicionada a reserva relevante, idempotência, política de preço/capacidade, pause/reactivate) verificada por revisão de código linha a linha -- não executável sem Postgres real disponível nesta sessão, mesma limitação estrutural de sempre. Confirmado por escopo do diff: nenhum arquivo de marketplace/pagamento/webhook/refund tocado nesta etapa de hardening.
+
+**Local**: `tsc --noEmit` limpo, `eslint .` 0 erros, `next build` sucesso.
+
+**Estado**: migration `0063` (versão corrigida) continua não aplicada. Branch `feature/operator-schedule-automation`, novo commit local de hardening. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado.

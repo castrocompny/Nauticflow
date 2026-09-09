@@ -2,8 +2,10 @@
 
 import { useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import { saveRecurringSchedule, pauseRecurringSchedule, createOneOffDepartureForTour } from "./schedule-actions";
+import { saveRecurringSchedule, pauseRecurringSchedule, reactivateRecurringSchedule, createOneOffDepartureForTour } from "./schedule-actions";
 import type { TourScheduleRule, Vessel } from "@/lib/types";
+
+type ScheduleActionResult = Awaited<ReturnType<typeof saveRecurringSchedule>>;
 
 const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -35,7 +37,7 @@ export function ScheduleManager({
   const [useCustomPrice, setUseCustomPrice] = useState(rule?.price_cents_override != null);
 
   const [recurringState, recurringAction] = useActionState(
-    async (_prev: { error: string; ok?: boolean; generated?: number }, formData: FormData) => saveRecurringSchedule(tourId, _prev, formData),
+    async (_prev: ScheduleActionResult, formData: FormData) => saveRecurringSchedule(tourId, _prev, formData),
     { error: "" }
   );
   const [oneOffState, oneOffAction] = useActionState(
@@ -46,11 +48,14 @@ export function ScheduleManager({
   return (
     <div className="rounded-card border border-line bg-surface p-5">
       <h3 className="mb-1 font-display font-semibold text-heading">Agenda e disponibilidade</h3>
-      <p className="mb-4 text-xs text-muted">
-        {upcomingCount > 0
-          ? `${upcomingCount} saída${upcomingCount === 1 ? "" : "s"} futura${upcomingCount === 1 ? "" : "s"} agendada${upcomingCount === 1 ? "" : "s"}.`
-          : "Nenhuma saída futura ainda -- escolha quando esse passeio acontece."}
-      </p>
+      <div className="mb-4">
+        <p className="text-xs text-muted">
+          {upcomingCount > 0
+            ? `${upcomingCount} saída${upcomingCount === 1 ? "" : "s"} futura${upcomingCount === 1 ? "" : "s"} agendada${upcomingCount === 1 ? "" : "s"}.`
+            : "Nenhuma saída futura ainda -- escolha quando esse passeio acontece."}
+        </p>
+        {rule && !rule.active && <p className="text-xs font-medium text-amber-700">Agenda automática pausada.</p>}
+      </div>
 
       <div className="mb-4 flex gap-2">
         <button
@@ -76,11 +81,7 @@ export function ScheduleManager({
       {mode === "recurring" && (
         <form action={recurringAction} className="space-y-3">
           {recurringState.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{recurringState.error}</p>}
-          {recurringState.ok && (
-            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-              Agenda salva{recurringState.generated ? ` -- ${recurringState.generated} nova(s) saída(s) gerada(s)` : ""}.
-            </p>
-          )}
+          {recurringState.ok && <ScheduleResultSummary result={recurringState} savedLabel="Agenda salva" />}
 
           <div>
             <label>Dias da semana</label>
@@ -178,6 +179,7 @@ export function ScheduleManager({
           <div className="flex items-center gap-3">
             <SaveButton label="Salvar agenda" pendingLabel="Salvando..." />
             {rule?.active && <PauseButton tourId={tourId} />}
+            {rule && !rule.active && <ReactivateButton tourId={tourId} />}
           </div>
         </form>
       )}
@@ -221,20 +223,66 @@ export function ScheduleManager({
   );
 }
 
+// Mensagem humana pós-ação -- nunca expõe "departure"/"schedule_rule" pro
+// operador, só o resultado em termos de saídas.
+function ScheduleResultSummary({ result, savedLabel }: { result: ScheduleActionResult; savedLabel: string }) {
+  const parts: string[] = [];
+  if (result.generated) parts.push(`${result.generated} nova(s) saída(s) gerada(s)`);
+  if (result.updated) parts.push(`${result.updated} atualizada(s) para a nova configuração`);
+  if (result.removed) parts.push(`${result.removed} removida(s) (não fazem mais parte da agenda, sem reserva)`);
+  if (result.protected) parts.push(`${result.protected} preservada(s) por ter reserva`);
+  if (result.conflicts) parts.push(`${result.conflicts} horário(s) não criado(s) porque a embarcação já tinha outra saída`);
+
+  return (
+    <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+      {savedLabel}
+      {parts.length > 0 ? ` -- ${parts.join(", ")}.` : "."}
+    </p>
+  );
+}
+
 function PauseButton({ tourId }: { tourId: string }) {
   const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<ScheduleActionResult | null>(null);
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={async () => {
-        setPending(true);
-        await pauseRecurringSchedule(tourId);
-        setPending(false);
-      }}
-      className="text-xs text-muted hover:text-red-600 disabled:opacity-60"
-    >
-      {pending ? "Pausando..." : "Pausar agenda automática"}
-    </button>
+    <div>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={async () => {
+          setPending(true);
+          setResult(await pauseRecurringSchedule(tourId));
+          setPending(false);
+        }}
+        className="text-xs text-muted hover:text-red-600 disabled:opacity-60"
+      >
+        {pending ? "Pausando..." : "Pausar agenda automática"}
+      </button>
+      {result?.ok && <ScheduleResultSummary result={result} savedLabel="Agenda pausada" />}
+      {result?.error && <p className="mt-1 text-xs text-red-700">{result.error}</p>}
+    </div>
+  );
+}
+
+function ReactivateButton({ tourId }: { tourId: string }) {
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<ScheduleActionResult | null>(null);
+  return (
+    <div>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={async () => {
+          setPending(true);
+          setResult(await reactivateRecurringSchedule(tourId));
+          setPending(false);
+        }}
+        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-body transition hover:border-brand disabled:opacity-60"
+      >
+        {pending ? "Reativando..." : "Reativar agenda automática"}
+      </button>
+      {result?.ok && <ScheduleResultSummary result={result} savedLabel="Agenda reativada" />}
+      {result?.error && <p className="mt-1 text-xs text-red-700">{result.error}</p>}
+    </div>
   );
 }

@@ -5,10 +5,51 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
 import { createDeparture } from "../../saidas/actions";
-import { validateRecurringScheduleInput } from "@/lib/tour-schedule";
+import { validateRecurringScheduleInput, summarizeGenerateRows, type GenerateRow } from "@/lib/tour-schedule";
 import type { TourScheduleRule } from "@/lib/types";
 
-type ActionResult = { error: string; ok?: boolean; generated?: number };
+type ActionResult = {
+  error: string;
+  ok?: boolean;
+  generated?: number;
+  conflicts?: number;
+  removed?: number;
+  updated?: number;
+  protected?: number;
+};
+
+type ReconcileRow = { removed_count: number; updated_count: number; protected_count: number };
+
+// Roda reconcile_departures_for_schedule_rule (0063) SEMPRE antes de
+// generate_departures_for_schedule_rule -- primeiro reconcilia (remove/
+// atualiza o que não bate mais com a regra ATUAL, protege o que tem reserva
+// relevante), só depois gera as ocorrências que ainda faltam. As duas RPCs
+// são service_role-only, chamadas via admin client depois que o chamador já
+// confirmou (via RLS, client de sessão) que a regra pertence à empresa dele.
+async function reconcileAndGenerate(
+  admin: ReturnType<typeof createAdminClient>,
+  scheduleRuleId: string
+): Promise<{ generated: number; conflicts: number; removed: number; updated: number; protected: number }> {
+  const { data: reconcileData, error: reconcileError } = await admin
+    .rpc("reconcile_departures_for_schedule_rule", { p_schedule_rule_id: scheduleRuleId })
+    .maybeSingle();
+  if (reconcileError) console.error("reconcileAndGenerate/reconcile:", reconcileError);
+  const reconcileRow = reconcileData as ReconcileRow | null;
+
+  const { data: generateData, error: generateError } = await admin.rpc("generate_departures_for_schedule_rule", {
+    p_schedule_rule_id: scheduleRuleId,
+  });
+  if (generateError) console.error("reconcileAndGenerate/generate:", generateError);
+  const { generated, conflicts } = summarizeGenerateRows((generateData ?? []) as GenerateRow[]);
+
+  return {
+    generated,
+    conflicts,
+    removed: reconcileRow?.removed_count ?? 0,
+    updated: reconcileRow?.updated_count ?? 0,
+    protected: reconcileRow?.protected_count ?? 0,
+  };
+}
 
 // Um passeio tem no máximo UMA regra recorrente ativa por vez (modelo
 // simples pedido: "quando esse passeio acontece", não uma lista de agendas
@@ -83,37 +124,86 @@ export async function saveRecurringSchedule(tourId: string, _prev: ActionResult,
     return { error: "Não foi possível salvar a agenda. Tente novamente." };
   }
 
+  // regra salva -- reconcilia o que não bate mais com os parâmetros ATUAIS
+  // (remove automáticas sem reserva relevante fora da nova regra, atualiza
+  // preço/capacidade das que continuam válidas) e só então gera as
+  // ocorrências que ainda faltam dentro do horizonte. Falha aqui nunca é
+  // fatal -- a regra já foi salva, e tanto reconcile quanto generate são
+  // idempotentes, podem ser tentados de novo num próximo save.
   const admin = createAdminClient();
-  const { data: generated, error: genError } = await admin.rpc("generate_departures_for_schedule_rule", {
-    p_schedule_rule_id: ruleRow!.id,
-  });
-  if (genError) {
-    console.error("saveRecurringSchedule/generate:", genError);
-    // a regra já foi salva -- a geração pode ser tentada de novo (idempotente,
-    // ver migration 0063), não é um erro fatal pro operador.
-  }
+  const result = await reconcileAndGenerate(admin, ruleRow!.id);
 
   revalidatePath(`/passeios/${tourId}`);
   revalidatePath("/saidas");
   revalidatePath("/dashboard");
-  return { error: "", ok: true, generated: Array.isArray(generated) ? generated.length : 0 };
+  return { error: "", ok: true, ...result };
 }
 
 export async function pauseRecurringSchedule(tourId: string): Promise<ActionResult> {
   const profile = await getProfile();
   if (!profile?.company_id) return { error: "Sessão inválida." };
   const supabase = createClient();
-  const { error } = await supabase
+  const { data: rule, error } = await supabase
     .from("tour_schedule_rules")
     .update({ active: false })
     .eq("tour_id", tourId)
-    .eq("company_id", profile.company_id);
+    .eq("company_id", profile.company_id)
+    .select("id")
+    .maybeSingle();
   if (error) {
     console.error("pauseRecurringSchedule:", error);
     return { error: "Não foi possível pausar a agenda." };
   }
+  if (!rule) return { error: "Agenda não encontrada." };
+
+  // com a regra já inativa, reconcile trata todo slot como inválido --
+  // remove as automáticas futuras sem reserva relevante (retira da
+  // disponibilidade), preserva as que têm reserva. Nunca gera nada nova
+  // (generate recusa regra inativa).
+  const admin = createAdminClient();
+  const { data: reconcileData, error: reconcileError } = await admin
+    .rpc("reconcile_departures_for_schedule_rule", { p_schedule_rule_id: rule.id })
+    .maybeSingle();
+  if (reconcileError) console.error("pauseRecurringSchedule/reconcile:", reconcileError);
+  const reconcileRow = reconcileData as ReconcileRow | null;
+
   revalidatePath(`/passeios/${tourId}`);
-  return { error: "", ok: true };
+  revalidatePath("/saidas");
+  return {
+    error: "",
+    ok: true,
+    removed: reconcileRow?.removed_count ?? 0,
+    protected: reconcileRow?.protected_count ?? 0,
+  };
+}
+
+// Reativa uma agenda pausada -- só gera as ocorrências faltantes dentro do
+// horizonte (idempotente, nunca duplica); nada foi removido/alterado além
+// do que reconcile já tinha feito na pausa, então não há nada a "restaurar".
+export async function reactivateRecurringSchedule(tourId: string): Promise<ActionResult> {
+  const profile = await getProfile();
+  if (!profile?.company_id) return { error: "Sessão inválida." };
+  const supabase = createClient();
+  const { data: rule, error } = await supabase
+    .from("tour_schedule_rules")
+    .update({ active: true })
+    .eq("tour_id", tourId)
+    .eq("company_id", profile.company_id)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("reactivateRecurringSchedule:", error);
+    return { error: "Não foi possível reativar a agenda." };
+  }
+  if (!rule) return { error: "Agenda não encontrada." };
+
+  const admin = createAdminClient();
+  const result = await reconcileAndGenerate(admin, rule.id);
+
+  revalidatePath(`/passeios/${tourId}`);
+  revalidatePath("/saidas");
+  revalidatePath("/dashboard");
+  return { error: "", ok: true, ...result };
 }
 
 // "Datas específicas" -- reaproveita createDeparture (src/app/(app)/saidas/actions.ts)

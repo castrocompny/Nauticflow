@@ -125,11 +125,12 @@ create trigger trg_tour_schedule_rules_updated_at
   for each row execute function public.touch_tour_schedule_rules_updated_at();
 
 -- Rastreia de qual regra uma departure veio -- nullable (departures manuais
--- continuam sem isso, sempre válidas). Nunca usado pra apagar
--- automaticamente nada -- só pra saber "essa saída veio desta agenda" e
--- pra idempotência da geração (junto com o unique de vessel_id/departs_at
--- que já existe desde 0000, que continua sendo a proteção real contra
--- conflito de horário do mesmo barco).
+-- continuam sem isso, sempre válidas, NUNCA tocadas por reconciliação
+-- automática). Usado pra idempotência da geração (junto com o unique de
+-- vessel_id/departs_at que já existe desde 0000) e pra reconcile_departures_
+-- for_schedule_rule saber quais departures pertencem a qual regra -- essa
+-- reconciliação PODE remover uma departure automática (nunca uma manual),
+-- mas só quando ela não tem reserva/hold relevante, ver função abaixo.
 alter table public.departures
   add column if not exists schedule_rule_id uuid references public.tour_schedule_rules (id) on delete set null;
 
@@ -141,6 +142,29 @@ create index on public.departures (schedule_rule_id) where schedule_rule_id is n
 create unique index tour_schedule_rules_departure_unique
   on public.departures (schedule_rule_id, departs_at)
   where schedule_rule_id is not null;
+
+-- Reserva "relevante" -- confirmada, ou pendente com hold ainda válido.
+-- MESMA definição de "consome capacidade" já usada por check_departure_
+-- capacity (trigger em reservations, 0042). Deliberadamente MAIS ESTREITA
+-- que a checagem de deleteDeparture() (saidas/actions.ts -- bloqueia
+-- remoção MANUAL por qualquer reserva histórica, mesmo cancelada): ação
+-- humana explícita exige mais cautela que reconciliação automática de
+-- agenda. Uma reserva cancelada, ou um hold vencido, nunca protege uma
+-- departure de ser reconciliada.
+create or replace function public.tour_schedule_departure_has_active_reservation(p_departure_id uuid)
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1 from public.reservations
+    where departure_id = p_departure_id
+      and (status = 'confirmada' or (status = 'pendente' and hold_expires_at > now()))
+  );
+$$;
+
+revoke all on function public.tour_schedule_departure_has_active_reservation(uuid) from public, anon, authenticated;
+grant execute on function public.tour_schedule_departure_has_active_reservation(uuid) to service_role;
 
 -- ============================================================================
 -- GERAÇÃO IDEMPOTENTE DE SAÍDAS -- motor interno, service_role only. Chamado
@@ -154,9 +178,17 @@ create unique index tour_schedule_rules_departure_unique
 -- unique que já existe desde 0000 (nunca dois departures pro mesmo barco no
 -- mesmo instante, seja de agenda ou manual). Idempotente: salvar/rodar a
 -- mesma regra várias vezes nunca duplica.
+--
+-- was_conflict distingue os dois motivos de um slot não ter sido criado:
+-- (a) já existe uma departure NOSSA nesse (vessel, horário) -- bookkeeping
+-- normal de reconcile_departures_for_schedule_rule, nunca reportado ao
+-- operador como problema; (b) já existe uma departure de OUTRA origem
+-- (outra regra, ou manual) -- conflito real de agenda do barco, reportado
+-- pra o server action mostrar ao operador (pedido explícito: "não quero
+-- conflito silencioso na UX").
 -- ============================================================================
 create or replace function public.generate_departures_for_schedule_rule(p_schedule_rule_id uuid)
-returns table (departure_id uuid, departs_at timestamptz)
+returns table (departure_id uuid, departs_at timestamptz, was_conflict boolean)
 language plpgsql
 security definer
 set search_path = public
@@ -171,6 +203,7 @@ declare
   v_local_ts timestamp;
   v_departs_at timestamptz;
   v_new_id uuid;
+  v_existing_rule_id uuid;
 begin
   perform pg_advisory_xact_lock(hashtext('tour_schedule_rule'), hashtext(p_schedule_rule_id::text));
 
@@ -209,7 +242,22 @@ begin
           if v_new_id is not null then
             departure_id := v_new_id;
             departs_at := v_departs_at;
+            was_conflict := false;
             return next;
+          else
+            select d.schedule_rule_id into v_existing_rule_id
+              from public.departures d
+              where d.vessel_id = v_rule.vessel_id and d.departs_at = v_departs_at;
+
+            if v_existing_rule_id is distinct from p_schedule_rule_id then
+              departure_id := null;
+              departs_at := v_departs_at;
+              was_conflict := true;
+              return next;
+            end if;
+            -- senão: já é uma departure DESTA regra (bookkeeping normal,
+            -- reconcile_departures_for_schedule_rule já cuidou dela) -- nada
+            -- a reportar.
           end if;
         end if;
       end loop;
@@ -223,6 +271,121 @@ $$;
 
 revoke all on function public.generate_departures_for_schedule_rule(uuid) from public, anon, authenticated;
 grant execute on function public.generate_departures_for_schedule_rule(uuid) to service_role;
+
+-- ============================================================================
+-- RECONCILIAÇÃO -- roda ANTES de generate_departures_for_schedule_rule (o
+-- server action chama as duas em sequência). Pra cada departure AUTOMÁTICA
+-- (schedule_rule_id = esta regra), FUTURA, ainda 'agendada' (nunca toca em
+-- passada/encerrada/cancelada/manual -- o WHERE já exclui todas essas por
+-- construção):
+--
+--   (a) tem reserva/hold RELEVANTE -> PROTEGIDA, nunca tocada, nunca removida;
+--   (b) não tem, e ainda bate com os parâmetros ATUAIS da regra (mesma
+--       embarcação, dia/horário dentro do horizonte, regra ativa) -> mantida,
+--       mas preço/capacidade são reconciliados pra configuração atual;
+--   (c) não tem, e NÃO bate mais (regra editada/pausada) -> removida de
+--       verdade (mesmo mecanismo de deleteDeparture: apaga manifests
+--       primeiro, depois a departure -- redundante com o ON DELETE CASCADE
+--       de ambas FKs, mas mantém o mesmo padrão explícito já usado ali).
+--
+-- Regra PAUSADA (active=false) -> nenhum slot é "válido", então toda
+-- departure automática sem reserva relevante é removida (retira da
+-- disponibilidade), e nenhuma nova é gerada (generate_departures_for_
+-- schedule_rule também já recusa regra inativa). Idempotente: rodar duas
+-- vezes seguidas na segunda vez não encontra mais nada pra remover/atualizar
+-- (o que sobrou já bate com a regra atual, ou está protegido).
+-- ============================================================================
+create or replace function public.reconcile_departures_for_schedule_rule(p_schedule_rule_id uuid)
+returns table (removed_count int, updated_count int, protected_count int)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rule record;
+  v_tour record;
+  v_vessel record;
+  v_effective_price_cents int;
+  v_effective_capacity int;
+  v_horizon_end date;
+  v_removed int := 0;
+  v_updated int := 0;
+  v_protected int := 0;
+  v_dep record;
+  v_valid boolean;
+  v_target_day date;
+  v_target_time time;
+begin
+  perform pg_advisory_xact_lock(hashtext('tour_schedule_rule'), hashtext(p_schedule_rule_id::text));
+
+  select * into v_rule from public.tour_schedule_rules where id = p_schedule_rule_id;
+  if not found then
+    removed_count := 0;
+    updated_count := 0;
+    protected_count := 0;
+    return next;
+    return;
+  end if;
+
+  select base_price_cents into v_tour from public.tours where id = v_rule.tour_id;
+  select commercial_capacity into v_vessel from public.vessels where id = v_rule.vessel_id;
+  v_effective_price_cents := coalesce(v_rule.price_cents_override, v_tour.base_price_cents);
+  -- comparação justa contra v_dep.capacity (nunca null) -- se a regra não
+  -- tem override, o valor "certo" é a capacidade comercial da embarcação
+  -- ATUAL (pode ter mudado desde a última geração), mesma fonte que trg_
+  -- departure_capacity (0000) usaria.
+  v_effective_capacity := coalesce(v_rule.capacity_override, v_vessel.commercial_capacity);
+  v_horizon_end := (now() at time zone '-03:00')::date + v_rule.horizon_days;
+
+  for v_dep in
+    select id, vessel_id, departs_at, capacity, price_cents
+    from public.departures
+    where schedule_rule_id = p_schedule_rule_id
+      and status = 'agendada'
+      and departs_at > now()
+    for update
+  loop
+    if public.tour_schedule_departure_has_active_reservation(v_dep.id) then
+      v_protected := v_protected + 1;
+      continue;
+    end if;
+
+    v_valid := false;
+    if v_rule.active and v_dep.vessel_id = v_rule.vessel_id then
+      v_target_day := (v_dep.departs_at at time zone '-03:00')::date;
+      v_target_time := (v_dep.departs_at at time zone '-03:00')::time;
+      if v_target_day <= v_horizon_end
+         and extract(dow from v_target_day)::smallint = any (v_rule.days_of_week)
+         and v_target_time = any (v_rule.times)
+      then
+        v_valid := true;
+      end if;
+    end if;
+
+    if v_valid then
+      if v_dep.price_cents is distinct from v_effective_price_cents or v_dep.capacity is distinct from v_effective_capacity then
+        update public.departures
+          set price_cents = v_effective_price_cents,
+              capacity = v_effective_capacity
+          where id = v_dep.id;
+        v_updated := v_updated + 1;
+      end if;
+    else
+      delete from public.manifests where departure_id = v_dep.id;
+      delete from public.departures where id = v_dep.id;
+      v_removed := v_removed + 1;
+    end if;
+  end loop;
+
+  removed_count := v_removed;
+  updated_count := v_updated;
+  protected_count := v_protected;
+  return next;
+end;
+$$;
+
+revoke all on function public.reconcile_departures_for_schedule_rule(uuid) from public, anon, authenticated;
+grant execute on function public.reconcile_departures_for_schedule_rule(uuid) to service_role;
 
 -- ============================================================================
 -- EXTENSÃO de validate_tour_for_publishing (0039/0044) -- "sem agenda" passa
@@ -358,9 +521,13 @@ begin
   end if;
 
   -- EXTENSÃO (0063): "sem agenda" agora BLOQUEIA publicação (era warning).
+  -- price_cents is not null é obrigatório aqui -- uma departure futura sem
+  -- preço configurado NÃO é vendável de verdade (create_marketplace_booking,
+  -- 0042, recusa com PRICE_NOT_CONFIGURED) -- contar ela como "agenda válida"
+  -- deixaria o passeio publicar sem nenhum jeito real de ser comprado.
   select count(*) into v_future_departure_count
     from public.departures
-    where tour_id = p_tour_id and status <> 'cancelada' and departs_at > now();
+    where tour_id = p_tour_id and status <> 'cancelada' and departs_at > now() and price_cents is not null;
   if v_future_departure_count = 0 then
     return query select 'NO_FUTURE_DEPARTURES', 'departures', 'Escolha quando esse passeio acontece -- adicione uma agenda ou pelo menos uma data.', 'error';
   end if;
@@ -382,6 +549,8 @@ end;
 $$;
 
 comment on table public.tour_schedule_rules is
-  'Camada de automação de agenda ("modo Recorrente") -- nunca substitui departures como unidade vendável real. Uma regra gera departures via generate_departures_for_schedule_rule(); editar/desativar a regra nunca apaga departures já geradas, mesmo que não batam mais com os novos parâmetros (proteção de reserva/hold e histórico vive inteiramente na tabela departures, inalterada).';
+  'Camada de automação de agenda ("modo Recorrente") -- nunca substitui departures como unidade vendável real. Editar/pausar a regra reconcilia (reconcile_departures_for_schedule_rule) as departures automáticas futuras SEM reserva/hold relevante pra bater com os novos parâmetros -- pode remover as que saíram da regra, nunca remove/altera as que têm reserva relevante, nunca toca em passadas/encerradas/canceladas/manuais.';
 comment on function public.generate_departures_for_schedule_rule(uuid) is
-  'Motor de geração idempotente -- INSERT ... ON CONFLICT (vessel_id, departs_at) DO NOTHING. Chamado pelo server action do operador (após validar dono via RLS) e pelo futuro cron de auto-extensão. Nunca remove departures.';
+  'Motor de geração idempotente -- INSERT ... ON CONFLICT (vessel_id, departs_at) DO NOTHING. Chamado pelo server action do operador (após validar dono via RLS) e pelo futuro cron de auto-extensão, sempre DEPOIS de reconcile_departures_for_schedule_rule. was_conflict distingue bookkeeping normal (mesma regra) de conflito real de agenda do barco (outra origem).';
+comment on function public.reconcile_departures_for_schedule_rule(uuid) is
+  'Remove/atualiza departures automáticas futuras que não têm reserva/hold relevante e não batem mais com os parâmetros atuais da regra (ou com a regra pausada). Protege qualquer departure com reserva confirmada ou hold ainda válido -- nunca remove, nunca altera preço/capacidade dela.';
