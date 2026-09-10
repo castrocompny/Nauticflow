@@ -14,9 +14,17 @@ declare
   v_company_id uuid;
   v_plan_id uuid;
 begin
+  -- replay-safe (achado ao validar 0000->0063 num Supabase novo/staging,
+  -- sem os dados reais de Production): este backfill só faz sentido pra
+  -- corrigir a conta específica que existia em Production no momento em que
+  -- esta migration foi escrita. Num banco novo, sem esse usuário, é NO-OP
+  -- seguro -- nunca deveria abortar o replay do restante do schema. O
+  -- comportamento original (corrigir a conta se ela existir) continua
+  -- intacto abaixo.
   select id into v_user_id from auth.users where email = 'davimagi1234@gmail.com';
   if v_user_id is null then
-    raise exception 'Usuário não encontrado em auth.users.';
+    raise notice 'Usuário alvo (davimagi1234@gmail.com) não existe neste ambiente; backfill histórico ignorado.';
+    return;
   end if;
 
   if exists (select 1 from public.profiles where id = v_user_id) then

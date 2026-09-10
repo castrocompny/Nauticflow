@@ -9,9 +9,19 @@ declare
   v_company_id uuid;
   v_plan_id uuid;
 begin
+  -- replay-safe (achado ao validar 0000->0063 num Supabase novo/staging):
+  -- este backfill só faz sentido pra corrigir a conta específica que
+  -- existia em Production no momento em que esta migration foi escrita.
+  -- Num banco novo, sem esse usuário, é NO-OP seguro. Nota à parte: este
+  -- arquivo já é ignorado pelo `supabase db push` por causa do nome
+  -- ("0000b" não bate o padrão `<timestamp>_name.sql` esperado pelo CLI) --
+  -- não foi a causa do erro observado em staging (isso foi 0010), mas
+  -- corrigido aqui por consistência, pro caso de algum dia ser aplicado por
+  -- outro caminho (ex: colado manualmente no SQL Editor).
   select id into v_user_id from auth.users where email = 'castrocompny@gmail.com';
   if v_user_id is null then
-    raise exception 'Usuário não encontrado em auth.users.';
+    raise notice 'Usuário alvo (castrocompny@gmail.com) não existe neste ambiente; backfill histórico ignorado.';
+    return;
   end if;
 
   if exists (select 1 from public.profiles where id = v_user_id) then
