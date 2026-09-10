@@ -2171,3 +2171,41 @@ ACL reafirmada explicitamente na própria `0065` (`revoke all ... from public, a
 **Local**: `tsc --noEmit` limpo, `eslint .` 0 erros (4 warnings pré-existentes, não relacionados), `next build` sucesso -- mudança 100% SQL, nenhum arquivo TypeScript tocado.
 
 **Estado**: `0065` commitada e pushada em `feature/operator-schedule-automation`, ainda **não aplicada** em nenhum ambiente (aguardando o usuário aplicar em staging, mesma limitação de conectividade real deste sandbox). Nenhuma migration aplicada em Production (`gggpihphjjxndpfntnvm`). `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`. O script único de validação funcional foi atualizado pra 0063/0064/**0065**, mantendo todas as fases anteriores.
+
+**Atualização (sessão de 2026-09-10)**: `0065` foi aplicada pelo usuário em staging (o `ON CONFLICT` ambíguo, 42702, parou de ocorrer, confirmado). A FASE 1 seguinte encontrou um SEGUNDO bug real, de fuso horário -- ver seção 106.
+
+## 106. `AT TIME ZONE '-03:00'` não é equivalente a `'America/Sao_Paulo'` no Postgres -- decisão anterior estava INCORRETA, corrigido em `0066` (branch `feature/operator-schedule-automation`, sessão de 2026-09-10)
+
+Depois de `0065` aplicada em staging (o 42702 não ocorreu mais), a FASE 1 do script de validação funcional falhou de novo, gerando uma agenda configurada para as **10:00** -- bem no meio da janela permitida, não um caso de borda:
+
+```
+ERROR P0001: O horário de saída deve ser entre 08:00 e 19:00 (horário de Brasília).
+```
+
+**A decisão anterior estava errada**: `0063` (e o ADR 0008) documentavam a escolha deliberada de usar `AT TIME ZONE '-03:00'` (offset numérico fixo) em vez de `AT TIME ZONE 'America/Sao_Paulo'` (nome de zona IANA) em `generate_departures_for_schedule_rule`/`reconcile_departures_for_schedule_rule`, sob a alegação de que "os dois são numericamente idênticos hoje" e que o offset fixo seria mais seguro contra uma eventual reintrodução de horário de verão. **Essa conclusão estava invertida.**
+
+**Causa raiz real**: `check_departure_schedule()` (migration 0014, trigger que valida a janela 08:00-19:00, nunca alterada) usa `AT TIME ZONE 'America/Sao_Paulo'` -- um NOME de zona, resolvido sem ambiguidade pela base IANA/Olson do Postgres. `generate_departures_for_schedule_rule`/`reconcile_departures_for_schedule_rule` usavam `AT TIME ZONE '-03:00'` -- um OFFSET NUMÉRICO puro. Pra esse caso específico (não um nome nem uma abreviação de `pg_timezone_abbrevs`), o Postgres cai no mesmo caminho de parsing de especificações de fuso no ESTILO POSIX, cuja convenção de sinal é INVERTIDA em relação à ISO-8601 (POSIX trata "positivo" como OESTE de Greenwich, o oposto do que qualquer pessoa assumiria, e o oposto de como o Postgres trata nomes de zona IANA normais). Só o offset numérico fica sujeito a essa inversão -- nomes de zona como `America/Sao_Paulo` nunca passam por esse caminho.
+
+**Prova** (derivação a partir da semântica documentada do Postgres, consistente com o erro real observado -- ver query de verificação completa no topo de `0066_fix_schedule_timezone_semantics.sql`):
+
+```sql
+-- se a inversão POSIX ocorrer pro offset numérico:
+select (timestamp '2026-09-20 10:00' at time zone '-03:00')
+         at time zone 'America/Sao_Paulo';
+-- 2026-09-20 04:00:00 -- FORA de 08:00-19:00, exatamente o tipo de
+-- rejeição observada de verdade em staging pra uma agenda de 10:00.
+
+select (timestamp '2026-09-20 10:00' at time zone 'America/Sao_Paulo')
+         at time zone 'America/Sao_Paulo';
+-- 2026-09-20 10:00:00 -- exatamente o horário configurado.
+```
+
+O raciocínio original (preocupação com horário de verão) não estava errado como PREOCUPAÇÃO -- a conclusão é que estava invertida: é o NOME de zona IANA que é resolvido sem ambiguidade nenhuma pelo Postgres; o offset numérico é que introduz um risco real de inversão de sinal.
+
+**Correção -- `0066_fix_schedule_timezone_semantics.sql`** (migration nova; `0063` e `0065` **não** foram reabertas):
+
+`create or replace function` em `generate_departures_for_schedule_rule` (corpo idêntico ao da versão corrigida pela `0065`, incluindo o `ON CONFLICT ON CONSTRAINT`, preservado integralmente) e `reconcile_departures_for_schedule_rule` (corpo idêntico ao de `0063`), trocando as 6 ocorrências de `AT TIME ZONE '-03:00'` por `AT TIME ZONE 'America/Sao_Paulo'` -- exatamente a mesma zona que `check_departure_schedule()` já usa, eliminando a divergência estruturalmente. `reconcile_departures_for_tour` auditada e confirmada sem nenhum cálculo de fuso próprio (só itera regras e delega pra `reconcile_departures_for_schedule_rule`) -- não precisou ser recriada. ACL de ambas as funções recriadas reafirmada explicitamente (`revoke all ... from public, anon, authenticated` + `grant execute ... to service_role`), mesma defesa em profundidade de `0043`/`0064`/`0065`. Advisory lock, idempotência (`ON CONFLICT` da 0065), proteção de reserva, herança de preço/capacidade, `marketplace_sales_enabled`, `SECURITY DEFINER`/`search_path` -- todos preservados integralmente, nenhuma mudança de comportamento além da conversão de fuso em si.
+
+**Local**: `tsc --noEmit` limpo, `eslint .` 0 erros (4 warnings pré-existentes, não relacionados), `next build` sucesso -- mudança 100% SQL.
+
+**Estado**: `0066` commitada e pushada em `feature/operator-schedule-automation`. `0064`/`0065` já aplicadas em staging pelo usuário; `0066` ainda **não aplicada** em nenhum ambiente (aguardando o usuário rodar o script atualizado). Nenhuma migration aplicada em Production (`gggpihphjjxndpfntnvm`). `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`. Script único de validação funcional atualizado pra 0063/0064/0065/**0066**, mantendo todas as fases anteriores e reaproveitando/limpando sozinho os fixtures `[STAGING TEST]` que sobraram da FASE 0 da execução interrompida anterior (design já idempotente desde a primeira versão do script -- nenhuma limpeza manual necessária).

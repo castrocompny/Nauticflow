@@ -273,6 +273,16 @@ numericamente idênticos; "modernizar" só um lado seria risco sem
 benefício. Teste explícito com a função real confirma `2026-09-20 10:00
 America/Sao_Paulo -> 2026-09-20T13:00:00Z`.
 
+> **CORRIGIDO (`0066`, achado real em staging -- ver seção "AT TIME ZONE
+> '-03:00' não é equivalente..." mais abaixo): esta decisão está
+> INCORRETA.** `'-03:00'` (offset numérico) e `'America/Sao_Paulo'` (nome
+> IANA) NÃO são tratados de forma equivalente pelo `AT TIME ZONE` do
+> Postgres -- o offset numérico cai num caminho de parsing com convenção
+> de sinal invertida (estilo POSIX), diferente do nome de zona (ISO-8601).
+> A conclusão certa era a oposta: o nome IANA é a opção sem ambiguidade,
+> não o offset fixo. Não editado aqui pra preservar o registro histórico
+> da decisão original -- ver a correção completa abaixo.
+
 **ACL de todas as 6 funções novas**: as 4 funções-trigger ganharam
 `revoke all` explícito (Supabase concede `EXECUTE` por padrão em função
 nova pra `anon`/`authenticated`/`service_role`, mesmo achado já
@@ -376,3 +386,44 @@ local `v_departs_at`, nunca o nome nu `departs_at`). ACL reafirmada
 explicitamente na própria `0065`, mesmo padrão de defesa em profundidade
 já usado em `0043`/`0064`. Detalhes completos em `DOCUMENTACAO.md` seção
 105.
+
+## `AT TIME ZONE '-03:00'` não é equivalente a `'America/Sao_Paulo'` -- decisão anterior estava INCORRETA, `0066`
+
+Achado em Postgres real, imediatamente depois de `0065` aplicada em
+staging (o 42702 parou de ocorrer): `generate_departures_for_schedule_
+rule` gerou uma agenda configurada para as **10:00** -- bem no meio da
+janela 08:00-19:00 -- e `check_departure_schedule()` (0014) recusou com
+"O horário de saída deve ser entre 08:00 e 19:00". A decisão original
+desta ADR ("Timezone -- avaliado e mantido `-03:00` fixo", acima) estava
+**incorreta**: `'-03:00'` (offset numérico) e `'America/Sao_Paulo'` (nome
+IANA) não são tratados de forma equivalente pelo `AT TIME ZONE` do
+Postgres. `check_departure_schedule()` usa o NOME de zona, resolvido sem
+ambiguidade pela base IANA/Olson. `generate_departures_for_schedule_rule`/
+`reconcile_departures_for_schedule_rule` (0063) usavam o OFFSET NUMÉRICO
+-- que, por não ser um nome nem uma abreviação reconhecida, cai no mesmo
+caminho de parsing de especificações de fuso estilo POSIX, com convenção
+de sinal INVERTIDA em relação à ISO-8601 (POSIX trata "positivo" como
+OESTE de Greenwich). Prova (consistente com o erro real observado):
+
+```sql
+select (timestamp '2026-09-20 10:00' at time zone '-03:00')
+         at time zone 'America/Sao_Paulo';
+-- 2026-09-20 04:00:00 -- fora de 08:00-19:00, mesmo tipo de rejeição
+-- observada de verdade em staging pra uma agenda de 10:00.
+```
+
+A preocupação original (evitar reintroduzir horário de verão) não estava
+errada como preocupação -- a CONCLUSÃO estava invertida: o nome IANA é
+exatamente a opção sem ambiguidade, não o offset fixo.
+
+Corrigido em `0066_fix_schedule_timezone_semantics.sql` (migration nova,
+`0063`/`0065` não reabertas): as 6 ocorrências de `AT TIME ZONE '-03:00'`
+em `generate_departures_for_schedule_rule`/`reconcile_departures_for_
+schedule_rule` trocadas por `AT TIME ZONE 'America/Sao_Paulo'` -- a mesma
+zona que `check_departure_schedule()` já usa, eliminando a divergência
+estruturalmente (as duas conversões passam a ser literalmente a mesma
+chamada). `ON CONFLICT ON CONSTRAINT` da `0065` preservado integralmente.
+`reconcile_departures_for_tour` auditada, sem cálculo de fuso próprio, não
+precisou ser recriada. ACL das duas funções recriadas reafirmada
+explicitamente, mesmo padrão de `0043`/`0064`/`0065`. Detalhes completos
+em `DOCUMENTACAO.md` seção 106.
