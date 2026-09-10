@@ -2209,3 +2209,22 @@ O raciocínio original (preocupação com horário de verão) não estava errado
 **Local**: `tsc --noEmit` limpo, `eslint .` 0 erros (4 warnings pré-existentes, não relacionados), `next build` sucesso -- mudança 100% SQL.
 
 **Estado**: `0066` commitada e pushada em `feature/operator-schedule-automation`. `0064`/`0065` já aplicadas em staging pelo usuário; `0066` ainda **não aplicada** em nenhum ambiente (aguardando o usuário rodar o script atualizado). Nenhuma migration aplicada em Production (`gggpihphjjxndpfntnvm`). `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`. Script único de validação funcional atualizado pra 0063/0064/0065/**0066**, mantendo todas as fases anteriores e reaproveitando/limpando sozinho os fixtures `[STAGING TEST]` que sobraram da FASE 0 da execução interrompida anterior (design já idempotente desde a primeira versão do script -- nenhuma limpeza manual necessária).
+
+**Atualização (sessão de 2026-09-10)**: o usuário aplicou `0066` e rodou o script atualizado -- **confirmação real**: a validação avançou da FASE 1 até a FASE 8 sem repetir o erro de `check_departure_schedule()` -- a regressão de fuso documentada acima está **resolvida de verdade em Postgres real**, não só por análise. Ver seção 107 pro achado seguinte (um bug do PRÓPRIO script de teste, não de `0063`-`0066`).
+
+## 107. Colisão de chave única entre fixtures do próprio script de validação -- NÃO é bug de produção, corrigido só no script (sem migration nova) (branch `feature/operator-schedule-automation`, sessão de 2026-09-10)
+
+Com `0066` aplicada e confirmada (item acima), a validação avançou até a FASE 8 (datas específicas) e parou com:
+
+```
+ERROR 23505: duplicate key value violates unique constraint "departures_vessel_id_departs_at_key"
+DETAIL: Key (vessel_id, departs_at) já existe.
+```
+
+**Isto não é um bug de `0063`/`0064`/`0065`/`0066`** -- é uma colisão determinística entre DOIS FIXTURES DO PRÓPRIO script de teste: a FASE 0 cria uma departure manual em `vessel_a1` no próximo domingo às 12:00 `America/Sao_Paulo`; a FASE 8 também usava `vessel_a1` e também calculava "próximo domingo" (offset de dias ligeiramente diferente, mas caindo no MESMO domingo) às 12:00 -- os dois inserts batiam na constraint `UNIQUE (vessel_id, departs_at)` de verdade. A própria constraint (e a correção de referência da `0065`, `ON CONFLICT ON CONSTRAINT`) funcionou exatamente como deveria -- bloqueou uma duplicata real; o problema era só o fixture do script não ter isolamento suficiente.
+
+**Correção -- só no script de validação, nenhuma migration nova (`0067`) criada, `0063`-`0066` não tocadas**: FASE 0 passou a criar um veículo DEDICADO ("[STAGING TEST] Lancha Data Especifica"), usado EXCLUSIVAMENTE pelas FASE 8 e FASE 9(d) -- nunca compartilhado com a departure manual, a agenda recorrente ou o teste de borda (FASE 1B). Isolamento estrutural, não depende de horários/dias distintos por sorte. Cada INSERT de fixture nessas duas fases agora confere `NOT EXISTS` explícito pro slot exato `(vessel_id, departs_at)` antes de criar -- nunca `ON CONFLICT DO NOTHING` (mascarar o conflito esconderia exatamente este tipo de bug de novo); se o slot já existir e pertencer a um tour diferente do fixture esperado, a fase falha alto com uma mensagem clara em vez de silenciar.
+
+**PRE-CLEAN adicionado**: como a execução que encontrou este erro já tinha commitado FASE 0 até FASE 7c (cada fase é sua própria transação -- só a FASE 8 que falhou fez rollback do que ela mesma tinha feito), o script agora abre com um PRE-CLEAN explícito que remove todos os fixtures `[STAGING TEST]` de qualquer execução anterior interrompida (mesma ordem segura já usada na limpeza final), preserva o usuário de Auth (`staging-test-schedule@nauticflow.invalid`) pra reaproveitamento, e deixa o staging determinístico antes da FASE 0 recriar tudo do zero -- nenhuma limpeza manual pedida ao usuário.
+
+**Estado**: script atualizado, sem nova migration. Nenhuma migration aplicada em Production (`gggpihphjjxndpfntnvm`). `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`.
