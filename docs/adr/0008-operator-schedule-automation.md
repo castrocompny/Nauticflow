@@ -346,3 +346,33 @@ projeto pode confiar em "eu só dei GRANT de X", nem em suposições sobre o
 que os outros roles NÃO receberam por default -- é preciso revogar
 explicitamente e verificar, sempre**. Detalhes completos em
 `DOCUMENTACAO.md` seção 104.
+
+## Ambiguidade de coluna real em `generate_departures_for_schedule_rule` -- `0065`
+
+Achado em Postgres real, durante a validação funcional em staging (a
+primeira vez que uma regra recorrente foi de fato gerada contra um
+Postgres real): `ERROR: 42702: column reference "departs_at" is
+ambiguous`. `generate_departures_for_schedule_rule` é `returns table
+(departure_id uuid, departs_at timestamptz, was_conflict boolean)` --
+cada coluna de `RETURNS TABLE` vira uma variável OUT implícita com o
+mesmo nome; a função também insere em `departures`, que tem uma coluna
+real `departs_at`. O `INSERT` em si nunca foi ambíguo (lista de colunas
+de INSERT só aceita nome de coluna), mas o alvo do `ON CONFLICT (vessel_
+id, departs_at)` fica sujeito à mesma checagem de ambiguidade de uma
+referência de coluna comum -- e colide com a variável OUT.
+
+Corrigido em `0065_fix_schedule_generation_conflict_ambiguity.sql`
+(migration nova, `0063` não reaberta): `on conflict on constraint
+departures_vessel_id_departs_at_key do nothing`, referenciando a
+constraint UNIQUE `(vessel_id, departs_at)` (nome determinístico padrão do
+Postgres pra constraint sem nome explícito, confirmado estável desde 0000
+-- nenhuma migration posterior a toca) pelo NOME em vez da lista de
+colunas. Um namespace de constraint nunca colide com namespace de
+coluna/variável PL/pgSQL -- elimina a ambiguidade estruturalmente, mesma
+constraint, mesma proteção contra corrida/duplicidade, nenhuma mudança de
+comportamento. Resto do corpo da função auditado -- nenhuma outra
+referência com o mesmo risco (as demais já usavam alias ou a variável
+local `v_departs_at`, nunca o nome nu `departs_at`). ACL reafirmada
+explicitamente na própria `0065`, mesmo padrão de defesa em profundidade
+já usado em `0043`/`0064`. Detalhes completos em `DOCUMENTACAO.md` seção
+105.

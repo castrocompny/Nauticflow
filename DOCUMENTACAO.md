@@ -2133,3 +2133,41 @@ Ou seja: `authenticated` ainda tinha INSERT/UPDATE/DELETE diretos em `public.tou
 **Gap corrigido antes de aplicar em staging**: a primeira versão de `0064` só revogava INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER de `authenticated`/`anon`/`public`, e o comentário do arquivo afirmava que `anon` "não tem e nunca teve select aqui" só porque `0063` nunca concedeu SELECT explicitamente -- uma suposição sem prova, incoerente com o próprio achado desta seção (privilégios default sem GRANT explícito no arquivo). Corrigido para `revoke all ... from anon, public` (não só os quatro privilégios de escrita) antes de qualquer aplicação em staging -- nenhuma versão com essa suposição chegou a ser aplicada.
 
 **Estado**: `0064` (versão corrigida) ainda **não aplicada** em staging -- aguardando o usuário rodar `db push` (mesma limitação de conectividade Postgres real deste sandbox documentada nas seções anteriores; `supabase db push --linked`/`db query --linked` seguem falhando/travando de forma intermitente mesmo contra staging). Resultado real da reverificação pós-`0064` e do teste negativo (INSERT/UPDATE/DELETE diretos recusados, SELECT da própria empresa permitido, `save_recurring_schedule` permitido) pendente de confirmação do usuário -- **não reportado como PASS até execução real confirmada**, mesmo princípio de honestidade já seguido em toda a validação de `0063`. Nenhuma migration aplicada em Production. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`.
+
+**Atualização (sessão de 2026-09-10)**: `0064` foi aplicada manualmente pelo usuário via SQL Editor em staging, com um script auto-validante (`has_table_privilege`/`has_function_privilege`/`pg_policy`) -- resultado real: `Success. No rows returned.`, sem nenhum `RAISE EXCEPTION`, confirmando a ACL corrigida de verdade no banco. Ver seção 105 para o achado seguinte (0065), encontrado durante a validação funcional completa que veio depois.
+
+## 105. Bug real de ambiguidade de coluna em `generate_departures_for_schedule_rule` -- achado em Postgres real durante validação funcional, corrigido em `0065` (branch `feature/operator-schedule-automation`, sessão de 2026-09-10)
+
+Durante a execução do script único de validação funcional 0063/0064 no Supabase de **staging** (`ddlgkrpjzmtgmoucangh`), a FASE 1 (criação da primeira agenda recorrente de verdade) falhou com um erro real do Postgres, nunca antes reproduzido (nenhuma regra recorrente tinha sido gerada de verdade em Postgres real até este ponto):
+
+```
+ERROR: 42702: column reference "departs_at" is ambiguous
+DETAIL: It could refer to either a PL/pgSQL variable or a table column.
+CONTEXT: PL/pgSQL function generate_departures_for_schedule_rule(uuid) line 38 at SQL statement
+```
+
+**Causa raiz**: `generate_departures_for_schedule_rule` (0063) é `returns table (departure_id uuid, departs_at timestamptz, was_conflict boolean)` -- cada coluna de `RETURNS TABLE` vira uma variável OUT implícita no escopo PL/pgSQL da função, com o mesmo nome da coluna. A função também insere em `public.departures`, que tem uma coluna real `departs_at`. A lista de colunas do próprio `INSERT` não é ambígua (a gramática de INSERT só aceita nome de coluna ali, PL/pgSQL nunca tenta substituir variável nessa posição) -- o problema é especificamente o alvo do `ON CONFLICT`:
+
+```sql
+on conflict (vessel_id, departs_at) do nothing
+```
+
+Essa lista de colunas do `ON CONFLICT` fica sujeita à mesma checagem de ambiguidade de uma referência de coluna comum -- como existe ao mesmo tempo uma variável OUT `departs_at` e uma coluna `departures.departs_at`, o Postgres recusa (42702) em vez de adivinhar a intenção.
+
+**Correção -- `0065_fix_schedule_generation_conflict_ambiguity.sql`** (migration nova; `0063` **não** foi reaberta/editada, mesmo padrão já usado em `0043`/`0064` para achados pós-aplicação):
+
+Confirmado no schema (não suposto) que a constraint `unique (vessel_id, departs_at)` de `departures` (0000, sem nome explícito) recebeu o nome determinístico padrão do Postgres pra constraints sem nome -- `departures_vessel_id_departs_at_key` -- e nenhuma migration posterior (0000 até 0064) a dropa, renomeia ou recria. `create or replace function` com o corpo idêntico ao de 0063, trocando só:
+
+```sql
+on conflict on constraint departures_vessel_id_departs_at_key do nothing
+```
+
+Referenciar a constraint pelo NOME elimina a ambiguidade pela raiz -- o identificador depois de `on constraint` vive num namespace de constraints, nunca colide com o namespace de colunas/variáveis PL/pgSQL, então a ambiguidade é estruturalmente impossível, não só "improvável". Mesma constraint, mesma proteção real contra corrida/duplicidade -- só referenciada de outro jeito, nenhuma mudança de comportamento, nenhum enfraquecimento.
+
+**Auditoria do resto da função** (pedida explicitamente): nenhuma outra referência ambígua encontrada. `d.departs_at` (dentro do SELECT que resolve conflito real vs bookkeeping da própria regra) já vinha qualificado por alias -- referência qualificada nunca colide com variável PL/pgSQL. `departure_id :=`/`departs_at :=`/`was_conflict :=` são atribuições diretas às próprias variáveis OUT (sintaxe PL/pgSQL, não SQL embutido -- correta e obrigatória, sem ambiguidade possível). `v_departs_at` (variável local, nome diferente do parâmetro) já era usada em todo o resto do corpo -- só o `ON CONFLICT` tinha escapado dessa convenção. Nenhuma outra função da cadeia (`reconcile_departures_for_schedule_rule`/`reconcile_departures_for_tour` não têm `ON CONFLICT`; `save_recurring_schedule` tem `on conflict (tour_id)` mas suas colunas de saída não incluem `tour_id`) tem o mesmo risco.
+
+ACL reafirmada explicitamente na própria `0065` (`revoke all ... from public, anon, authenticated` + `grant execute ... to service_role`) -- `CREATE OR REPLACE` preserva OID e ACL, mas reafirmado mesmo assim, sem depender de default privileges do projeto (mesma lição de `0043`/`0064`).
+
+**Local**: `tsc --noEmit` limpo, `eslint .` 0 erros (4 warnings pré-existentes, não relacionados), `next build` sucesso -- mudança 100% SQL, nenhum arquivo TypeScript tocado.
+
+**Estado**: `0065` commitada e pushada em `feature/operator-schedule-automation`, ainda **não aplicada** em nenhum ambiente (aguardando o usuário aplicar em staging, mesma limitação de conectividade real deste sandbox). Nenhuma migration aplicada em Production (`gggpihphjjxndpfntnvm`). `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`. O script único de validação funcional foi atualizado pra 0063/0064/**0065**, mantendo todas as fases anteriores.
