@@ -2104,3 +2104,30 @@ Se **qualquer** passo interno falhar (a regra não passa nas triggers de valida�
 **Local**: `tsc --noEmit` limpo, `eslint .` 0 erros, `next build` sucesso. Confirmado por escopo do diff: nenhum arquivo de marketplace/pagamento/webhook/refund tocado nesta etapa (a extensão de `create_marketplace_booking` vive inteiramente dentro da migration `0063`, não em nenhum arquivo TS de rota).
 
 **Estado**: `0063` (versão release candidate) continua não aplicada em lugar nenhum. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado. Recomendação mantida: aplicar primeiro num Postgres/Supabase de teste real antes de considerar produção.
+
+**Correção posterior (sessão de 2026-09-09)**: a afirmação acima ("`GRANT` de escrita direta removido de `authenticated`... toda escrita passa exclusivamente por essas três RPCs") era a INTENÇÃO da migration, mas se mostrou **incompleta na prática** quando `0063` foi finalmente testada num Postgres real -- ver item 104. `0063` em si nunca foi editada por causa disso; a correção foi uma migration nova (`0064`).
+
+## 104. ACL efetiva de `tour_schedule_rules` diferia da intenção da 0063 -- achado real em Postgres, corrigido em `0064` (branch `feature/operator-schedule-automation`, sessão de 2026-09-09)
+
+Depois de `0063` finalmente aplicada e confirmada (`migration list`: local = remote) num projeto Supabase de **staging** real (`ddlgkrpjzmtgmoucangh`, nunca Production), a validação funcional começou pelo schema/ACL reais (nunca assumidos por leitura de código). Resultado da checagem via `has_table_privilege()` direto no banco:
+
+```
+RLS habilitado                         = true
+authenticated pode SELECT              = true
+authenticated NAO pode INSERT          = false   <- esperado true
+authenticated NAO pode UPDATE          = false   <- esperado true
+authenticated NAO pode DELETE          = false   <- esperado true
+```
+
+Ou seja: `authenticated` ainda tinha INSERT/UPDATE/DELETE diretos em `public.tour_schedule_rules`, apesar de `0063` só conter `grant select on public.tour_schedule_rules to authenticated;` e nenhum `grant insert/update/delete` explícito em lugar nenhum do arquivo. A policy RLS da 0063 (`"agenda do passeio da empresa"`, `for all to authenticated`) também cobria escrita -- com o privilégio de tabela default já presente, ela efetivamente autorizava INSERT/UPDATE/DELETE com row-scope da própria empresa, contornando a garantia central da release candidate (atomicidade via `save_recurring_schedule`/`pause_recurring_schedule`/`reactivate_recurring_schedule`, item 103): um cliente autenticado podia, em tese, fazer `UPDATE` direto na regra sem passar por `reconcile`/`generate`, reproduzindo exatamente o estado que a 0063 existe pra impedir ("regra mudou, saída antiga continua vendável").
+
+**Causa raiz**: o mesmo padrão já documentado em `0043_fecha_execute_rpc_marketplace.sql`, mas do lado de GRANT de TABELA em vez de EXECUTE de FUNÇÃO -- este projeto Supabase concede, a nível de projeto (fora do controle de qualquer migration do repositório), INSERT/UPDATE/DELETE em toda tabela nova do schema `public` diretamente para `authenticated`, independente do que a migration concede explicitamente. `grant select ...` da 0063 só *adicionou* select (redundante com o default); nunca revogou o insert/update/delete que o projeto já concede por padrão. Combina com o achado já registrado na memória do projeto ("Supabase concede grants por padrão -- GRANT restrito sozinho não protege nada sem REVOKE explícito antes").
+
+**Correção -- `0064_tour_schedule_rules_acl_hardening.sql`** (migration nova; `0063` **não** foi reaberta/editada):
+
+1. `revoke insert, update, delete, truncate, references, trigger on public.tour_schedule_rules from authenticated, anon, public;` -- nomeando os roles explicitamente, não confiando em revogar só de `PUBLIC` (mesma lição de `0043`).
+2. Policy `"agenda do passeio da empresa"` (`for all`) removida; substituída por `"agenda do passeio da empresa (leitura)"`, `for select to authenticated`, mesmo `using (company_id = current_company_id())`. Nenhuma policy de escrita recriada.
+3. ACL das RPCs (`save_recurring_schedule`/`pause_recurring_schedule`/`reactivate_recurring_schedule` -> `authenticated` EXECUTE; funções internas e `create_marketplace_booking` -> só `service_role`) reconfirmada linha a linha contra o arquivo `0063` -- já estava correta desde o início, reafirmada em `0064` como no-op idempotente por auditabilidade, sem necessidade de alteração.
+4. `ALTER DEFAULT PRIVILEGES` deliberadamente **não** tocado -- mudaria o comportamento pra qualquer tabela/função futura do projeto inteiro, decisão maior que fica registrada aqui como pendência separada, mesma decisão já tomada em `0043` pro achado análogo de função.
+
+**Estado**: `0064` aplicada em staging por fora desta sessão (CLI deste sandbox segue com conectividade Postgres real instável -- mesma limitação já documentada nas seções anteriores; `supabase db push --linked` e `db query --linked` continuam falhando/travando de forma intermitente mesmo contra staging). Resultado real da reverificação pós-`0064` e do teste negativo (INSERT/UPDATE/DELETE diretos recusados, SELECT da própria empresa permitido, `save_recurring_schedule` permitido) pendente de confirmação do usuário -- **não reportado como PASS até execução real confirmada**, mesmo princípio de honestidade já seguido em toda a validação de `0063`. Nenhuma migration aplicada em Production. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`.

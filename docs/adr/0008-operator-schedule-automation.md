@@ -318,3 +318,28 @@ UPDATE OF base_price_cents ON tours`, não uma segunda chamada RPC do
 server action) -- genuinamente atômico com o próprio `UPDATE` do preço.
 
 Detalhes completos em `DOCUMENTACAO.md` seção 103.
+
+## ACL efetiva divergia da intenção -- `0064`, achado em Postgres real
+
+A afirmação acima ("`authenticated` perdeu `INSERT`/`UPDATE`/`DELETE`
+direto na tabela") era a intenção da migration, escrita e revisada antes
+de qualquer execução contra um Postgres real. Quando `0063` foi finalmente
+aplicada e testada num Supabase de staging real, `has_table_privilege()`
+mostrou que `authenticated` **ainda** tinha `INSERT`/`UPDATE`/`DELETE`
+diretos em `tour_schedule_rules` -- o projeto Supabase concede esses
+privilégios por padrão a toda tabela nova do schema `public`, mesmo padrão
+já documentado em `0043` do lado de `EXECUTE` de função. `grant select
+...` da 0063 nunca revogou o que o projeto já concedia por padrão; a
+policy `for all to authenticated` também cobria escrita, com row-scope da
+própria empresa.
+
+Corrigido em `0064_tour_schedule_rules_acl_hardening.sql` (migration nova,
+`0063` não reaberta): `revoke insert, update, delete, ... from
+authenticated, anon, public` explícito nomeando os roles, policy `for all`
+substituída por uma `for select` só-leitura, ACL das três RPCs
+reconfirmada (já estava correta). Lição geral, já válida antes mas
+reforçada aqui com prova real: **nenhuma tabela ou função nova neste
+projeto pode confiar em "eu só dei GRANT de X" -- é preciso revogar
+explicitamente o que o Supabase concede por padrão aos outros
+privilégios/roles, sempre**. Detalhes completos em `DOCUMENTACAO.md`
+seção 104.
