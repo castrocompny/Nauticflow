@@ -334,12 +334,15 @@ policy `for all to authenticated` também cobria escrita, com row-scope da
 própria empresa.
 
 Corrigido em `0064_tour_schedule_rules_acl_hardening.sql` (migration nova,
-`0063` não reaberta): `revoke insert, update, delete, ... from
-authenticated, anon, public` explícito nomeando os roles, policy `for all`
-substituída por uma `for select` só-leitura, ACL das três RPCs
+`0063` não reaberta): `revoke all ... from anon, public` (não só os
+privilégios de escrita -- sem prova de que `anon` não recebeu SELECT por
+default também, o correto é revogar tudo, não presumir), `revoke insert,
+update, delete, truncate, references, trigger ... from authenticated` +
+`grant select ... to authenticated` pra deixar só leitura, policy `for
+all` substituída por uma `for select` só-leitura, ACL das três RPCs
 reconfirmada (já estava correta). Lição geral, já válida antes mas
 reforçada aqui com prova real: **nenhuma tabela ou função nova neste
-projeto pode confiar em "eu só dei GRANT de X" -- é preciso revogar
-explicitamente o que o Supabase concede por padrão aos outros
-privilégios/roles, sempre**. Detalhes completos em `DOCUMENTACAO.md`
-seção 104.
+projeto pode confiar em "eu só dei GRANT de X", nem em suposições sobre o
+que os outros roles NÃO receberam por default -- é preciso revogar
+explicitamente e verificar, sempre**. Detalhes completos em
+`DOCUMENTACAO.md` seção 104.

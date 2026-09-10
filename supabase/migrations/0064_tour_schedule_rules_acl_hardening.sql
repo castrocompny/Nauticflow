@@ -36,17 +36,30 @@
 -- já usado em 0043 para o achado análogo de EXECUTE.
 -- ============================================================================
 
--- 1) Revoga escrita direta explicitamente -- não confia que "a 0063 só deu
--- select" seja suficiente; nomeia authenticated e anon explicitamente
--- (mesma lição de 0043: revogar só de PUBLIC não basta quando o projeto
--- concede direto aos roles).
+-- 1) Revoga TUDO de anon/PUBLIC primeiro -- CORREÇÃO (antes de aplicar em
+-- staging): a primeira versão desta migration só revogava INSERT/UPDATE/
+-- DELETE/TRUNCATE/REFERENCES/TRIGGER de authenticated/anon/public, e
+-- assumia (sem checar) que anon nunca teve SELECT aqui porque a 0063 nunca
+-- concedeu explicitamente. Essa suposição não tem base -- já confirmamos
+-- nesta mesma tabela que este projeto Supabase concede privilégios default
+-- em tabela nova sem nenhum GRANT explícito no arquivo (é exatamente o
+-- achado que motivou esta migration). Não dá pra presumir que anon/PUBLIC
+-- também não receberam SELECT (ou qualquer outro privilégio) por default
+-- -- sem prova real de que não têm, o correto é revogar TUDO deles, não só
+-- os quatro privilégios de escrita.
+revoke all
+  on public.tour_schedule_rules
+  from anon, public;
+
+-- authenticated: revoga só o que não deve ter (escrita). SELECT é
+-- reafirmado logo abaixo, não revogado aqui.
 revoke insert, update, delete, truncate, references, trigger
   on public.tour_schedule_rules
-  from authenticated, anon, public;
+  from authenticated;
 
--- Reafirma o único privilégio que deve sobrar: SELECT pra authenticated.
--- anon não tem e nunca teve select aqui (0063 nunca concedeu) -- reafirmado
--- via revoke all acima por precaução, sem grant correspondente.
+-- Reafirma o único privilégio que deve sobrar em qualquer role: SELECT pra
+-- authenticated. anon fica sem NENHUM acesso direto à tabela (revogado
+-- acima, sem grant de volta).
 grant select on public.tour_schedule_rules to authenticated;
 
 -- 2) Substitui a policy FOR ALL por uma policy só de leitura. FOR ALL
