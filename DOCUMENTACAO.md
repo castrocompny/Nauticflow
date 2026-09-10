@@ -2228,3 +2228,33 @@ DETAIL: Key (vessel_id, departs_at) já existe.
 **PRE-CLEAN adicionado**: como a execução que encontrou este erro já tinha commitado FASE 0 até FASE 7c (cada fase é sua própria transação -- só a FASE 8 que falhou fez rollback do que ela mesma tinha feito), o script agora abre com um PRE-CLEAN explícito que remove todos os fixtures `[STAGING TEST]` de qualquer execução anterior interrompida (mesma ordem segura já usada na limpeza final), preserva o usuário de Auth (`staging-test-schedule@nauticflow.invalid`) pra reaproveitamento, e deixa o staging determinístico antes da FASE 0 recriar tudo do zero -- nenhuma limpeza manual pedida ao usuário.
 
 **Estado**: script atualizado, sem nova migration. Nenhuma migration aplicada em Production (`gggpihphjjxndpfntnvm`). `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum deploy, nenhum merge em `main`.
+
+## 108. Fechamento -- validação funcional 0063/0064/0065/0066 completa em Postgres real no STAGING, sem nenhuma falha (branch `feature/operator-schedule-automation`, sessão de 2026-09-10)
+
+O usuário rodou o script único de validação (versão com PRE-CLEAN + veículo dedicado de datas específicas, seção 107) de ponta a ponta no Supabase de **staging** (`ddlgkrpjzmtgmoucangh`). Resultado real, textual, do SQL Editor:
+
+```
+VALIDAÇÃO FUNCIONAL 0063/0064/0065/0066 COMPLETA -- SEM NENHUM RAISE EXCEPTION = TUDO PASSOU
+```
+
+Nenhum `RAISE EXCEPTION` ocorreu em nenhuma das 18 transações do script (PRE-CLEAN, FASE 0 até FASE 13, incluindo FASE 1B). Isso é evidência real de execução -- o desenho do script (cada fase levanta `RAISE EXCEPTION` explícito na primeira condição que não bater com o esperado, sem `ON CONFLICT DO NOTHING` mascarando nada nos pontos que precisam provar criação) torna essa mensagem final só alcançável se TODAS as asserções de TODAS as fases passaram de verdade -- não uma inferência, nem um "parece que funcionou".
+
+**Resumo consolidado dos três bugs reais encontrados nesta rodada de validação em Postgres real (nenhum deles visível só por revisão de código -- todos exigiram execução real contra staging pra aparecer)**:
+
+| # | Erro real observado | Causa | Correção | Migration nova? |
+|---|---|---|---|---|
+| 1 | `42702: column reference "departs_at" is ambiguous` | `generate_departures_for_schedule_rule` declara `departs_at` como coluna de saída de `RETURNS TABLE`, colidindo com a coluna real `departures.departs_at` dentro do `ON CONFLICT (vessel_id, departs_at)` | `ON CONFLICT ON CONSTRAINT departures_vessel_id_departs_at_key` -- referência pelo nome da constraint, sem ambiguidade possível | `0065` |
+| 2 | `check_departure_schedule()` recusava uma agenda configurada pra 10:00 ("horário deve ser entre 08:00 e 19:00") | `AT TIME ZONE '-03:00'` (offset numérico) não é equivalente a `AT TIME ZONE 'America/Sao_Paulo'` (nome IANA) no Postgres -- o offset numérico cai num parsing estilo POSIX com sinal invertido da ISO-8601 | Troca das 6 ocorrências de `-03:00` por `'America/Sao_Paulo'` em `generate_departures_for_schedule_rule`/`reconcile_departures_for_schedule_rule` | `0066` |
+| 3 | `23505: duplicate key value violates unique constraint "departures_vessel_id_departs_at_key"` na FASE 8 | Colisão determinística ENTRE DOIS FIXTURES DO PRÓPRIO script de teste (departure manual da FASE 0 e departure de data específica da FASE 8, ambas em `vessel_a1` no mesmo domingo às 12:00) -- **não é bug de produção** | Veículo dedicado ("[STAGING TEST] Lancha Data Especifica") isolando FASE 8/FASE 9(d) de qualquer outro fixture + checagem `NOT EXISTS` explícita antes de cada insert de fixture | Nenhuma (`0067` não criada -- correção só no script) |
+
+**Confirmação explícita, item por item**:
+- `0063` (schema/RLS/ACL/RPCs atômicas da automação de agenda) = **PASS real em Postgres staging**.
+- `0064` (hardening de ACL de `tour_schedule_rules`) = **PASS real em Postgres staging**.
+- `0065` (fix do `42702`) = **PASS real em Postgres staging**.
+- `0066` (fix da semântica de fuso) = **PASS real em Postgres staging**.
+
+**Limpeza final dos fixtures**: a própria FASE 13 do script (rodada como parte da mesma execução que terminou com sucesso) removeu todos os fixtures `[STAGING TEST]` -- empresas, veículos (incluindo o veículo dedicado de datas específicas), passeios, regras, departures, reservas e clientes, em cascata -- e removeu também o usuário de teste (`staging-test-schedule@nauticflow.invalid`) de `auth.users`. Staging fica sem nenhum dado residual de teste.
+
+**Local**: `tsc --noEmit` limpo, `eslint .` 0 erros (4 warnings pré-existentes, não relacionados, nenhum arquivo tocado nesta rodada de fechamento), `next build` sucesso. Nenhum teste unitário novo -- esta etapa inteira (0064 em diante) foi 100% SQL/migrations + um script de validação nunca commitado ao repositório (entregue diretamente ao usuário a cada iteração).
+
+**Estado final**: `0063`, `0064`, `0065` e `0066` aplicadas e validadas funcionalmente em staging (`ddlgkrpjzmtgmoucangh`). Nenhuma delas aplicada em Production (`gggpihphjjxndpfntnvm`) até este ponto. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado em toda a validação, nenhum deploy, nenhum merge em `main`. Staging limpo de fixtures de teste.

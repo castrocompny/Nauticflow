@@ -427,3 +427,28 @@ chamada). `ON CONFLICT ON CONSTRAINT` da `0065` preservado integralmente.
 precisou ser recriada. ACL das duas funções recriadas reafirmada
 explicitamente, mesmo padrão de `0043`/`0064`/`0065`. Detalhes completos
 em `DOCUMENTACAO.md` seção 106.
+
+## Fechamento -- validação funcional completa em staging, sem falhas
+
+O script único de validação (0063/0064/0065/0066, com PRE-CLEAN e veículo
+dedicado de datas específicas -- ver `DOCUMENTACAO.md` seção 107) rodou
+de ponta a ponta no Supabase de staging (`ddlgkrpjzmtgmoucangh`) sem
+nenhum `RAISE EXCEPTION`, em nenhuma das 18 transações (PRE-CLEAN + FASE
+0 até FASE 13, incluindo FASE 1B). Dado que cada fase levanta exceção
+explícita na primeira condição que não bater, e nenhuma fase mascara
+conflito com `ON CONFLICT DO NOTHING` nos pontos que precisam provar
+criação, essa mensagem final ("SEM NENHUM RAISE EXCEPTION = TUDO PASSOU")
+só é alcançável com todas as asserções realmente passando.
+
+Três bugs reais foram encontrados e corrigidos nesta rodada -- todos só
+visíveis em execução real contra Postgres, não por revisão de código:
+ambiguidade de coluna (`42702`, `0065`), semântica de fuso horário
+incorreta (`0066`), e uma colisão de chave única entre dois fixtures do
+próprio script de teste (`23505`, corrigida só no script, sem migration
+nova). `0063`, `0064`, `0065` e `0066` estão confirmadas com PASS real em
+Postgres de staging. A FASE 13 do próprio script removeu todos os
+fixtures `[STAGING TEST]` (empresas, veículos, passeios, regras,
+departures, reservas, clientes, e o usuário de teste em `auth.users`) --
+staging fica sem resíduo de teste. Nenhuma das quatro migrations foi
+aplicada em Production (`gggpihphjjxndpfntnvm`) até este ponto. Detalhes
+completos em `DOCUMENTACAO.md` seção 108.
