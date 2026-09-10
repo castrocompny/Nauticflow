@@ -452,3 +452,34 @@ departures, reservas, clientes, e o usuário de teste em `auth.users`) --
 staging fica sem resíduo de teste. Nenhuma das quatro migrations foi
 aplicada em Production (`gggpihphjjxndpfntnvm`) até este ponto. Detalhes
 completos em `DOCUMENTACAO.md` seção 108.
+
+## Production pre-flight + tentativa de release real -- dry-run sem conectividade, aplicação manual preparada
+
+Pre-flight somente leitura confirmou as 4 migrations seguras pra Production
+como conjunto: nenhuma dependência de fixture/dado de staging, nenhuma
+alteração além de schema/função (nunca `UPDATE`/`DELETE` de dado real de
+operador), encadeamento de dependência correto entre `0063`→`0064`→`0065`→
+`0066`, nenhum toque estruturalmente possível em pagamento/saque/Asaas
+(essas flags vivem só como variável de ambiente da Vercel). Mecanismo
+oficial de reconciliação de `supabase_migrations.schema_migrations`
+reconfirmado via `--help` do CLI: `migration repair --status applied
+<versões> --linked`, nunca INSERT manual.
+
+`npx supabase db push --linked --dry-run` contra Production travou em
+"Initialising login role..." -- mesma falha de conectividade do protocolo
+Postgres já documentada repetidamente nesta sessão, para staging e
+Production igualmente. Por instrução explícita do usuário, nenhuma nova
+tentativa foi feita e nenhum `db push` real foi executado contra
+Production. CLI relinkado de volta a staging.
+
+Como a via CLI não pôde ser validada, foi preparado um único script SQL
+(uma transação `begin`/`commit` atômica) com: PRE-FLIGHT FAIL-CLOSED
+(aborta antes de qualquer DDL se faltar alguma dependência de `0000`-`0062`
+ou se já existir qualquer artefato de `0063`-`0066`, sem tentar
+adivinhar/reparar estado parcial); o conteúdo verbatim de `0063`→`0064`→
+`0065`→`0066`, byte a byte, sem reescrita; e uma VALIDAÇÃO READ-ONLY final
+(schema, ACL de tabela e de RPC, e o texto-fonte das funções corrigidas
+por `0065`/`0066` via `pg_get_functiondef()`) -- qualquer falha reverte a
+transação inteira. Não insere nada em `supabase_migrations.schema_
+migrations`. Nenhuma das 4 migrations foi aplicada em Production nesta
+sessão. Detalhes completos em `DOCUMENTACAO.md` seção 109.
