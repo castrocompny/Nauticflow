@@ -556,3 +556,26 @@ Nenhum deploy em Production feito nesta etapa -- a confirmação de que o
 redirect parou de acontecer em Production só é possível depois de
 deployado. `CRON_SECRET` em Production continua não confirmável a partir
 daqui. Detalhes completos em `DOCUMENTACAO.md` seção 114.
+
+## RELEASE -- merge em `main`, deploy Production confirmado por comportamento real
+
+Fast-forward `3bc809d..772939f` de `feature/operator-schedule-
+automation` pra `main`, push com sucesso -- histórico linear, nenhum
+commit de merge necessário. `npx vercel ls --prod` não listou nenhum
+deployment novo (mesma divergência CLI-vs-realidade já documentada nesta
+sessão pro alias de produção), mas `curl -I` real contra `/api/cron/
+extend-schedules` confirma comportamento novo em Production: `401` em
+vez do `307`/`location: /login` de antes da correção, `x-matched-path`
+apontando pra rota real -- o blocker do proxy está resolvido em
+Production de verdade, não só localmente. Deploy considerado PASS por
+essa evidência comportamental direta, com a divergência de listagem da
+CLI registrada sem explicação inventada.
+
+Teste autenticado (200 com `CRON_SECRET` real) e os 6 smoke tests
+funcionais (agenda recorrente, geração automática, pause/reactivate,
+departure protegida, data específica + herança de preço, publicação/
+sellability) **não foram executados** -- exigem UI real ou credenciais
+de Production indisponíveis nesta sessão, reportados como NÃO TESTADO,
+nunca como PASS inventado. `vercel.json` não alterado -- continua
+declarando `/api/cron/extend-schedules`. Nenhum pagamento/Asaas/schema/
+migration tocado. Detalhes completos em `DOCUMENTACAO.md` seção 115.
