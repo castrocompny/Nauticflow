@@ -541,3 +541,18 @@ verdade -- `TOURSFLOW_API_SECRET`). Nada foi corrigido nesta etapa --
 só análise, a pedido do usuário. Pendência pre-merge: incluir `/api/
 cron` na allowlist do proxy + confirmar/configurar `CRON_SECRET` em
 Production. Detalhes completos em `DOCUMENTACAO.md` seções 112-113.
+
+## Blocker do cron corrigido -- proxy agora deixa a rota ser alcançada
+
+`src/lib/supabase/middleware.ts` ganhou `path === "/api/cron/extend-
+schedules"` na lista `isPublic` (comparação exata, não prefixo -- só
+libera a única rota de cron que existe hoje, sem abrir de saída qualquer
+cron futuro sem revisão). `src/proxy.ts` não precisou de mudança (seu
+matcher já cobre `/api/*`). A rota do cron em si (`src/app/api/cron/
+extend-schedules/route.ts`) não foi tocada -- continua exigindo
+`Authorization: Bearer $CRON_SECRET`, fail-closed, `401` sem header/
+secret correto. `tsc --noEmit`/`eslint .`(0 erros)/`next build` limpos.
+Nenhum deploy em Production feito nesta etapa -- a confirmação de que o
+redirect parou de acontecer em Production só é possível depois de
+deployado. `CRON_SECRET` em Production continua não confirmável a partir
+daqui. Detalhes completos em `DOCUMENTACAO.md` seção 114.

@@ -47,7 +47,14 @@ export async function updateSession(request: NextRequest) {
     // -- autentica com segredo compartilhado (Authorization: Bearer), nunca com sessão de
     // usuário logado. Mesmo motivo/achado de /api/public acima: sem isto, o middleware
     // redireciona a chamada pra /login antes mesmo da rota checar o Bearer.
-    path.startsWith("/api/marketplace");
+    path.startsWith("/api/marketplace") ||
+    // cron de auto-extensão da agenda recorrente (Vercel Cron -> GET /api/cron/
+    // extend-schedules) -- autentica com Authorization: Bearer $CRON_SECRET, nunca com
+    // sessão de usuário (a chamada real da Vercel não carrega cookie nenhum). Mesmo
+    // achado de /api/public e /api/marketplace acima: sem isto, o proxy redireciona a
+    // chamada pra /login antes mesmo da rota checar o CRON_SECRET -- rota exata (não um
+    // prefixo /api/cron amplo) pra não liberar de saída qualquer cron futuro sem revisão.
+    path === "/api/cron/extend-schedules";
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

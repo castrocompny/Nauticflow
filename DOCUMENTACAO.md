@@ -2327,3 +2327,23 @@ A pedido do usuário, antes de considerar merge, foi feita uma análise objetiva
 **`CRON_SECRET` em Production**: necessário (a rota falha fechado sem ele, por desenho). Não foi possível confirmar se já está configurado -- `npx vercel env ls production` não lista `CRON_SECRET`, mas esta mesma listagem já teve um precedente real neste projeto de omitir uma variável que estava genuinamente configurada (`TOURSFLOW_API_SECRET`, ver seções anteriores) -- ausência na listagem da CLI não é prova de ausência real. Nenhum teste comportamental foi possível para decidir isso: a chamada nunca passa do redirect do proxy pra sequer chegar na checagem de `CRON_SECRET` da rota. Nenhum valor de segredo foi pedido, lido ou revelado.
 
 **Nada foi corrigido nesta etapa** -- análise pura, a pedido explícito do usuário ("faça uma única análise objetiva... não altere"). Pendência registrada para antes do merge/da automação funcionar de verdade: adicionar `/api/cron` à lista `isPublic` de `src/lib/supabase/middleware.ts` (mesmo padrão já usado para `/api/public`/`/api/marketplace`), e confirmar/configurar `CRON_SECRET` em Vercel Production. Nenhum pagamento, Asaas, schema Supabase ou migration foi tocado nesta etapa.
+
+## 114. Correção do blocker do cron -- proxy de autenticação agora deixa `/api/cron/extend-schedules` alcançar a rota (branch `feature/operator-schedule-automation`, sessão de 2026-09-10)
+
+Correção cirúrgica do achado da seção 113: `src/lib/supabase/middleware.ts`, dentro de `isPublic`, ganhou mais uma condição:
+
+```ts
+path === "/api/cron/extend-schedules";
+```
+
+**Escopo deliberadamente estreito**: comparação exata (`===`), não um prefixo `path.startsWith("/api/cron")` -- libera só a ÚNICA rota de cron que existe hoje (confirmado: `src/app/api/cron/` só tem `extend-schedules/`), sem abrir de saída qualquer rota de cron futura sem revisão explícita, mesmo cuidado já usado nas entradas de `/api/public`/`/api/marketplace` (essas sim por prefixo, porque cobrem várias sub-rotas legítimas do mesmo domínio).
+
+**`src/proxy.ts` não precisou de nenhuma alteração** -- seu `matcher` já cobre `/api/*` (só exclui assets estáticos/`robots.txt`/`sitemap.xml`), o problema estava inteiramente dentro da lista `isPublic` de `updateSession()`.
+
+**`src/app/api/cron/extend-schedules/route.ts` NÃO foi tocada** -- continua exigindo `Authorization: Bearer $CRON_SECRET`, comparação exata, `401` se ausente/divergente (fail-closed), exatamente como antes. A correção só remove o redirect que impedia a requisição de sequer chegar nessa checagem -- não afrouxa nem remove a autenticação da própria rota, que continua sendo a única linha de defesa real (correto, por desenho: rota server-to-server autenticada por segredo compartilhado, nunca por sessão de usuário).
+
+**Validação local**: `tsc --noEmit` limpo. `eslint .` 0 erros (4 warnings pré-existentes, não relacionados -- `<img>` vs `next/image` em `voucher/[id]`, `logo.tsx`, `site-footer.tsx`, `site-header.tsx`). `next build` sucesso -- `/api/cron/extend-schedules` segue listada como rota dinâmica (`ƒ`), nenhum erro de build, nenhuma mudança nas demais rotas.
+
+**Nenhum teste ao vivo contra Production foi feito nesta etapa** -- o achado da seção 113 foi confirmado por comportamento HTTP real, mas a correção em si só foi validada localmente (typecheck/lint/build) -- a confirmação de que `/api/cron/extend-schedules` deixou de redirecionar pra `/login` em Production só acontece depois de deploy, que não foi pedido nem feito nesta etapa.
+
+**Estado**: correção commitada e pushada em `feature/operator-schedule-automation`. Nenhum deploy em Production. Nenhum merge em `main`. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhuma chamada ao Asaas, nenhum schema/migration Supabase tocado, nenhum segredo pedido/revelado. Pendência restante antes do merge: confirmar/configurar `CRON_SECRET` em Vercel Production (não verificável a partir daqui) e, depois de deployado, validar de verdade que a rota responde `401` sem header e (com o `CRON_SECRET` real) executa com sucesso.
