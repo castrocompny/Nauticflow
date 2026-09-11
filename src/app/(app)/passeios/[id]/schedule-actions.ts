@@ -86,6 +86,72 @@ export async function saveRecurringSchedule(tourId: string, _prev: ActionResult,
   return { error: "", ...outcome };
 }
 
+// Configuração inicial simplificada (chamada logo depois de createTourDraft) --
+// reúne num único passo o que hoje exige o operador entrar em "Preço" (TourForm)
+// e DEPOIS em "Agenda e disponibilidade" (saveRecurringSchedule) separadamente.
+// Reaproveita a MESMA validação e a MESMA RPC de saveRecurringSchedule -- nenhuma
+// lógica nova, só um formulário menor com defaults fixos (capacity_override=null,
+// price_cents_override=null, auto_extend=true, horizon_days=90) em vez de expor
+// essas opções avançadas logo de cara. Depois deste passo, a tela normal de
+// edição (ScheduleManager) assume, com a regra já criada, pra ajustes finos.
+export async function quickSetupSchedule(tourId: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const profile = await getProfile();
+  if (!profile?.company_id) return { error: "Sessão inválida." };
+
+  const priceReais = Number(String(formData.get("base_price_cents") || "").replace(",", "."));
+  if (!Number.isFinite(priceReais) || priceReais < 0) return { error: "Informe o preço-base do passeio." };
+
+  const validated = validateRecurringScheduleInput({
+    vesselId: String(formData.get("vessel_id") || ""),
+    daysOfWeek: formData.getAll("days_of_week").map(Number),
+    times: formData.getAll("times").map(String),
+    horizonDays: 90,
+    useCustomPrice: false,
+    priceRaw: "",
+    capacityRaw: "",
+  });
+  if (!validated.ok) return { error: validated.error };
+  const { vesselId, daysOfWeek, times } = validated.value;
+
+  const supabase = createClient();
+
+  // preço-base do passeio -- mesmo UPDATE direto que updateTourFull faz (RLS
+  // já restringe à própria empresa); dispara trg_tours_base_price_reconcile
+  // (migration 0063), que é no-op aqui porque a regra recorrente ainda não
+  // existe (nenhuma linha em tour_schedule_rules pra este tour ainda).
+  const { error: priceError } = await supabase
+    .from("tours")
+    .update({ base_price_cents: Math.round(priceReais * 100) })
+    .eq("id", tourId)
+    .eq("company_id", profile.company_id);
+  if (priceError) {
+    console.error("quickSetupSchedule/price:", priceError);
+    return { error: "Não foi possível salvar o preço-base. Tente novamente." };
+  }
+
+  const { data, error } = await supabase
+    .rpc("save_recurring_schedule", {
+      p_tour_id: tourId,
+      p_vessel_id: vesselId,
+      p_days_of_week: daysOfWeek,
+      p_times: times,
+      p_horizon_days: 90,
+      p_capacity_override: null,
+      p_price_cents_override: null,
+      p_auto_extend: true,
+    })
+    .maybeSingle();
+
+  if (error) console.error("quickSetupSchedule/rpc:", error);
+  const outcome = interpretScheduleRpcResult(data as ScheduleRpcRow | null, error, "Não foi possível criar a agenda. Tente novamente.");
+  if (!outcome.ok) return { error: outcome.error };
+
+  revalidatePath(`/passeios/${tourId}`);
+  revalidatePath("/saidas");
+  revalidatePath("/dashboard");
+  return { error: "", ...outcome };
+}
+
 export async function pauseRecurringSchedule(tourId: string): Promise<ActionResult> {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("pause_recurring_schedule", { p_tour_id: tourId }).maybeSingle();

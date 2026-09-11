@@ -579,3 +579,36 @@ de Production indisponíveis nesta sessão, reportados como NÃO TESTADO,
 nunca como PASS inventado. `vercel.json` não alterado -- continua
 declarando `/api/cron/extend-schedules`. Nenhum pagamento/Asaas/schema/
 migration tocado. Detalhes completos em `DOCUMENTACAO.md` seção 115.
+
+## UX do operador simplificada -- agenda em destaque, setup de 1 passo
+
+Backend confirmado em Production, mas a UI ainda tratava "+ Nova saída"
+manual como fluxo principal e escondia a agenda recorrente no fim da
+edição completa do passeio. Correção 100% front-end, reaproveitando as
+mesmas RPCs/validações já existentes -- nenhuma migration/schema/RPC/ACL
+tocada.
+
+Novo componente `QuickScheduleSetup` (`passeios/[id]/quick-schedule-
+setup.tsx`) vira o primeiro bloco da página assim que um passeio é criado
+e ainda não tem regra: embarcação, preço-base, dias, horários -- só isso.
+Nova action `quickSetupSchedule` (`schedule-actions.ts`) atualiza
+`tours.base_price_cents` e chama a MESMA `save_recurring_schedule`
+(0063) com defaults fixos (`capacity_override=null`, `price_cents_
+override=null`, `auto_extend=true`, `horizon_days=90`) -- a RPC já
+reconcilia+gera as departures na mesma transação, sem o operador
+cadastrar nenhuma saída manualmente. `ScheduleSection` decide entre esse
+setup e o `ScheduleManager` já existente (edição recorrente, pause/
+reactivate, datas específicas -- intocado); a agenda foi movida pro topo
+da página (`page.tsx`). Em `tour-form.tsx`, todo o conteúdo comercial
+(descrições, roteiro, incluso, embarque etc.) foi agrupado num `<details>`
+"Informações para publicação no ToursFlow", deixando nome/preço visíveis
+mas o resto fora do caminho do fluxo operacional. Em `/saidas`, "+ Nova
+saída" virou ação secundária "Adicionar saída avulsa", com texto
+explicando que as saídas normais vêm da agenda do passeio -- mesma
+`createDeparture` por baixo, nenhuma mudança de comportamento.
+
+`tsc --noEmit`/`eslint .` (0 erros)/`next build` limpos. Nenhum teste de
+UI ao vivo (sem ferramenta de browser nesta sessão) -- validação por
+typecheck/lint/build + leitura do fluxo de dados, que reusa RPCs já
+validadas em staging/Production. Detalhes completos em `DOCUMENTACAO.md`
+seção 116.

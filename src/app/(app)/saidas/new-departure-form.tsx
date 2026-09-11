@@ -37,16 +37,16 @@ export function NewDepartureForm({ vessels, tours }: { vessels: Vessel[]; tours:
       <button
         onClick={() => setOpen(true)}
         disabled={vessels.length === 0}
-        className="rounded-lg bg-brand px-3.5 py-2 text-sm font-medium text-white transition hover:bg-brand-dark disabled:opacity-50"
+        className="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-body transition hover:border-brand disabled:opacity-50"
       >
-        + Nova saída
+        Adicionar saída avulsa
       </button>
     );
   }
 
   return (
     <div className="mb-4 rounded-card border border-line bg-surface p-5">
-      <h3 className="mb-3 font-display font-semibold text-heading">Nova saída</h3>
+      <h3 className="mb-3 font-display font-semibold text-heading">Adicionar saída avulsa</h3>
       {state.error && (
         <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
       )}

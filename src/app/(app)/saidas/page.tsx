@@ -49,12 +49,16 @@ export default async function DeparturesPage(props: { searchParams: Promise<{ pa
     <>
       <RealtimeRefresh tables={["departures", "reservations"]} />
       <PageHeader title="Saídas" subtitle="Cada saída é uma embarcação em uma data e hora, com sua capacidade." />
+      <p className="mb-3 text-xs text-muted">
+        As saídas normais são geradas automaticamente pela agenda de cada passeio (em Passeios → Agenda e
+        disponibilidade). Use &quot;Adicionar saída avulsa&quot; só para uma data fora do padrão.
+      </p>
       <NewDepartureForm vessels={vessels} tours={(tours ?? []) as Tour[]} />
 
       {rows.length === 0 ? (
         <EmptyState
           title={page > 1 ? "Nenhuma saída nesta página" : "Nenhuma saída cadastrada"}
-          hint="Crie uma saída para começar a receber reservas. É preciso ter ao menos uma embarcação ativa."
+          hint="Configure a agenda de um passeio para gerar saídas automaticamente, ou adicione uma saída avulsa. É preciso ter ao menos uma embarcação ativa."
         />
       ) : (
         <>

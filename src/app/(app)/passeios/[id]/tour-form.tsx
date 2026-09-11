@@ -39,50 +39,6 @@ export function TourForm({ tour }: { tour: Tour }) {
               <label>Nome do passeio</label>
               <input name="name" required defaultValue={tour.name} className="mt-1" />
             </div>
-            <div>
-              <label>Endereço (slug){slugLocked && <span className="text-muted"> — travado após publicar</span>}</label>
-              <input
-                name="slug"
-                defaultValue={tour.slug}
-                disabled={slugLocked}
-                className="mt-1 disabled:opacity-60"
-                placeholder="passeio-de-lancha-pelas-ilhas"
-              />
-            </div>
-            <div>
-              <label>Destino</label>
-              <input name="destination" defaultValue={tour.destination ?? ""} className="mt-1" placeholder="Búzios" />
-            </div>
-            <div>
-              <label>Categoria</label>
-              <select name="category" defaultValue={tour.category ?? ""} className="mt-1">
-                <option value="">Selecione...</option>
-                <option value="passeio_privativo">Passeio privativo</option>
-                <option value="por_do_sol">Pôr do sol</option>
-                <option value="praias">Praias</option>
-                <option value="ilhas">Ilhas</option>
-                <option value="passeio_compartilhado">Passeio compartilhado</option>
-                <option value="outro">Outro</option>
-              </select>
-            </div>
-            <div>
-              <label>Duração (minutos)</label>
-              <input name="duration_minutes" type="number" min={1} defaultValue={tour.duration_minutes ?? ""} className="mt-1" />
-            </div>
-            <div className="sm:col-span-2">
-              <label>Descrição curta (aparece na listagem)</label>
-              <input
-                name="short_description"
-                defaultValue={tour.short_description ?? ""}
-                maxLength={160}
-                className="mt-1"
-                placeholder="Uma frase que resume o passeio"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label>Descrição completa</label>
-              <textarea name="description" defaultValue={tour.description ?? ""} rows={4} className="mt-1" />
-            </div>
           </div>
         </div>
 
@@ -115,82 +71,141 @@ export function TourForm({ tour }: { tour: Tour }) {
           </p>
         </div>
 
-        <div className="border-t border-line pt-5">
-          <SectionTitle>Roteiro</SectionTitle>
-          <textarea name="itinerary" defaultValue={tour.itinerary ?? ""} rows={4} placeholder="Passo a passo do passeio, paradas, horários..." />
-        </div>
+        {/* Tudo abaixo é conteúdo comercial pra vitrine do ToursFlow -- nada
+            disso é necessário pro fluxo operacional de agenda/saídas (ver
+            ScheduleSection acima, já em destaque no topo da página). Agrupado
+            pra não confundir "preciso preencher isso pra ter saída vendável"
+            (não precisa) com "preciso disso pra publicar no marketplace" (sim). */}
+        <details className="border-t border-line pt-5">
+          <summary className="cursor-pointer font-display text-sm font-semibold text-heading">
+            Informações para publicação no ToursFlow
+          </summary>
+          <div className="mt-4 space-y-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label>Endereço (slug){slugLocked && <span className="text-muted"> — travado após publicar</span>}</label>
+                <input
+                  name="slug"
+                  defaultValue={tour.slug}
+                  disabled={slugLocked}
+                  className="mt-1 disabled:opacity-60"
+                  placeholder="passeio-de-lancha-pelas-ilhas"
+                />
+              </div>
+              <div>
+                <label>Destino</label>
+                <input name="destination" defaultValue={tour.destination ?? ""} className="mt-1" placeholder="Búzios" />
+              </div>
+              <div>
+                <label>Categoria</label>
+                <select name="category" defaultValue={tour.category ?? ""} className="mt-1">
+                  <option value="">Selecione...</option>
+                  <option value="passeio_privativo">Passeio privativo</option>
+                  <option value="por_do_sol">Pôr do sol</option>
+                  <option value="praias">Praias</option>
+                  <option value="ilhas">Ilhas</option>
+                  <option value="passeio_compartilhado">Passeio compartilhado</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </div>
+              <div>
+                <label>Duração (minutos)</label>
+                <input name="duration_minutes" type="number" min={1} defaultValue={tour.duration_minutes ?? ""} className="mt-1" />
+              </div>
+              <div className="sm:col-span-2">
+                <label>Descrição curta (aparece na listagem)</label>
+                <input
+                  name="short_description"
+                  defaultValue={tour.short_description ?? ""}
+                  maxLength={160}
+                  className="mt-1"
+                  placeholder="Uma frase que resume o passeio"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label>Descrição completa</label>
+                <textarea name="description" defaultValue={tour.description ?? ""} rows={4} className="mt-1" />
+              </div>
+            </div>
 
-        <div className="grid gap-5 border-t border-line pt-5 sm:grid-cols-2">
-          <div>
-            <SectionTitle>Incluso</SectionTitle>
-            <textarea name="included" defaultValue={tour.included ?? ""} rows={3} placeholder="Ex.: água, guia, colete salva-vidas" />
+            <div>
+              <SectionTitle>Roteiro</SectionTitle>
+              <textarea name="itinerary" defaultValue={tour.itinerary ?? ""} rows={4} placeholder="Passo a passo do passeio, paradas, horários..." />
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <SectionTitle>Incluso</SectionTitle>
+                <textarea name="included" defaultValue={tour.included ?? ""} rows={3} placeholder="Ex.: água, guia, colete salva-vidas" />
+              </div>
+              <div>
+                <SectionTitle>Não incluso</SectionTitle>
+                <textarea name="not_included" defaultValue={tour.not_included ?? ""} rows={3} placeholder="Ex.: almoço, bebidas alcoólicas" />
+              </div>
+            </div>
+
+            <div>
+              <SectionTitle>Informações importantes</SectionTitle>
+              <textarea
+                name="important_information"
+                defaultValue={tour.important_information ?? ""}
+                rows={3}
+                placeholder="Ex.: levar protetor solar, roupa de banho, documento com foto"
+              />
+            </div>
+
+            <div>
+              <SectionTitle>Política de cancelamento</SectionTitle>
+              <textarea name="cancellation_policy" defaultValue={tour.cancellation_policy ?? ""} rows={3} />
+            </div>
+
+            <div>
+              <SectionTitle>Local de embarque</SectionTitle>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label>Nome do local</label>
+                  <input name="boarding_name" defaultValue={tour.boarding_name ?? ""} className="mt-1" placeholder="Píer da Orla" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label>Endereço</label>
+                  <input name="boarding_address" defaultValue={tour.boarding_address ?? ""} className="mt-1" />
+                </div>
+                <div>
+                  <label>Bairro</label>
+                  <input name="boarding_neighborhood" defaultValue={tour.boarding_neighborhood ?? ""} className="mt-1" />
+                </div>
+                <div>
+                  <label>Cidade</label>
+                  <input name="boarding_city" defaultValue={tour.boarding_city ?? ""} className="mt-1" />
+                </div>
+                <div>
+                  <label>Estado</label>
+                  <input name="boarding_state" defaultValue={tour.boarding_state ?? ""} maxLength={2} className="mt-1" placeholder="RJ" />
+                </div>
+                <div>
+                  <label>CEP</label>
+                  <input name="boarding_zip_code" defaultValue={tour.boarding_zip_code ?? ""} className="mt-1" />
+                </div>
+                <div>
+                  <label>Latitude (opcional)</label>
+                  <input name="boarding_latitude" type="number" step="0.000001" defaultValue={tour.boarding_latitude ?? ""} className="mt-1" />
+                </div>
+                <div>
+                  <label>Longitude (opcional)</label>
+                  <input name="boarding_longitude" type="number" step="0.000001" defaultValue={tour.boarding_longitude ?? ""} className="mt-1" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label>Ponto de referência</label>
+                  <input name="boarding_reference" defaultValue={tour.boarding_reference ?? ""} className="mt-1" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label>Instruções de embarque</label>
+                  <textarea name="boarding_instructions" defaultValue={tour.boarding_instructions ?? ""} rows={2} className="mt-1" />
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
-            <SectionTitle>Não incluso</SectionTitle>
-            <textarea name="not_included" defaultValue={tour.not_included ?? ""} rows={3} placeholder="Ex.: almoço, bebidas alcoólicas" />
-          </div>
-        </div>
-
-        <div className="border-t border-line pt-5">
-          <SectionTitle>Informações importantes</SectionTitle>
-          <textarea
-            name="important_information"
-            defaultValue={tour.important_information ?? ""}
-            rows={3}
-            placeholder="Ex.: levar protetor solar, roupa de banho, documento com foto"
-          />
-        </div>
-
-        <div className="border-t border-line pt-5">
-          <SectionTitle>Política de cancelamento</SectionTitle>
-          <textarea name="cancellation_policy" defaultValue={tour.cancellation_policy ?? ""} rows={3} />
-        </div>
-
-        <div className="border-t border-line pt-5">
-          <SectionTitle>Local de embarque</SectionTitle>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label>Nome do local</label>
-              <input name="boarding_name" defaultValue={tour.boarding_name ?? ""} className="mt-1" placeholder="Píer da Orla" />
-            </div>
-            <div className="sm:col-span-2">
-              <label>Endereço</label>
-              <input name="boarding_address" defaultValue={tour.boarding_address ?? ""} className="mt-1" />
-            </div>
-            <div>
-              <label>Bairro</label>
-              <input name="boarding_neighborhood" defaultValue={tour.boarding_neighborhood ?? ""} className="mt-1" />
-            </div>
-            <div>
-              <label>Cidade</label>
-              <input name="boarding_city" defaultValue={tour.boarding_city ?? ""} className="mt-1" />
-            </div>
-            <div>
-              <label>Estado</label>
-              <input name="boarding_state" defaultValue={tour.boarding_state ?? ""} maxLength={2} className="mt-1" placeholder="RJ" />
-            </div>
-            <div>
-              <label>CEP</label>
-              <input name="boarding_zip_code" defaultValue={tour.boarding_zip_code ?? ""} className="mt-1" />
-            </div>
-            <div>
-              <label>Latitude (opcional)</label>
-              <input name="boarding_latitude" type="number" step="0.000001" defaultValue={tour.boarding_latitude ?? ""} className="mt-1" />
-            </div>
-            <div>
-              <label>Longitude (opcional)</label>
-              <input name="boarding_longitude" type="number" step="0.000001" defaultValue={tour.boarding_longitude ?? ""} className="mt-1" />
-            </div>
-            <div className="sm:col-span-2">
-              <label>Ponto de referência</label>
-              <input name="boarding_reference" defaultValue={tour.boarding_reference ?? ""} className="mt-1" />
-            </div>
-            <div className="sm:col-span-2">
-              <label>Instruções de embarque</label>
-              <textarea name="boarding_instructions" defaultValue={tour.boarding_instructions ?? ""} rows={2} className="mt-1" />
-            </div>
-          </div>
-        </div>
+        </details>
 
         <Save />
       </form>

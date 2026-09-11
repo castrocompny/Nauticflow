@@ -9,7 +9,7 @@ import { validateTourForPublishing } from "@/lib/tour-publishing";
 import { TourForm } from "./tour-form";
 import { PhotoManager } from "./photo-manager";
 import { PublicationPanel } from "./publication-panel";
-import { ScheduleManager } from "./schedule-manager";
+import { ScheduleSection } from "./schedule-section";
 
 export default async function EditTourPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -62,14 +62,15 @@ export default async function EditTourPage({ params }: { params: Promise<{ id: s
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">
-          <TourForm tour={tour as Tour} />
-          <PhotoManager tourId={tour.id} companyId={profile.company_id} photos={signedPhotos} />
-          <ScheduleManager
+          <ScheduleSection
             tourId={tour.id}
             vessels={(vesselsData ?? []) as Vessel[]}
             rule={(ruleData as TourScheduleRule) ?? null}
             upcomingCount={upcomingCount ?? 0}
+            tourBasePriceCents={(tour as Tour).base_price_cents}
           />
+          <TourForm tour={tour as Tour} />
+          <PhotoManager tourId={tour.id} companyId={profile.company_id} photos={signedPhotos} />
         </div>
         <div>
           <PublicationPanel tour={tour as Tour} photoCount={photos.length} checklist={checklist} />
