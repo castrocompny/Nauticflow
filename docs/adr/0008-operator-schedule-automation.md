@@ -483,3 +483,33 @@ por `0065`/`0066` via `pg_get_functiondef()`) -- qualquer falha reverte a
 transação inteira. Não insere nada em `supabase_migrations.schema_
 migrations`. Nenhuma das 4 migrations foi aplicada em Production nesta
 sessão. Detalhes completos em `DOCUMENTACAO.md` seção 109.
+
+## Descoberta: Production já tinha 0063-0066 no schema; migration history reconciliation pendente
+
+O PRE-FLIGHT do script de release abortou em Production com "`tour_
+schedule_rules` já existe" -- corretamente, antes de qualquer DDL, sem
+alterar nada. Um diagnóstico read-only dedicado (só `SELECT`/inspeção de
+catálogo, iterado duas vezes para cobrir ACL de policy INSERT/UPDATE/
+DELETE, `anon` nas 4 funções internas, e as 3 condições de `create_
+marketplace_booking`) confirmou que o schema de Production já contém
+`0063`-`0066` integralmente e corretamente: `tour_schedule_rules` e as 2
+colunas novas de `departures` presentes, `0064` (ACL hardening) PASS,
+`0065` (`ON CONFLICT ON CONSTRAINT`) PASS, `0066` (`America/Sao_Paulo` nas
+duas funções, `-03:00` ausente) PASS. Só `supabase_migrations.schema_
+migrations` estava desatualizada -- apenas `0063` registrada como
+`applied`, `0064`/`0065`/`0066` ausentes da tabela de controle apesar do
+schema real já refletir as 3. Nenhuma migration SQL precisava (ou devia)
+ser reaplicada -- só reconciliação de histórico via `migration repair`.
+
+A tentativa de reconciliação (`migration repair --status applied 0064
+0065 0066 --linked`) foi bloqueada duas vezes: primeiro pelo classificador
+de aprovação automática do ambiente (ação mutável contra Production,
+mesmo sendo só bookkeeping do CLI) -- o usuário autorizou explicitamente
+uma segunda tentativa; a segunda travou por conectividade (mesmo padrão
+de falha do protocolo Postgres direto já documentado repetidamente nesta
+sessão). Por instrução do usuário, sem insistir além de uma tentativa.
+Nenhum schema foi alterado em nenhuma das duas tentativas. `supabase_
+migrations.schema_migrations` de Production continua mostrando só `0063`
+como `applied` -- reconciliação de `0064`/`0065`/`0066` fica pendente,
+sem impacto no schema real (já correto). Detalhes completos em
+`DOCUMENTACAO.md` seções 110-111.
