@@ -513,3 +513,31 @@ migrations.schema_migrations` de Production continua mostrando só `0063`
 como `applied` -- reconciliação de `0064`/`0065`/`0066` fica pendente,
 sem impacto no schema real (já correto). Detalhes completos em
 `DOCUMENTACAO.md` seções 110-111.
+
+## Migration history reconciliada; achado bloqueante real na automação de cron (pre-merge)
+
+`migration repair --status applied 0064 0065 0066 --linked` completou com
+sucesso (confirmado pelo usuário via `migration list --linked`: `0063`-
+`0066` alinhadas LOCAL/REMOTE em Production). Só bookkeeping do CLI --
+nenhum schema alterado por este comando. CLI relinkado de volta a
+staging.
+
+Análise pre-merge (só leitura) da automação de extensão de horários
+(`auto_extend`, cron `0 6 * * *` -> `/api/cron/extend-schedules`)
+encontrou um achado real, confirmado por comportamento HTTP ao vivo: o
+proxy de autenticação do app (`src/proxy.ts`/`src/lib/supabase/
+middleware.ts`, a Next.js 16 renomeou `middleware.ts` para `proxy.ts`)
+redireciona `/api/cron/extend-schedules` pra `/login` (307) ANTES da
+rota sequer checar `Authorization: Bearer $CRON_SECRET` -- a lista
+`isPublic` do proxy inclui `/api/webhooks`/`/api/public`/`/api/
+marketplace` (os 2 últimos por um achado idêntico já documentado no
+próprio código), mas não inclui `/api/cron`. A checagem de `CRON_SECRET`
+da rota em si está correta e fail-closed -- o problema é estrutural,
+uma camada acima, e impede que a chamada real do cron da Vercel (sem
+cookie de sessão) alcance a rota. `CRON_SECRET` em Production não pôde
+ser confirmado (ausente da listagem `vercel env ls production`, mas essa
+listagem já teve um precedente de omitir variável configurada de
+verdade -- `TOURSFLOW_API_SECRET`). Nada foi corrigido nesta etapa --
+só análise, a pedido do usuário. Pendência pre-merge: incluir `/api/
+cron` na allowlist do proxy + confirmar/configurar `CRON_SECRET` em
+Production. Detalhes completos em `DOCUMENTACAO.md` seções 112-113.
