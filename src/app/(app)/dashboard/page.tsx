@@ -1,10 +1,26 @@
 import { createClient } from "@/lib/supabase/server";
 import { saoPauloDayKey, saoPauloHour, saoPauloStartOfDay } from "@/lib/format";
 import { getProfile } from "@/lib/profile";
-import { TourCalendar, type CalendarDay, type CalendarDeparture } from "./tour-calendar";
+import { TourCalendar, type CalendarDayData, type CalendarDeparture } from "./tour-calendar";
 import { WindConditionsCard } from "./wind-conditions-card";
 
 const CALENDAR_DAYS = 7;
+const WEEKDAY_LABELS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
+const WEEKDAY_FULL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const MONTH_FULL = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+];
 
 // Dashboard = operacao de hoje e dos proximos dias, ponto. Analitico/
 // financeiro/rankings/historico vivem em /relatorios, /financeiro e
@@ -39,17 +55,32 @@ export default async function Dashboard() {
     byDay.get(key)!.push(d);
   });
 
-  const days: CalendarDay[] = Array.from({ length: CALENDAR_DAYS }, (_, i) => {
+  // monta os dados dos 7 dias ja prontos pra exibir -- so primitivos
+  // (string/number/boolean), nenhum Date cruzando pro componente client.
+  // dayStart.getUTC*() e seguro aqui: saoPauloStartOfDay sempre resulta num
+  // instante as 03:00 UTC (meia-noite em Brasilia + offset fixo de -03:00,
+  // sem horario de verao desde 2019), que nunca cruza a virada de dia UTC --
+  // entao os componentes UTC ja refletem o dia civil correto em Brasilia.
+  const days: CalendarDayData[] = Array.from({ length: CALENDAR_DAYS }, (_, i) => {
     const dayStart = new Date(rangeStart.getTime() + i * 24 * 60 * 60 * 1000);
     const isToday = i === 0;
     let departures = byDay.get(saoPauloDayKey(dayStart.toISOString())) ?? [];
     if (isToday) {
-      // hoje: saida ja encerrada/passada nao ocupa espaco no calendario
-      // operacional -- mas uma saida em andamento continua visivel mesmo
-      // com o horario nominal ja no passado.
+      // hoje: saida ja encerrada/passada nao ocupa espaco na agenda -- mas
+      // uma saida em andamento continua visivel mesmo com o horario nominal
+      // ja no passado.
       departures = departures.filter((d) => new Date(d.departs_at) >= now || d.status === "em_andamento");
     }
-    return { dayStart, isToday, departures };
+    const weekday = dayStart.getUTCDay();
+    return {
+      key: saoPauloDayKey(dayStart.toISOString()),
+      isToday,
+      dayNumber: dayStart.getUTCDate(),
+      weekdayLabel: isToday ? "HOJE" : WEEKDAY_LABELS[weekday],
+      weekdayFull: isToday ? "Hoje" : WEEKDAY_FULL[weekday],
+      monthFull: MONTH_FULL[dayStart.getUTCMonth()],
+      departures,
+    };
   });
 
   const hour = saoPauloHour(now.toISOString());
@@ -66,13 +97,13 @@ export default async function Dashboard() {
         <p className="mt-0.5 text-sm text-muted">Aqui está sua operação de hoje.</p>
       </div>
 
-      <TourCalendar days={days} />
-
       {/* Condições do vento -- Etapa 1, só informativo (ver DOCUMENTACAO.md).
           Componente 100% best-effort: nunca lança, nunca derruba o resto do
           Dashboard se a empresa não tiver localização configurada ou o
-          provider de clima estiver fora do ar. */}
+          provider de clima estiver fora do ar. Sempre ACIMA da agenda. */}
       <WindConditionsCard />
+
+      <TourCalendar days={days} />
     </>
   );
 }
