@@ -217,6 +217,83 @@ export async function unpublishTour(tourId: string) {
   return { ok: true, message: "Passeio despublicado. Ele some da vitrine do ToursFlow até ser publicado de novo." };
 }
 
+// "Excluir" na UI, arquivamento no banco -- pedido explícito: NUNCA apaga a
+// linha de tours (histórico, reservas e notas fiscais continuam apontando
+// pra ela). `active=false` já é o campo que a API pública
+// (GET /api/public/tours, src/app/api/public/tours/route.ts) e a listagem
+// de /passeios (abaixo) filtram -- o passeio some das duas imediatamente,
+// sem precisar de coluna nova nem migration.
+//
+// Se estava published, muda pra draft NA MESMA chamada .update() (um único
+// UPDATE, os dois campos juntos) -- é essa transição (published -> algo
+// diferente) que a trigger trg_bump_marketplace_catalog_on_tour_change
+// (migration 0069) já detecta e usa pra avisar o ToursFlow via Realtime --
+// sem precisar tocar na 0069 nem inventar mecanismo de aviso novo. Só força
+// marketplace_status quando o valor ATUAL é 'published' -- os estados
+// legados 'review'/'paused'/'rejected' (não fazem mais parte do fluxo
+// autônomo atual, ver publication-panel.tsx) ficam como estão, porque
+// check_tour_marketplace_transition (migration 0044) só permite
+// published->draft pra um operador comum -- forçar 'draft' a partir de
+// qualquer outro estado quebraria o UPDATE inteiro (a trigger reverte).
+export async function archiveTour(tourId: string): Promise<{ ok: boolean; message: string }> {
+  const { supabase, id: company_id } = await companyId();
+  if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
+
+  const { data: existing } = await supabase
+    .from("tours")
+    .select("company_id, active, marketplace_status")
+    .eq("id", tourId)
+    .maybeSingle();
+  if (!existing || existing.company_id !== company_id) return { ok: false, message: "Passeio inválido." };
+  if (!existing.active) return { ok: true, message: "Este passeio já foi excluído." };
+
+  const patch: Record<string, unknown> = { active: false };
+  if (existing.marketplace_status === "published") {
+    patch.marketplace_status = "draft";
+  }
+
+  const { error } = await supabase.from("tours").update(patch).eq("id", tourId).eq("company_id", company_id);
+  if (error) {
+    console.error("archiveTour:", error);
+    return { ok: false, message: "Não foi possível excluir o passeio. Tente novamente." };
+  }
+
+  // Pausa a agenda recorrente, se existir e estiver ativa, pra não continuar
+  // gerando novas saídas pra um passeio arquivado -- reaproveita
+  // pause_recurring_schedule (migration 0063, já usado pelo botão "Pausar
+  // agenda automática" em schedule-manager.tsx) sem duplicar a lógica de
+  // reconciliação/proteção de reserva nenhuma. Confere ANTES se existe regra
+  // ativa: a RPC lança SCHEDULE_RULE_NOT_FOUND se não houver nenhuma (comum
+  // -- muitos passeios só têm saídas manuais, sem agenda recorrente nunca
+  // configurada), e isso não pode derrubar a exclusão em si, que já
+  // aconteceu com sucesso acima.
+  const { data: rule } = await supabase
+    .from("tour_schedule_rules")
+    .select("active")
+    .eq("tour_id", tourId)
+    .eq("company_id", company_id)
+    .maybeSingle();
+
+  if (rule?.active) {
+    const { error: pauseError } = await supabase.rpc("pause_recurring_schedule", { p_tour_id: tourId });
+    if (pauseError) {
+      console.error("archiveTour/pause:", pauseError);
+      revalidatePath("/passeios");
+      revalidatePath(`/passeios/${tourId}`);
+      revalidatePath("/saidas");
+      return {
+        ok: true,
+        message: "Passeio excluído, mas não foi possível pausar a agenda automática. Pause manualmente em Agenda e disponibilidade.",
+      };
+    }
+  }
+
+  revalidatePath("/passeios");
+  revalidatePath(`/passeios/${tourId}`);
+  revalidatePath("/saidas");
+  return { ok: true, message: "Passeio excluído." };
+}
+
 // ============================================================================
 // FOTOS — o upload do arquivo em si acontece no navegador (Storage RLS, migration
 // 0034); estas actions só cuidam do registro em tour_photos.
