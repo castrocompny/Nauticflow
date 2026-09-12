@@ -133,6 +133,33 @@ uma decisão de produto, não uma regra "óbvia": prefere bloquear
 demais (falso positivo, o operador tenta outro horário) a permitir demais
 (falso negativo, duas embarcações reservadas pro mesmo período real).
 
+**Atualização (migration 0074, NF-001)**: a checagem acima nasceu SÓ dentro
+de `create_flexible_counter_reservation` -- correta pra esse caminho, mas
+nunca replicada pra criação/edição de saída fixa avulsa (`createDeparture`/
+`updateDeparture`) nem pra geração de agenda recorrente
+(`generate_departures_for_schedule_rule`), que continuavam protegidas só
+pelo `unique(vessel_id, departs_at)` de sempre -- barra timestamp
+EXATAMENTE igual, nunca um intervalo sobreposto com início diferente. Uma
+auditoria funcional (seção 136 da DOCUMENTACAO.md) reproduziu o overbooking
+real: a mesma embarcação aceitava 10:00-14:00 e 12:00-16:00 sem erro. A
+correção generalizou a regra pra um gatilho ÚNICO em `departures`
+(`trg_departure_vessel_overlap`, função `check_departure_vessel_overlap`),
+cobrindo TODO caminho de INSERT/UPDATE -- fixa manual, edição, agenda
+recorrente e balcão (fixo e privativo, este último redundante mas nunca
+conflitante com a checagem que a RPC já fazia, que permanece intocada). A
+expressão do "término efetivo" (mesmos três níveis de fallback acima) virou
+uma função só, `departure_effective_end`, usada tanto pelo gatilho novo
+quanto (continua) inline em `create_flexible_counter_reservation` -- uma
+regra canônica, nunca duas divergentes. `ends_at` também passou a ser
+preenchido automaticamente pra `fixed_schedule` (nunca pra `flexible_private`,
+que sempre grava o próprio) sempre que `tour.duration_minutes` é conhecido e
+ninguém informou um valor explícito -- incluindo recomputar quando
+`departs_at`/`tour_id` mudam numa edição, pra nunca deixar um `ends_at`
+auto-preenchido ficar desatualizado (stale) e mascarar um overlap real.
+Detalhe completo, incluindo os 6 cenários de teste executados (fixed↔fixed,
+fixed↔flexible nos dois sentidos, UPDATE, agenda recorrente, concorrência
+real) na seção 136 da DOCUMENTACAO.md.
+
 ## Exclusividade da reserva privativa
 
 Não bastava `people_count < capacity` -- isso deixaria um segundo grupo

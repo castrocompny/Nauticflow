@@ -109,6 +109,10 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
       return { error: "Já existe uma saída desta embarcação neste horário." };
     if (error.message.includes("capacidade comercial"))
       return { error: error.message };
+    // NF-001 (migration 0074) -- trg_departure_vessel_overlap: mesma
+    // embarcação já ocupada num período que se sobrepõe a este.
+    if (error.message.includes("VESSEL_OVERLAP"))
+      return { error: "Esta embarcação já possui uma saída nesse período." };
     console.error("createDeparture:", error);
     return { error: "Não foi possível criar a saída. Tente novamente." };
   }
@@ -172,6 +176,10 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
 
   if (error) {
     if (error.code === "23505") return { error: "Já existe uma saída desta embarcação neste horário." };
+    // NF-001 (migration 0074) -- trg_departure_vessel_overlap: mesma
+    // embarcação já ocupada num período que se sobrepõe a este.
+    if (error.message.includes("VESSEL_OVERLAP"))
+      return { error: "Esta embarcação já possui uma saída nesse período." };
     console.error("updateDeparture:", error);
     return { error: "Não foi possível salvar a saída. Tente novamente." };
   }
