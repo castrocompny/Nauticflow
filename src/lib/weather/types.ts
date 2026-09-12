@@ -17,10 +17,23 @@ export type WindConditionPoint = {
   windDirectionLabel: string;
 };
 
+// Um ponto de previsão horária (vento previsto pra um horário específico,
+// não "agora"). Usado tanto no digest de 6h do WindConditionsCard quanto na
+// janela completa (até ~7 dias) usada internamente pra associar vento a
+// cada saída da Agenda de passeios -- ver getWindForecastWindow em
+// provider.ts e src/app/(app)/dashboard/wind-forecast-match.ts.
+export type WindForecastPoint = WindConditionPoint & { time: string };
+
 export type WindConditions = {
   current: WindConditionPoint & { observedAt: string };
-  /** Só as próximas ~6h -- nunca a previsão completa do dia. */
-  hourly: (WindConditionPoint & { time: string })[];
+  /**
+   * O tamanho desta lista depende de QUEM pediu: getWindConditions()
+   * devolve só as próximas ~6h (o que o WindConditionsCard mostra);
+   * getWindForecastWindow() devolve a janela completa (até ~7 dias, uso
+   * exclusivamente server-side). Nunca confundir os dois -- o card nunca
+   * deve iterar sobre a janela completa.
+   */
+  hourly: WindForecastPoint[];
 };
 
 // Erro de INFRAESTRUTURA do provider (rede, timeout, resposta inesperada) --

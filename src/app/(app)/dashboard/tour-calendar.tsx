@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Card, Badge } from "@/components/ui";
+import { Wind } from "lucide-react";
+import { Card, Badge, OccupancyBar } from "@/components/ui";
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
 import { fmtTime } from "@/lib/format";
 import { statusTone } from "../saidas/departure-row";
+import type { DepartureWindSummary } from "./wind-forecast-match";
 
 export type CalendarDeparture = {
   id: string;
@@ -15,6 +17,12 @@ export type CalendarDeparture = {
   vessels: { name: string } | null;
   tours: { name: string } | null;
   reservations: { people_count: number; status: string }[];
+  // Previsão de vento pro horário desta saída -- já associada server-side
+  // (ver wind-forecast-match.ts), nunca o ponto de previsão bruto. `null`/
+  // ausente sempre que não houver previsão disponível (sem localização,
+  // provider fora do ar, sem ponto próximo o bastante) -- nunca mostrar
+  // "undefined km/h" nem inventar um valor.
+  wind?: DepartureWindSummary | null;
 };
 
 // Dado do dia ja pronto pra exibir -- so primitivos serializaveis (string/
@@ -40,8 +48,9 @@ function booked(d: CalendarDeparture): number {
 
 // Unico pedaco interativo do Dashboard: so a selecao do dia mexe em estado
 // no navegador (useState local) -- os dados dos 7 dias ja chegam prontos por
-// prop, buscados numa unica consulta server-side em page.tsx. Trocar de dia
-// nunca dispara uma nova busca nem navega pra outra rota.
+// prop, buscados numa unica consulta server-side em page.tsx (departures) +
+// uma unica leitura de clima (weather-state.ts). Trocar de dia nunca dispara
+// uma nova busca nem navega pra outra rota.
 export function TourCalendar({ days }: { days: CalendarDayData[] }) {
   const [selected, setSelected] = useState(0);
   const day = days[selected] ?? days[0];
@@ -55,13 +64,17 @@ export function TourCalendar({ days }: { days: CalendarDayData[] }) {
       <h2 className="mb-3 font-display text-lg font-semibold text-heading">Agenda de passeios</h2>
       <Card>
         <ScrollShadowX>
-          <div className="flex gap-2 pb-1">
+          {/* mobile: linha que rola horizontalmente, botoes com largura
+              minima confortavel (nunca espremidos). Desktop (sm+): grid de
+              7 colunas ocupando a largura toda do card, nada de espaco
+              vazio sobrando. */}
+          <div className="flex gap-2 pb-1 sm:grid sm:grid-cols-7">
             {days.map((d, i) => (
               <button
                 key={d.key}
                 type="button"
                 onClick={() => setSelected(i)}
-                className={`flex min-w-[60px] shrink-0 flex-col items-center rounded-lg border px-3 py-2 text-center transition ${
+                className={`flex min-w-[64px] shrink-0 flex-col items-center rounded-lg border px-2 py-2 text-center transition sm:min-w-0 sm:shrink ${
                   i === selected
                     ? "border-brand bg-brand text-white"
                     : "border-line bg-surface text-body hover:bg-surfaceHover"
@@ -77,9 +90,14 @@ export function TourCalendar({ days }: { days: CalendarDayData[] }) {
         </ScrollShadowX>
 
         <div className="mt-4 border-t border-line pt-4">
-          <p className="mb-3 text-sm font-medium text-heading">
-            {title} <span className="font-normal text-muted">— {countLabel}</span>
-          </p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-heading">
+              {title} <span className="font-normal text-muted">— {countLabel}</span>
+            </p>
+            <Link href="/saidas" className="shrink-0 text-sm font-medium text-brand hover:underline">
+              Ver todas as saídas
+            </Link>
+          </div>
 
           {count === 0 ? (
             <p className="py-6 text-center text-sm text-muted">Nenhum passeio agendado para este dia.</p>
@@ -97,31 +115,48 @@ export function TourCalendar({ days }: { days: CalendarDayData[] }) {
 }
 
 function DepartureRow({ dep }: { dep: CalendarDeparture }) {
+  const confirmed = booked(dep);
+
   return (
     <Link
       href={`/saidas/${dep.id}`}
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-line px-3 py-2.5 text-sm transition hover:border-brand hover:bg-surfaceHover sm:flex-nowrap"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-line px-3 py-2.5 text-sm transition hover:border-brand hover:bg-surfaceHover sm:flex-nowrap"
     >
       <span className="w-14 shrink-0 font-display font-semibold text-heading">{fmtTime(dep.departs_at)}</span>
-      <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+
+      <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
         <p className="font-medium text-heading">{dep.tours?.name ?? "Passeio"}</p>
-        <p className="text-xs text-muted">
-          {dep.vessels?.name ?? "-"} · {booked(dep)}/{dep.capacity} passageiros
-        </p>
+        <p className="text-xs text-muted">{dep.vessels?.name ?? "-"}</p>
       </div>
+
+      <div className="basis-full sm:basis-auto sm:w-32 sm:shrink-0">
+        <p className="text-xs text-muted">
+          {confirmed}/{dep.capacity} passageiros
+        </p>
+        <div className="mt-1">
+          <OccupancyBar booked={confirmed} capacity={dep.capacity} />
+        </div>
+      </div>
+
+      {/* Etapa 2 do vento: resumo por saida, ja associado server-side (nunca
+          uma chamada por departure -- ver wind-forecast-match.ts). Ausente
+          sempre que nao houver previsao disponivel, nunca um valor
+          inventado ("undefined km/h"/NaN). */}
+      {dep.wind && (
+        <div className="flex basis-full items-center gap-1 text-xs text-muted sm:basis-auto sm:w-auto sm:shrink-0">
+          <Wind size={12} />
+          <span>
+            {dep.wind.speedKmh} km/h {dep.wind.directionLabel}
+            {dep.wind.gustKmh != null ? ` · Raj. ${dep.wind.gustKmh} km/h` : ""}
+          </span>
+        </div>
+      )}
+
       {dep.status !== "agendada" && (
         <Badge tone={statusTone[dep.status] ?? "slate"}>
           <span className="capitalize">{dep.status.replace("_", " ")}</span>
         </Badge>
       )}
-      {/* Etapa 2 do vento (nao implementada aqui, de proposito): quando
-          houver condicoes de vento por saida, o resumo compacto
-          ("💨 18 km/h NE" / "Rajadas 27 km/h") entra como mais um `span`
-          aqui dentro, ao lado do status -- este componente ja recebe um
-          objeto `dep` por saida, entao basta acrescentar o campo (ex.:
-          windSummary?: string) ao tipo CalendarDeparture e renderizar
-          condicionalmente, sem mudar a query nem a logica de selecao de
-          dia. */}
     </Link>
   );
 }

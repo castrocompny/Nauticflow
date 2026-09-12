@@ -3,6 +3,8 @@ import { saoPauloDayKey, saoPauloHour, saoPauloStartOfDay } from "@/lib/format";
 import { getProfile } from "@/lib/profile";
 import { TourCalendar, type CalendarDayData, type CalendarDeparture } from "./tour-calendar";
 import { WindConditionsCard } from "./wind-conditions-card";
+import { loadWeatherState } from "./weather-state";
+import { windSummaryForDeparture } from "./wind-forecast-match";
 
 const CALENDAR_DAYS = 7;
 const WEEKDAY_LABELS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
@@ -24,9 +26,11 @@ const MONTH_FULL = [
 
 // Dashboard = operacao de hoje e dos proximos dias, ponto. Analitico/
 // financeiro/rankings/historico vivem em /relatorios, /financeiro e
-// /reservas -- ver DOCUMENTACAO.md. Por isso a UNICA consulta que este
-// componente precisa e a das saidas da janela de 7 dias (hoje + proximos 6);
-// WindConditionsCard busca sua propria condicao de vento, independente.
+// /reservas -- ver DOCUMENTACAO.md. Por isso este componente faz só DUAS
+// leituras de dados, cada uma UMA vez por renderização: a janela de 7 dias
+// de departures, e o estado de clima compartilhado (weather-state.ts) --
+// usado tanto pelo WindConditionsCard quanto pra associar vento a cada
+// saída da Agenda (Etapa 2), nunca duas chamadas ao provider de clima.
 export default async function Dashboard() {
   const supabase = createClient();
   const profile = await getProfile();
@@ -35,14 +39,22 @@ export default async function Dashboard() {
   const rangeStart = saoPauloStartOfDay(now);
   const rangeEnd = new Date(rangeStart.getTime() + CALENDAR_DAYS * 24 * 60 * 60 * 1000);
 
-  const { data } = await supabase
-    .from("departures")
-    .select("id, departs_at, capacity, status, vessels(name), tours(name), reservations(people_count, status)")
-    .gte("departs_at", rangeStart.toISOString())
-    .lt("departs_at", rangeEnd.toISOString())
-    .order("departs_at");
+  const [depsRes, weatherState] = await Promise.all([
+    supabase
+      .from("departures")
+      .select("id, departs_at, capacity, status, vessels(name), tours(name), reservations(people_count, status)")
+      .gte("departs_at", rangeStart.toISOString())
+      .lt("departs_at", rangeEnd.toISOString())
+      .order("departs_at"),
+    loadWeatherState(),
+  ]);
 
-  const deps = (data ?? []) as unknown as CalendarDeparture[];
+  const deps = (depsRes.data ?? []) as unknown as CalendarDeparture[];
+  // janela completa de previsão (até ~7 dias) pronta pra associar por
+  // horário -- null quando não há previsão disponível nesta renderização
+  // (sem localização, provider fora do ar etc.); windSummaryForDeparture
+  // trata isso e nunca lança, nunca inventa valor.
+  const windHourly = weatherState?.kind === "ok" ? weatherState.conditions.hourly : null;
 
   // agrupa por dia civil em Brasilia (nunca cancelada -- nao representa
   // operacao); a query ja veio ordenada por departs_at, entao cada balde
@@ -51,8 +63,9 @@ export default async function Dashboard() {
   deps.forEach((d) => {
     if (d.status === "cancelada") return;
     const key = saoPauloDayKey(d.departs_at);
+    const withWind: CalendarDeparture = { ...d, wind: windSummaryForDeparture(windHourly, d.departs_at) };
     if (!byDay.has(key)) byDay.set(key, []);
-    byDay.get(key)!.push(d);
+    byDay.get(key)!.push(withWind);
   });
 
   // monta os dados dos 7 dias ja prontos pra exibir -- so primitivos
@@ -101,7 +114,7 @@ export default async function Dashboard() {
           Componente 100% best-effort: nunca lança, nunca derruba o resto do
           Dashboard se a empresa não tiver localização configurada ou o
           provider de clima estiver fora do ar. Sempre ACIMA da agenda. */}
-      <WindConditionsCard />
+      <WindConditionsCard state={weatherState} />
 
       <TourCalendar days={days} />
     </>

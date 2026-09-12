@@ -10,7 +10,14 @@ import { WeatherProviderError, type WeatherLocation, type WindConditions } from 
 // "não amarrar permanentemente ao endpoint gratuito" (pedido explícito).
 const DEFAULT_BASE_URL = "https://api.open-meteo.com/v1/forecast";
 const REQUEST_TIMEOUT_MS = 8000;
-const FORECAST_HOURS = 6;
+// Cobre a janela de 7 dias da Agenda de passeios do Dashboard (hoje + 6 dias
+// -- CALENDAR_DAYS em dashboard/page.tsx). Coincidência de valor deliberada,
+// não uma referência cruzada: esta camada não pode depender de uma
+// constante do Dashboard (isolamento do provider), então o número fica
+// duplicado aqui, documentado. Quem só precisa de poucas horas (o
+// WindConditionsCard) recorta essa janela depois, em provider.ts -- nunca
+// pedimos duas janelas diferentes ao Open-Meteo.
+const FORECAST_DAYS = 7;
 
 interface OpenMeteoResponse {
   current?: {
@@ -42,7 +49,7 @@ export async function fetchOpenMeteoWind(location: WeatherLocation): Promise<Win
   url.searchParams.set("hourly", "wind_speed_10m,wind_direction_10m,wind_gusts_10m");
   url.searchParams.set("wind_speed_unit", "kmh");
   url.searchParams.set("timezone", "America/Sao_Paulo");
-  url.searchParams.set("forecast_days", "2"); // garante ter próximas horas mesmo perto da virada do dia
+  url.searchParams.set("forecast_days", String(FORECAST_DAYS));
   if (apiKey) url.searchParams.set("apikey", apiKey);
 
   const controller = new AbortController();
@@ -80,9 +87,12 @@ export async function fetchOpenMeteoWind(location: WeatherLocation): Promise<Win
     throw new WeatherProviderError("Resposta do provedor de clima sem os campos esperados.");
   }
 
-  // próximas ~6h a partir de AGORA -- o hourly do Open-Meteo cobre o(s)
-  // dia(s) inteiro(s); acha o primeiro horário estritamente depois do
-  // `current.time` e pega os 6 seguintes.
+  // a partir de AGORA ate o fim da janela pedida (FORECAST_DAYS) -- o hourly
+  // do Open-Meteo cobre os dias inteiros; acha o primeiro horário
+  // estritamente depois do `current.time` e devolve TODOS os seguintes
+  // (nunca recorta aqui pra um número fixo de horas -- quem só quer um
+  // digest curto, tipo o WindConditionsCard, recorta depois, em
+  // provider.ts).
   const startIndex = hourly.time.findIndex((t) => t > current.time);
   const sliceStart = startIndex >= 0 ? startIndex : 0;
 
@@ -94,7 +104,7 @@ export async function fetchOpenMeteoWind(location: WeatherLocation): Promise<Win
       windDirectionLabel: degreesToCompassLabel(current.wind_direction_10m),
       observedAt: current.time,
     },
-    hourly: hourly.time.slice(sliceStart, sliceStart + FORECAST_HOURS).map((time, i) => {
+    hourly: hourly.time.slice(sliceStart).map((time, i) => {
       const idx = sliceStart + i;
       return {
         time,
