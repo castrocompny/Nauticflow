@@ -2454,3 +2454,23 @@ Exatamente a classe de erro já documentada e corrigida por `0065`. O usuário p
 **Diagnóstico temporário mantido de propósito** (Sentry + `CREATE_TOUR_DEBUG` de `0067`, agora também `QUICK_SCHEDULE_PRICE_DEBUG`/`QUICK_SCHEDULE_DEBUG` desta etapa) -- o usuário pediu explicitamente pra NÃO remover ainda, até reconfirmar na UI de Production que a configuração rápida de agenda funciona de verdade depois da correção do banco.
 
 **Estado**: `0068` aplicada e validada (staging real + Production real). `0063`-`0067` não tocadas. Nenhum pagamento/Asaas/withdrawal/cron alterado. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado. Pendente: reteste do usuário na UI de Production (configuração rápida de agenda completa) e, depois de confirmado, remoção de todo o diagnóstico temporário acumulado (Sentry capture de `createTourDraft`, `CREATE_TOUR_DEBUG`, `QUICK_SCHEDULE_PRICE_DEBUG`, `QUICK_SCHEDULE_DEBUG`).
+
+## 119. Reteste real em Production: PASS de ponta a ponta -- diagnóstico temporário removido (branch `main`, sessão de 2026-09-11)
+
+O usuário reproduziu o fluxo completo em Production, na UI real, confirmando:
+
+- **Criação de passeio** (`createTourDraft`, fix da `0067`): PASS.
+- **Configuração rápida de agenda** (`quickSetupSchedule` -> `save_recurring_schedule`, fix da `0068`): PASS.
+- **Geração automática de departures**: PASS -- UI mostrando **90 saídas futuras agendadas**, exatamente o `horizon_days=90` fixo do fluxo simplificado (seção 116).
+- **Auto-extend ativo**: confirmado (o cron `extend-schedules`, corrigido na seção 113/114, mantém esse horizonte sempre estendido pra frente).
+
+Com os dois bugs reais (`42501` da `0067`, `42702` da `0068`) confirmados corrigidos de ponta a ponta em Production, toda a instrumentação temporária de diagnóstico foi removida, restaurando o tratamento de erro original:
+
+- **`src/app/(app)/passeios/actions.ts`** (`createTourDraft`): removida a captura `Sentry.captureException` (tag `action: createTourDraft`, `extra` com `code`/`message`/`details`/`hint`) e o fallback `CREATE_TOUR_DEBUG` restrito a `super_admin`. Import `* as Sentry from "@sentry/nextjs"` removido (não usado em mais nenhum lugar deste arquivo). Volta a ser exatamente: `23505` -> mensagem de duplicata; qualquer outro erro -> `console.error` + "Não foi possível criar o passeio. Tente novamente." pra todo mundo, sem distinção de role.
+- **`src/app/(app)/passeios/[id]/schedule-actions.ts`** (`quickSetupSchedule`): removidos os dois fallbacks `QUICK_SCHEDULE_PRICE_DEBUG` (falha no `UPDATE` de preço-base) e `QUICK_SCHEDULE_DEBUG` (falha na RPC `save_recurring_schedule`), ambos restritos a `super_admin`. Volta a ser exatamente: `console.error` + mensagem genérica ("Não foi possível salvar o preço-base."/`outcome.error` de `interpretScheduleRpcResult`) pra qualquer usuário, sem distinção de role.
+
+**Preservado, sem nenhuma alteração**: `console.error`/logging normal de ambas as actions; o tratamento de erro genérico pro usuário final; migrations `0067` e `0068` (schema/funções, intocadas -- essa limpeza é 100% código de aplicação); toda a automação de agenda (RPCs, ACL, reconcile/generate, pause/reactivate, datas específicas); o cron `extend-schedules` e seu proxy fix (seção 113/114).
+
+**Validação local**: `tsc --noEmit` limpo. `eslint .` 0 erros (4 warnings pré-existentes de `<img>`, não relacionados). `next build` sucesso -- nenhuma rota afetada além das duas actions.
+
+**Estado final**: automação de agenda operacional de ponta a ponta em Production, confirmada por teste real de UI (não suposição) -- criação de passeio, configuração rápida, geração automática (90 saídas), auto-extend e cron todos funcionando. Nenhum diagnóstico temporário restante no código. `MARKETPLACE_PAYMENTS_ENABLED`/`MARKETPLACE_WITHDRAWAL_PAYOUT_ENABLED` OFF, R$ 0,00 movimentado, nenhum schema/migration/pagamento/Asaas/withdrawal tocado nesta etapa de limpeza.

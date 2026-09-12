@@ -1,6 +1,5 @@
 "use server";
 
-import * as Sentry from "@sentry/nextjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -42,49 +41,7 @@ export async function createTourDraft(_prev: unknown, formData: FormData) {
 
   if (error) {
     if (error.code === "23505") return { error: "Já existe um passeio ativo com este nome." };
-
-    // INSTRUMENTAÇÃO TEMPORÁRIA (bug real em Production, "Não foi possível criar
-    // o passeio" -- causa ainda não confirmada ao vivo, auditoria de schema/RLS/
-    // trigger já não encontrou nada nas migrations deste repositório). Captura
-    // o erro ESTRUTURADO do Postgres (code/message/details/hint) no Sentry
-    // (já configurado no projeto, ver sentry.server.config.ts) -- nunca no
-    // console apenas, que não é consultável a partir daqui. best-effort: uma
-    // falha do Sentry nunca pode impedir a resposta genérica de erro pro
-    // usuário. Nenhum dado de usuário/empresa specifico vai no `extra` -- só o
-    // erro do Postgres em si (que já não carrega segredo nenhum por natureza).
-    // Remover esta captura depois que a causa real for identificada e corrigida.
-    try {
-      Sentry.captureException(new Error(`createTourDraft insert failed: ${error.code ?? "sem_code"}`), {
-        tags: { action: "createTourDraft" },
-        extra: {
-          code: error.code ?? null,
-          message: error.message ?? null,
-          details: error.details ?? null,
-          hint: error.hint ?? null,
-        },
-      });
-    } catch {
-      // silencioso -- mesmo princípio de logSecurityEvent (src/lib/security-log.ts)
-    }
-
     console.error("createTourDraft:", error);
-
-    // FALLBACK TEMPORÁRIO (o Sentry acima não recebeu nenhum evento numa
-    // reprodução real em Production -- diagnóstico segue sem a causa real).
-    // SÓ pra super_admin (role já resolvido no início desta action, nenhuma
-    // query nova): devolve o erro ESTRUTURADO do Postgres direto na UI, pra
-    // não depender de log nenhum. Qualquer outro usuário continua vendo
-    // exatamente a mesma mensagem genérica de sempre -- nada muda pra
-    // operador comum. Nunca inclui company_id/user id/token/cookie/DSN/
-    // header/segredo/payload completo -- só os 4 campos do erro do Postgres
-    // em si, que por natureza não carregam nada disso. Remover assim que a
-    // causa real for encontrada e corrigida.
-    if (profile.role === "super_admin") {
-      return {
-        error: `CREATE_TOUR_DEBUG | code=${error.code ?? "null"} | message=${error.message ?? "null"} | details=${error.details ?? "null"} | hint=${error.hint ?? "null"}`,
-      };
-    }
-
     return { error: "Não foi possível criar o passeio. Tente novamente." };
   }
 

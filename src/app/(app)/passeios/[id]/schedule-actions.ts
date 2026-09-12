@@ -126,16 +126,6 @@ export async function quickSetupSchedule(tourId: string, _prev: ActionResult, fo
     .eq("company_id", profile.company_id);
   if (priceError) {
     console.error("quickSetupSchedule/price:", priceError);
-    // FALLBACK TEMPORÁRIO (mesmo padrão/motivo de CREATE_TOUR_DEBUG em
-    // src/app/(app)/passeios/actions.ts) -- só pra super_admin, nenhum dado
-    // de usuário/empresa/segredo, só o erro estruturado do Postgres. Prefixo
-    // PRICE distingue esta falha (UPDATE de preço-base) da falha na RPC
-    // abaixo. Remover assim que a causa real for encontrada e corrigida.
-    if (profile.role === "super_admin") {
-      return {
-        error: `QUICK_SCHEDULE_PRICE_DEBUG | code=${priceError.code ?? "null"} | message=${priceError.message ?? "null"} | details=${priceError.details ?? "null"} | hint=${priceError.hint ?? "null"}`,
-      };
-    }
     return { error: "Não foi possível salvar o preço-base. Tente novamente." };
   }
 
@@ -154,21 +144,7 @@ export async function quickSetupSchedule(tourId: string, _prev: ActionResult, fo
 
   if (error) console.error("quickSetupSchedule/rpc:", error);
   const outcome = interpretScheduleRpcResult(data as ScheduleRpcRow | null, error, "Não foi possível criar a agenda. Tente novamente.");
-  if (!outcome.ok) {
-    // FALLBACK TEMPORÁRIO (mesmo padrão/motivo de CREATE_TOUR_DEBUG) -- só
-    // pra super_admin, e só quando a RPC de fato devolveu um erro do
-    // Postgres (não cobre o caso raro de `data` nulo sem erro nenhum,
-    // que já cai na mensagem genérica de outcome.error). Prefixo sem
-    // "PRICE" distingue de uma falha no UPDATE do preço-base acima. Nenhum
-    // dado de usuário/empresa/segredo -- só o erro estruturado em si.
-    // Remover assim que a causa real for encontrada e corrigida.
-    if (error && profile.role === "super_admin") {
-      return {
-        error: `QUICK_SCHEDULE_DEBUG | code=${error.code ?? "null"} | message=${error.message ?? "null"} | details=${error.details ?? "null"} | hint=${error.hint ?? "null"}`,
-      };
-    }
-    return { error: outcome.error };
-  }
+  if (!outcome.ok) return { error: outcome.error };
 
   revalidatePath(`/passeios/${tourId}`);
   revalidatePath("/saidas");
