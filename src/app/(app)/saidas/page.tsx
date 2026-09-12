@@ -3,6 +3,7 @@ import { PageHeader, EmptyState, Pager } from "@/components/ui";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { NewDepartureForm } from "./new-departure-form";
 import { DepartureRow } from "./departure-row";
+import { BulkDeleteDeparturesButton } from "./bulk-delete-departures-button";
 import type { Tour, Vessel } from "@/lib/types";
 
 type Row = {
@@ -48,7 +49,11 @@ export default async function DeparturesPage(props: { searchParams: Promise<{ pa
   return (
     <>
       <RealtimeRefresh tables={["departures", "reservations"]} />
-      <PageHeader title="Saídas" subtitle="Cada saída é uma embarcação em uma data e hora, com sua capacidade." />
+      <PageHeader
+        title="Saídas"
+        subtitle="Cada saída é uma embarcação em uma data e hora, com sua capacidade."
+        action={<BulkDeleteDeparturesButton />}
+      />
       <p className="mb-3 text-xs text-muted">
         As saídas normais são geradas automaticamente pela agenda de cada passeio (em Passeios → Agenda e
         disponibilidade). Use &quot;Adicionar saída avulsa&quot; só para uma data fora do padrão.

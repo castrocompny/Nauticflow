@@ -294,3 +294,66 @@ export async function deleteTour(formData: FormData) {
   revalidatePath("/agenda");
   return { error: "" };
 }
+
+// ============================================================================
+// LIMPEZA EM MASSA -- "Excluir todas as saídas". A REGRA (o que é removível,
+// o que fica protegido, a pausa de agenda) mora inteira na RPC (migration
+// 0070, clear_company_departures/preview_company_departures_cleanup) --
+// aqui só chama e traduz o retorno pra UI, nunca reimplementa nada. company_id
+// nunca é passado pra RPC nenhuma das duas -- as funções derivam sozinhas de
+// auth.uid(), mesmo padrão de save_recurring_schedule/pause_recurring_schedule.
+// ============================================================================
+
+export type BulkCleanupPreview = { wouldDelete: number; wouldProtect: number; activeSchedules: number };
+
+// A geração de tipos do Supabase não conhece as RPCs novas (migration 0070)
+// -- mesmo padrão já usado em schedule-actions.ts (ScheduleRpcRow): tipa o
+// retorno explicitamente aqui, nunca reimplementa a lógica da RPC em si.
+type PreviewRpcRow = { would_delete: number; would_protect: number; active_schedules: number };
+type ClearRpcRow = { deleted_departures: number; protected_departures: number; paused_schedules: number };
+
+export async function getBulkCleanupPreview(): Promise<
+  ({ ok: true } & BulkCleanupPreview) | { ok: false; message: string }
+> {
+  const { supabase, id: company_id } = await companyId();
+  if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
+
+  const { data, error } = await supabase.rpc("preview_company_departures_cleanup").maybeSingle();
+  const row = data as PreviewRpcRow | null;
+  if (error || !row) {
+    console.error("getBulkCleanupPreview:", error);
+    return { ok: false, message: "Não foi possível calcular a prévia. Tente novamente." };
+  }
+
+  return {
+    ok: true,
+    wouldDelete: row.would_delete ?? 0,
+    wouldProtect: row.would_protect ?? 0,
+    activeSchedules: row.active_schedules ?? 0,
+  };
+}
+
+export async function clearCompanyDepartures(): Promise<
+  | { ok: true; deleted: number; protected: number; paused: number }
+  | { ok: false; message: string }
+> {
+  const { supabase, id: company_id } = await companyId();
+  if (!company_id) return { ok: false, message: "Sessão inválida ou usuário sem empresa." };
+
+  const { data, error } = await supabase.rpc("clear_company_departures").maybeSingle();
+  const row = data as ClearRpcRow | null;
+  if (error || !row) {
+    console.error("clearCompanyDepartures:", error);
+    return { ok: false, message: "Não foi possível excluir as saídas. Tente novamente." };
+  }
+
+  revalidatePath("/saidas");
+  revalidatePath("/agenda");
+  revalidatePath("/dashboard");
+  return {
+    ok: true,
+    deleted: row.deleted_departures ?? 0,
+    protected: row.protected_departures ?? 0,
+    paused: row.paused_schedules ?? 0,
+  };
+}
