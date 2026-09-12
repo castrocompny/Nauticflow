@@ -21,7 +21,7 @@ type Row = {
 
 const PAGE_SIZE = 25;
 
-export default async function DeparturesPage(props: { searchParams: Promise<{ page?: string }> }) {
+export default async function DeparturesPage(props: { searchParams: Promise<{ page?: string; tour_id?: string }> }) {
   const searchParams = await props.searchParams;
   const page = Math.max(1, Number(searchParams.page) || 1);
   const from = (page - 1) * PAGE_SIZE;
@@ -60,7 +60,7 @@ export default async function DeparturesPage(props: { searchParams: Promise<{ pa
           `flex-wrap` deixa quebrar pra duas linhas em telas pequenas sem
           nunca colar um elemento no outro (gap cuida disso nos dois casos). */}
       <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <NewDepartureForm vessels={vessels} tours={(tours ?? []) as Tour[]} />
+        <NewDepartureForm vessels={vessels} tours={(tours ?? []) as Tour[]} defaultTourId={searchParams.tour_id} />
         <BulkDeleteDeparturesButton />
       </div>
 

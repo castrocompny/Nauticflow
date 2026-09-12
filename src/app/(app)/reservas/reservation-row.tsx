@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { Pencil, History } from "lucide-react";
 import { DeleteButton } from "@/components/delete-button";
 import { ReservationStatusSelect } from "@/components/reservation-status-select";
+import { Badge } from "@/components/ui";
 import { brl, fmtTime } from "@/lib/format";
 import { deleteReservation, updateReservationStatus } from "./actions";
 
@@ -23,10 +24,30 @@ type ResRow = {
   total_cents: number;
   status: string;
   origin_name: string | null;
+  source: string;
   client_id: string;
   departure_id: string;
   clients: { name: string } | null;
   departures: { departs_at: string; vessels: { name: string } | null } | null;
+};
+
+// Origem/canal da reserva (reservations.source, migration 0035) -- rótulo e
+// cor discretos pra tabela. 'manual' já significava "reserva de balcão"
+// desde que a coluna existe (ver comentário na própria 0035 e na migration
+// 0072); nenhuma coluna nova foi criada pra "canal", esta é a primitive
+// canônica reaproveitada.
+const sourceLabel: Record<string, string> = {
+  manual: "Balcão",
+  marketplace: "ToursFlow",
+  partner: "Parceiro",
+  operator: "Operador",
+  website: "Site",
+  agency: "Agência",
+};
+const sourceTone: Record<string, "green" | "amber" | "slate" | "red"> = {
+  manual: "slate",
+  marketplace: "green",
+  partner: "amber",
 };
 
 export function ReservationRow({
@@ -43,7 +64,12 @@ export function ReservationRow({
   return (
     <>
       <tr className="border-b border-line last:border-0">
-        <td className="px-4 py-3 font-medium text-heading">{r.clients?.name}</td>
+        <td className="px-4 py-3 font-medium text-heading">
+          {r.clients?.name}
+          <div className="mt-1">
+            <Badge tone={sourceTone[r.source] ?? "slate"}>{sourceLabel[r.source] ?? r.source}</Badge>
+          </div>
+        </td>
         <td className="px-4 py-3 text-body">
           {r.departures?.vessels?.name}
           {r.departures && ` · ${fmtTime(r.departures.departs_at)}`}

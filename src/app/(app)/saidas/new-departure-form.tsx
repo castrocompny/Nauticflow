@@ -18,8 +18,13 @@ function Save() {
   );
 }
 
-export function NewDepartureForm({ vessels, tours }: { vessels: Vessel[]; tours: Tour[] }) {
-  const [open, setOpen] = useState(false);
+// `defaultTourId` (opcional): prefill mínimo pra quando "Nova reserva" (em
+// /reservas) não encontra data/horário pro passeio escolhido e manda o
+// operador criar uma saída avulsa já com o passeio certo selecionado --
+// mesmo formulário/mesma action de sempre, só o valor inicial do
+// PasseioPicker muda, nenhuma lógica de criação de departure duplicada.
+export function NewDepartureForm({ vessels, tours, defaultTourId }: { vessels: Vessel[]; tours: Tour[]; defaultTourId?: string }) {
+  const [open, setOpen] = useState(!!defaultTourId);
   const [vesselId, setVesselId] = useState(vessels[0]?.id ?? "");
   const [state, action] = useActionState(
     async (p: unknown, f: FormData) => {
@@ -64,7 +69,7 @@ export function NewDepartureForm({ vessels, tours }: { vessels: Vessel[]; tours:
           </div>
           <div>
             <label>Passeio</label>
-            <PasseioPicker tours={tours} />
+            <PasseioPicker tours={tours} defaultTourId={defaultTourId} />
           </div>
           <div>
             <label>Nome do novo passeio (se aplicável)</label>

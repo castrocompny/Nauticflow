@@ -6,7 +6,14 @@ import { getProfile } from "@/lib/profile";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { saoPauloHHMM } from "@/lib/format";
 
-export async function createReservation(_prev: unknown, formData: FormData) {
+// Reserva de balcão (RPC create_counter_reservation, migration 0072) --
+// substitui o antigo INSERT direto: agora cliente existente OU criação
+// rápida de cliente + reserva confirmada acontecem na MESMA transação
+// atômica no banco (nunca deixa cliente órfão se a capacidade falhar). A
+// janela comercial (08:00-19:00) é regra de UI/operação, não de estoque --
+// continua reforçada aqui, já que a RPC não a conhece (só valida
+// propriedade/capacidade/estoque, que é o que realmente protege dados).
+export async function createCounterReservation(_prev: unknown, formData: FormData) {
   const profile = await getProfile();
   if (!profile?.company_id) return { error: "Sessão inválida." };
 
@@ -14,73 +21,74 @@ export async function createReservation(_prev: unknown, formData: FormData) {
   if (subscriptionBlocked) return { error: subscriptionBlocked };
 
   const supabase = createClient();
-  const valueReais = Number(String(formData.get("value") || "0").replace(",", "."));
-  const peopleCount = Number(formData.get("people_count"));
-  const departure_id = String(formData.get("departure_id"));
-  const client_id = String(formData.get("client_id"));
 
-  // valor e quantidade vem direto do formulario -- sem essa checagem, uma chamada
-  // direta a action (sem passar pela UI) podia gravar receita negativa/inventada ou
-  // uma quantidade de passageiros sem sentido. desconto/preco combinado continua
-  // livre (nao trava contra o preco base do passeio), so bloqueia valor sem sentido.
-  if (!Number.isFinite(valueReais) || valueReais < 0) {
-    return { error: "Valor da reserva inválido." };
-  }
+  const departureId = String(formData.get("departure_id") || "");
+  const peopleCount = Number(formData.get("people_count"));
+  const valueReais = Number(String(formData.get("value") || "0").replace(",", "."));
+  const clientMode = String(formData.get("client_mode") || "existing");
+  const clientId = String(formData.get("client_id") || "");
+  const clientName = String(formData.get("client_name") || "").trim();
+  const clientPhone = String(formData.get("client_phone") || "").trim();
+  const originName = String(formData.get("origin_name") || "").trim();
+
+  if (!departureId) return { error: "Selecione uma saída." };
   if (!Number.isInteger(peopleCount) || peopleCount < 1) {
     return { error: "Número de passageiros inválido." };
   }
+  if (!Number.isFinite(valueReais) || valueReais < 0) {
+    return { error: "Valor da reserva inválido." };
+  }
+  if (clientMode === "existing" && !clientId) return { error: "Selecione um cliente." };
+  if (clientMode === "quick" && !clientName) return { error: "Informe o nome do cliente." };
 
-  // confere que a saida e o cliente escolhidos sao mesmo da propria empresa -- sem isso,
-  // um usuario autenticado de qualquer empresa poderia forjar o POST com o id de uma saida
-  // ou cliente de OUTRA empresa (o dropdown do formulario nao e a unica forma de submeter
-  // esses campos). reforcado tambem por gatilho no banco (migration 0015).
-  const [{ data: departure }, { data: client }] = await Promise.all([
-    supabase.from("departures").select("departs_at, company_id").eq("id", departure_id).maybeSingle(),
-    supabase.from("clients").select("company_id").eq("id", client_id).maybeSingle(),
-  ]);
-  if (!departure || departure.company_id !== profile.company_id) {
-    return { error: "Saída inválida." };
-  }
-  if (!client || client.company_id !== profile.company_id) {
-    return { error: "Cliente inválido." };
-  }
+  const { data: departure } = await supabase
+    .from("departures")
+    .select("departs_at")
+    .eq("id", departureId)
+    .maybeSingle();
+  if (!departure) return { error: "Saída inválida." };
   const hhmm = saoPauloHHMM(departure.departs_at);
   if (hhmm < "08:00" || hhmm > "19:00")
     return { error: "Esta saída está fora do horário permitido para reservas (08:00–19:00)." };
 
-  const { data: inserted, error } = await supabase
-    .from("reservations")
-    .insert({
-      company_id: profile.company_id,
-      departure_id,
-      client_id,
-      people_count: peopleCount,
-      total_cents: Math.round(valueReais * 100),
-      origin_name: String(formData.get("origin_name") || "") || null,
-      created_by: profile.id,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await supabase.rpc("create_counter_reservation", {
+    p_departure_id: departureId,
+    p_people_count: peopleCount,
+    p_total_cents: Math.round(valueReais * 100),
+    p_client_id: clientMode === "existing" ? clientId : null,
+    p_client_name: clientMode === "quick" ? clientName : null,
+    p_client_phone: clientMode === "quick" ? clientPhone || null : null,
+    p_origin_name: originName || null,
+  });
 
-  if (error) {
-    // o gatilho do banco recusa quando excede a capacidade da saida
-    if (error.message.includes("Capacidade excedida"))
-      return { error: "Sem vagas suficientes nesta saída. " + error.message };
-    console.error("createReservation:", error);
+  const row = data?.[0];
+  if (error || !row) {
+    if (error?.message.includes("Capacidade excedida")) {
+      return { error: "Não há mais vagas suficientes nesta saída." };
+    }
+    if (error?.message.includes("DEPARTURE_NOT_BOOKABLE")) {
+      return { error: "Esta saída não está mais disponível para reserva." };
+    }
+    if (error?.message.includes("DEPARTURE_NOT_FOUND")) return { error: "Saída inválida." };
+    if (error?.message.includes("CLIENT_NOT_FOUND")) return { error: "Cliente inválido." };
+    if (error?.message.includes("CLIENT_NAME_REQUIRED")) return { error: "Informe o nome do cliente." };
+    console.error("createCounterReservation:", error);
     return { error: "Não foi possível criar a reserva. Tente novamente." };
   }
 
-  // tenta enviar o voucher por e-mail, mas NUNCA desfaz a reserva se falhar
-  let info = "Reserva criada.";
+  // tenta enviar o voucher por e-mail, mas NUNCA desfaz a reserva se falhar --
+  // e ausência de e-mail (cliente rápido sem e-mail cadastrado) nunca é
+  // tratada como erro, só não há o que enviar.
+  let info = "Reserva criada com sucesso.";
   try {
     const { data: fn, error: fnErr } = await supabase.functions.invoke("send-reservation-voucher", {
-      body: { reservation_id: inserted!.id },
+      body: { reservation_id: row.reservation_id },
     });
-    info = !fnErr && fn && (fn as any).sent
-      ? "Reserva criada e voucher enviado por e-mail."
-      : "Reserva criada, mas não foi possível enviar o voucher por e-mail.";
+    if (!fnErr && fn && (fn as any).sent) {
+      info = "Reserva criada e voucher enviado por e-mail.";
+    }
   } catch {
-    info = "Reserva criada, mas não foi possível enviar o voucher por e-mail.";
+    // silencioso -- mensagem padrão "Reserva criada com sucesso." já cobre este caso
   }
 
   revalidatePath("/reservas");
@@ -88,6 +96,23 @@ export async function createReservation(_prev: unknown, formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/agenda");
   return { error: "", info };
+}
+
+// Combobox de cliente existente (Etapa "Reserva de balcão") -- busca por
+// nome, escopada pela MESMA RLS que já protege toda leitura de `clients`
+// ("clientes da empresa", migration 0000): nunca precisa filtrar company_id
+// explicitamente aqui, o Postgres já recusa ver linha de outra empresa.
+export async function searchClients(query: string): Promise<{ id: string; name: string; phone: string | null }[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("clients")
+    .select("id, name, phone")
+    .ilike("name", `%${q}%`)
+    .order("name")
+    .limit(20);
+  return (data ?? []) as { id: string; name: string; phone: string | null }[];
 }
 
 export async function resendVoucher(reservationId: string) {

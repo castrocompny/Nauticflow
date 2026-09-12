@@ -8,8 +8,8 @@ import type { Tour } from "@/lib/types";
 // Seletor de passeio com botão de excluir ao lado de cada nome (um <select> nativo
 // não permite botões dentro das opções, por isso é um dropdown customizado). O valor
 // escolhido vai num input escondido "tour_id" pra o form continuar funcionando igual.
-export function PasseioPicker({ tours }: { tours: Tour[] }) {
-  const [selected, setSelected] = useState(""); // "" = "Novo passeio..."
+export function PasseioPicker({ tours, defaultTourId }: { tours: Tour[]; defaultTourId?: string }) {
+  const [selected, setSelected] = useState(defaultTourId ?? ""); // "" = "Novo passeio..."
   const [open, setOpen] = useState(false);
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [pendingId, setPendingId] = useState<string | null>(null);
