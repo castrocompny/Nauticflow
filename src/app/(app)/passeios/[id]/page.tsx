@@ -11,6 +11,7 @@ import { PhotoManager } from "./photo-manager";
 import { PublicationPanel } from "./publication-panel";
 import { ScheduleSection } from "./schedule-section";
 import { FlexibleBookingSection } from "./flexible-booking-section";
+import { BookingModelSection } from "./booking-model-section";
 
 export default async function EditTourPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -48,6 +49,26 @@ export default async function EditTourPage({ params }: { params: Promise<{ id: s
   // migration 0044/0063), isto aqui só busca pra mostrar o "pronto pra publicar?" na tela
   const checklist = await validateTourForPublishing(supabase, id);
 
+  // "Preview" (sem tocar no gatilho) de quando a troca de booking_model seria
+  // bloqueada -- espelha as MESMAS duas condições de
+  // check_tour_booking_model_transition (migration 0073, fonte única de
+  // verdade real: se este espelho ficar desatualizado, o pior caso é a UI
+  // deixar tentar uma troca que o banco ainda recusa, nunca o contrário).
+  // Usa dados que a página já busca acima -- nenhuma query nova. Achado de
+  // UX (seção 135): sem isso, o operador só descobria o bloqueio depois de
+  // clicar e ver o rádio "voltar" sem explicação.
+  const hasFutureDepartures = (upcomingCount ?? 0) > 0;
+  const hasActiveScheduleRule = !!(ruleData as TourScheduleRule | null)?.active;
+  const hasActiveFlexRule = !!(flexRuleData as TourFlexibleBookingRule | null)?.active;
+  let blockedReason: string | null = null;
+  if (hasFutureDepartures) {
+    blockedReason = "Não é possível alterar o modelo porque existem saídas futuras.";
+  } else if ((tour as Tour).booking_model === "fixed_schedule" && hasActiveScheduleRule) {
+    blockedReason = "Não é possível alterar o modelo porque este passeio possui uma agenda recorrente ativa.";
+  } else if ((tour as Tour).booking_model === "flexible_private" && hasActiveFlexRule) {
+    blockedReason = "Não é possível alterar o modelo porque existe uma configuração de disponibilidade privativa ativa.";
+  }
+
   const photos = (photosData ?? []) as TourPhoto[];
   const signedPhotos = await Promise.all(
     photos.map(async (p) => {
@@ -70,6 +91,8 @@ export default async function EditTourPage({ params }: { params: Promise<{ id: s
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">
+          <TourForm tour={tour as Tour} />
+          <BookingModelSection tourId={tour.id} persistedModel={(tour as Tour).booking_model} blockedReason={blockedReason} />
           <div id="schedule-section">
             {(tour as Tour).booking_model === "flexible_private" ? (
               <FlexibleBookingSection
@@ -87,7 +110,6 @@ export default async function EditTourPage({ params }: { params: Promise<{ id: s
               />
             )}
           </div>
-          <TourForm tour={tour as Tour} />
           <PhotoManager tourId={tour.id} companyId={profile.company_id} photos={signedPhotos} />
         </div>
         <div>

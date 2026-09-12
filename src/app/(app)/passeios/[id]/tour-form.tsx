@@ -108,47 +108,6 @@ export function TourForm({ tour }: { tour: Tour }) {
         </p>
       </Card>
 
-      <Card id="booking-model-section">
-        <SectionTitle>Modelo de reserva</SectionTitle>
-        <div className="space-y-3">
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3 transition has-[:checked]:border-brand has-[:checked]:bg-blue-50">
-            <input
-              type="radio"
-              name="booking_model"
-              value="fixed_schedule"
-              defaultChecked={tour.booking_model !== "flexible_private"}
-              className="mt-1"
-            />
-            <span>
-              <span className="block text-sm font-medium text-heading">Horários fixos</span>
-              <span className="block text-xs text-muted">
-                O operador define dias e horários. Vários clientes podem reservar a mesma saída até atingir a capacidade.
-              </span>
-            </span>
-          </label>
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3 transition has-[:checked]:border-brand has-[:checked]:bg-blue-50">
-            <input
-              type="radio"
-              name="booking_model"
-              value="flexible_private"
-              defaultChecked={tour.booking_model === "flexible_private"}
-              className="mt-1"
-            />
-            <span>
-              <span className="block text-sm font-medium text-heading">Horário flexível — privativo</span>
-              <span className="block text-xs text-muted">
-                O cliente escolhe início e fim dentro da disponibilidade definida. A embarcação fica exclusiva durante o
-                período.
-              </span>
-            </span>
-          </label>
-        </div>
-        <p className="mt-3 text-xs text-muted">
-          Trocar de modelo é bloqueado enquanto houver agenda ativa, saídas futuras ou reservas em andamento — resolva
-          isso primeiro.
-        </p>
-      </Card>
-
       <Card id="boarding-section">
         <SectionTitle>Local de embarque</SectionTitle>
         <div className="grid gap-3 sm:grid-cols-2">

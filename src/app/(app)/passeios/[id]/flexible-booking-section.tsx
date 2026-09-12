@@ -58,7 +58,7 @@ export function FlexibleBookingSection({
           ? rule.active
             ? "Disponibilidade ativa -- o balcão já pode criar reservas privativas para este passeio."
             : "Disponibilidade pausada -- o balcão não consegue criar reservas até reativar."
-          : "Configure quando este passeio pode ser reservado -- o cliente escolhe início e fim dentro dessas regras."}
+          : "Configure a disponibilidade deste passeio privativo."}
       </p>
 
       <form action={action} className="space-y-3">
