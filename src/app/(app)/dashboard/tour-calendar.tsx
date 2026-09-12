@@ -5,13 +5,16 @@ import Link from "next/link";
 import { Wind } from "lucide-react";
 import { Card, Badge, OccupancyBar } from "@/components/ui";
 import { ScrollShadowX } from "@/components/scroll-shadow-x";
-import { fmtTime } from "@/lib/format";
+import { fmtTimeRange } from "@/lib/format";
 import { statusTone } from "../saidas/departure-row";
 import type { DepartureWindSummary } from "./wind-forecast-match";
 
 export type CalendarDeparture = {
   id: string;
   departs_at: string;
+  // Término real da saída, quando conhecido (migration 0073) -- null em
+  // departures fixas antigas sem duração conhecida, nunca inventado.
+  ends_at: string | null;
   capacity: number;
   status: string;
   vessels: { name: string } | null;
@@ -122,7 +125,7 @@ function DepartureRow({ dep }: { dep: CalendarDeparture }) {
       href={`/saidas/${dep.id}`}
       className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-line px-3 py-2.5 text-sm transition hover:border-brand hover:bg-surfaceHover sm:flex-nowrap"
     >
-      <span className="w-14 shrink-0 font-display font-semibold text-heading">{fmtTime(dep.departs_at)}</span>
+      <span className="w-24 shrink-0 font-display font-semibold text-heading">{fmtTimeRange(dep.departs_at, dep.ends_at)}</span>
 
       <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
         <p className="font-medium text-heading">{dep.tours?.name ?? "Passeio"}</p>

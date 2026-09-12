@@ -122,9 +122,14 @@ export function interpretScheduleRpcResult(
 ): ScheduleRpcOutcome {
   if (error) {
     if (error.message.includes("capacidade comercial")) return { ok: false, error: error.message };
-    if (error.message.includes("duplicados") || error.message.includes("08:00 e 19:00")) return { ok: false, error: error.message };
+    // janela global 08:00-19:00 removida (migration 0073) -- só duplicata
+    // de dias/horários continua sendo uma regra real aqui.
+    if (error.message.includes("duplicados")) return { ok: false, error: error.message };
     if (error.message.includes("VESSEL_NOT_FOUND")) return { ok: false, error: "Embarcação inválida." };
     if (error.message.includes("TOUR_NOT_FOUND")) return { ok: false, error: "Passeio inválido." };
+    if (error.message.includes("TOUR_NOT_FIXED_SCHEDULE")) {
+      return { ok: false, error: "Este passeio está configurado como horário flexível -- a agenda recorrente é só para horários fixos." };
+    }
     if (error.message.includes("SCHEDULE_RULE_NOT_FOUND")) return { ok: false, error: "Agenda não encontrada." };
     return { ok: false, error: fallbackError };
   }

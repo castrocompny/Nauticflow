@@ -9,6 +9,7 @@ import type { Tour, Vessel } from "@/lib/types";
 type Row = {
   id: string;
   departs_at: string;
+  ends_at: string | null;
   capacity: number;
   status: string;
   vessel_id: string;
@@ -33,7 +34,7 @@ export default async function DeparturesPage(props: { searchParams: Promise<{ pa
     supabase
       .from("departures")
       .select(
-        "id, departs_at, capacity, status, vessel_id, tour_id, price_cents, vessels(name), tours(name), reservations(people_count, status)",
+        "id, departs_at, ends_at, capacity, status, vessel_id, tour_id, price_cents, vessels(name), tours(name), reservations(people_count, status)",
         { count: "exact" }
       )
       .order("departs_at", { ascending: true })

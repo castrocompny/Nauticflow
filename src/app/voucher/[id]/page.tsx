@@ -13,7 +13,12 @@ type Voucher = {
   notes: string | null;
   created_at: string;
   clients: { name: string; phone: string | null; email: string | null } | null;
-  departures: { departs_at: string; vessels: { name: string } | null; tours: { name: string } | null } | null;
+  departures: {
+    departs_at: string;
+    ends_at: string | null;
+    vessels: { name: string } | null;
+    tours: { name: string } | null;
+  } | null;
   companies: { name: string } | null;
 };
 
@@ -29,7 +34,7 @@ export default async function VoucherPage(
   const { data } = await supabase
     .from("reservations")
     .select(
-      "id, people_count, total_cents, status, origin_name, notes, created_at, clients(name, phone, email), departures(departs_at, vessels(name), tours(name)), companies(name)"
+      "id, people_count, total_cents, status, origin_name, notes, created_at, clients(name, phone, email), departures(departs_at, ends_at, vessels(name), tours(name)), companies(name)"
     )
     .eq("id", params.id)
     .maybeSingle();
@@ -99,7 +104,14 @@ export default async function VoucherPage(
           <Field label="Passeio" value={dep?.tours?.name ?? "-"} />
           <Field label="Embarcação" value={dep?.vessels?.name ?? "-"} />
           <Field label="Data" value={dep ? fmtDate(dep.departs_at) : "-"} />
-          <Field label="Horário" value={dep ? fmtTime(dep.departs_at) : "-"} />
+          {dep?.ends_at ? (
+            <>
+              <Field label="Início" value={fmtTime(dep.departs_at)} />
+              <Field label="Término" value={fmtTime(dep.ends_at)} />
+            </>
+          ) : (
+            <Field label="Horário" value={dep ? fmtTime(dep.departs_at) : "-"} />
+          )}
           <Field label="Passageiros" value={String(v.people_count)} />
           <Field label="Valor" value={v.total_cents > 0 ? brl(v.total_cents) : "-"} />
         </div>

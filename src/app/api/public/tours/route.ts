@@ -47,6 +47,13 @@ export async function GET(request: Request) {
     .eq("active", true)
     .is("marketplace_suspended_at", null)
     .is("companies.suspended_at", null)
+    // Defesa em profundidade (migration 0073): o ToursFlow ainda não suporta
+    // horário flexível/privativo. validate_tour_for_publishing já recusa
+    // publicar um passeio flexible_private, mas essa checagem roda no
+    // caminho do OPERADOR -- este filtro garante que a API pública nunca
+    // vende um flexible_private mesmo que `marketplace_status` tenha virado
+    // 'published' por algum outro caminho (ex.: ação administrativa direta).
+    .neq("booking_model", "flexible_private")
     .order("published_at", { ascending: false })
     .range(from, to);
 

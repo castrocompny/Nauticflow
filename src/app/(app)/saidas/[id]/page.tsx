@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, FileText, History } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, OccupancyBar } from "@/components/ui";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { fmtDate, fmtTimeRange } from "@/lib/format";
 import { ReservationStatusSelect } from "@/components/reservation-status-select";
 import { updateReservationStatus } from "../../reservas/actions";
 import { FinalizeButton } from "./finalize-button";
@@ -12,6 +12,7 @@ import { FinalizeButton } from "./finalize-button";
 type Dep = {
   id: string;
   departs_at: string;
+  ends_at: string | null;
   capacity: number;
   status: string;
   vessels: { name: string; official_capacity: number; default_crew: number } | null;
@@ -32,7 +33,7 @@ export default async function DepartureDetail(props: { params: Promise<{ id: str
   const { data } = await supabase
     .from("departures")
     .select(
-      "id, departs_at, capacity, status, vessels(name, official_capacity, default_crew), tours(name), reservations(id, people_count, status, client_id, clients(name), passengers(id))"
+      "id, departs_at, ends_at, capacity, status, vessels(name, official_capacity, default_crew), tours(name), reservations(id, people_count, status, client_id, clients(name), passengers(id))"
     )
     .eq("id", params.id)
     .single();
@@ -55,7 +56,7 @@ export default async function DepartureDetail(props: { params: Promise<{ id: str
             {d.vessels?.name} · {d.tours?.name}
           </h1>
           <p className="mt-0.5 text-sm text-muted">
-            {fmtDate(d.departs_at)} às {fmtTime(d.departs_at)} · lotação oficial{" "}
+            {fmtDate(d.departs_at)} às {fmtTimeRange(d.departs_at, d.ends_at)} · lotação oficial{" "}
             {d.vessels?.official_capacity} ({d.vessels?.default_crew} tripulação)
           </p>
         </div>

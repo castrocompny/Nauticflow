@@ -3,11 +3,18 @@
 import { useEffect, useMemo, useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { brl, fmtTime } from "@/lib/format";
+import { brl, fmtTime, saoPauloToUTC } from "@/lib/format";
 import { calculateTotalCents, isSellablePriceType } from "@/lib/price-calc";
-import { createCounterReservation, searchClients } from "./actions";
+import { createCounterReservation, createFlexibleCounterReservation, getVesselOccupiedPeriods, searchClients } from "./actions";
 
-type TourOption = { id: string; name: string; base_price_cents: number; price_type: string };
+type TourOption = {
+  id: string;
+  name: string;
+  base_price_cents: number;
+  price_type: string;
+  booking_model: string;
+  duration_minutes: number | null;
+};
 type DepartureOption = {
   id: string;
   tour_id: string;
@@ -18,23 +25,89 @@ type DepartureOption = {
   vessel_name: string | null;
   available: number;
 };
+type FlexibleRuleOption = {
+  tour_id: string;
+  vessel_id: string;
+  vessel_name: string | null;
+  vessel_capacity: number;
+  days_of_week: number[];
+  window_start: string;
+  window_end: string;
+  min_duration_minutes: number;
+  max_duration_minutes: number;
+  slot_interval_minutes: number;
+  pricing_mode: string;
+  hourly_price_cents: number | null;
+};
 type ClientHit = { id: string; name: string; phone: string | null };
+type OccupiedPeriod = { starts_at: string; ends_at: string | null };
 
 // Total automático a partir do price_type EFETIVO (departure.price_type ??
 // tour.price_type -- MESMA prioridade que o marketplace usa, ver
 // src/app/api/marketplace/bookings/route.ts:230). 'por_pessoa'/'por_grupo'
 // reaproveitam a MESMA função usada pelo ToursFlow (calculateTotalCents,
-// agora em src/lib/price-calc.ts) -- nenhuma segunda interpretação. Regra
-// pra 'a_partir_de' (decisão desta tela, documentada em DOCUMENTACAO.md):
-// não existe cálculo automático de total pra este price_type em NENHUM
-// lugar do sistema hoje -- nem o marketplace vende esse tipo (ver
-// SELLABLE_PRICE_TYPES) -- então o comportamento aqui é o mais conservador
-// possível: nunca multiplica pela quantidade (evitaria inflar um valor "a
-// partir de" pra um total inventado maior que o real), só mostra o preço-
-// base como ponto de partida, sempre editável.
+// em src/lib/price-calc.ts) -- nenhuma segunda interpretação. 'a_partir_de'
+// não tem cálculo automático de total em NENHUM lugar do sistema -- nunca
+// multiplica, só mostra o preço-base como ponto de partida (decisão desta
+// tela, documentada em DOCUMENTACAO.md).
 function autoTotalCents(priceType: string, unitPriceCents: number, quantity: number): number {
   if (isSellablePriceType(priceType)) return calculateTotalCents(priceType, unitPriceCents, quantity);
   return unitPriceCents;
+}
+
+// Preço automático do privativo flexível (seção 21, pedido explícito): modo
+// 'fixed' sugere tour.base_price_cents (independente da duração); modo
+// 'per_hour' sugere hourly_price_cents × duração, proporcional aos minutos
+// (2h30 = 2,5×, nunca arredondado pra hora cheia).
+function flexAutoPriceCents(rule: FlexibleRuleOption, tour: TourOption, durationMinutes: number): number {
+  if (rule.pricing_mode === "per_hour" && rule.hourly_price_cents != null) {
+    return Math.round((rule.hourly_price_cents * durationMinutes) / 60);
+  }
+  return tour.base_price_cents;
+}
+
+function formatDurationHours(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
+}
+
+function centsToReaisInput(cents: number): string {
+  return (cents / 100).toFixed(2).replace(".", ",");
+}
+
+function toDateISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Próximas datas permitidas pelos days_of_week da regra flexível -- nunca
+// pré-gera saídas (isso só monta uma LISTA de datas clicáveis; a departure
+// real só nasce no momento da reserva, ver create_flexible_counter_reservation).
+function nextAllowedDates(daysOfWeek: number[], count: number): string[] {
+  const dates: string[] = [];
+  const start = new Date();
+  for (let i = 0; dates.length < count && i < 60; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    if (daysOfWeek.includes(d.getDay())) dates.push(toDateISO(d));
+  }
+  return dates;
+}
+
+// HH:MM (5 chars) de um "HH:MM:SS" vindo do banco (type `time` do Postgres).
+function hhmm(t: string): string {
+  return t.slice(0, 5);
+}
+
+function minutesSinceMidnight(hhmmStr: string): number {
+  const [h, m] = hhmmStr.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function addMinutesToTime(hhmmStr: string, minutes: number): string {
+  const total = Math.max(0, minutesSinceMidnight(hhmmStr) + minutes);
+  const h = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 function Save({ disabled }: { disabled?: boolean }) {
@@ -49,15 +122,22 @@ function Save({ disabled }: { disabled?: boolean }) {
   );
 }
 
-function centsToReaisInput(cents: number): string {
-  return (cents / 100).toFixed(2).replace(".", ",");
-}
-
-// Fluxo: Cliente -> Passeio -> Data -> Horário -> Pessoas -> Valor -> Salvar
-// (pedido explícito). Embarcação e capacidade nunca são escolhidas pelo
-// operador -- vêm sempre da departure selecionada (estoque único, ver
-// migration 0072 e DOCUMENTACAO.md).
-export function NewReservationForm({ tours, departures }: { tours: TourOption[]; departures: DepartureOption[] }) {
+// Fluxo fixed_schedule: Cliente -> Passeio -> Data -> Horário -> Pessoas ->
+// Valor -> Salvar (sem regressão, idêntico ao já aprovado). Fluxo
+// flexible_private: Cliente -> Passeio -> Data -> Início -> Término ->
+// Pessoas -> Valor -> Salvar (a departure nasce na hora da reserva, nunca
+// pré-gerada). Embarcação e capacidade nunca são escolhidas pelo operador em
+// nenhum dos dois -- vêm sempre da departure/regra (estoque único, ver
+// migrations 0072/0073 e DOCUMENTACAO.md).
+export function NewReservationForm({
+  tours,
+  departures,
+  flexibleRules,
+}: {
+  tours: TourOption[];
+  departures: DepartureOption[];
+  flexibleRules: FlexibleRuleOption[];
+}) {
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -71,32 +151,45 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
 
   const [tourId, setTourId] = useState("");
   const [date, setDate] = useState("");
-  const [departureId, setDepartureId] = useState("");
+  const [departureId, setDepartureId] = useState(""); // fixed_schedule só
+  const [flexStart, setFlexStart] = useState(""); // flexible_private só, "HH:MM"
+  const [flexEnd, setFlexEnd] = useState("");
+  const [occupiedPeriods, setOccupiedPeriods] = useState<OccupiedPeriod[]>([]);
+  const [loadingOccupied, setLoadingOccupied] = useState(false);
   const [peopleCount, setPeopleCount] = useState(1);
-  // null = automático (recalcula ao mudar pessoas/saída); uma vez que o
-  // operador edita o campo manualmente, vira override e para de acompanhar
-  // mudanças de "Pessoas" -- só volta a ser automático se outro passeio ou
-  // outra saída for escolhido (pickTour/pickDate/pickDeparture resetam pra
-  // null). Nenhum useEffect sincronizando estado -- o valor exibido é
-  // sempre derivado na hora do render (ver `priceReais` abaixo).
   const [manualPriceReais, setManualPriceReais] = useState<string | null>(null);
   const [originName, setOriginName] = useState("");
 
-  const [state, action] = useActionState(
+  const selectedTour = tours.find((t) => t.id === tourId) ?? null;
+  const isFlexible = selectedTour?.booking_model === "flexible_private";
+  const flexRule = isFlexible ? flexibleRules.find((r) => r.tour_id === tourId) ?? null : null;
+
+  const fixedAction = useActionState(
     async (p: unknown, f: FormData) => {
       const r = await createCounterReservation(p, f);
-      if (!r.error) {
-        setOpen(false);
-        resetForm();
-        if ((r as any).info) {
-          setToast((r as any).info);
-          setTimeout(() => setToast(""), 4500);
-        }
-      }
+      if (!r.error) finishSuccess(r);
       return r;
     },
     { error: "" }
   );
+  const flexAction = useActionState(
+    async (p: unknown, f: FormData) => {
+      const r = await createFlexibleCounterReservation(p, f);
+      if (!r.error) finishSuccess(r);
+      return r;
+    },
+    { error: "" }
+  );
+  const [state, action] = isFlexible ? flexAction : fixedAction;
+
+  function finishSuccess(r: { info?: string }) {
+    setOpen(false);
+    resetForm();
+    if (r.info) {
+      setToast(r.info);
+      setTimeout(() => setToast(""), 4500);
+    }
+  }
 
   function resetForm() {
     setClientMode("existing");
@@ -108,6 +201,9 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
     setTourId("");
     setDate("");
     setDepartureId("");
+    setFlexStart("");
+    setFlexEnd("");
+    setOccupiedPeriods([]);
     setPeopleCount(1);
     setManualPriceReais(null);
     setOriginName("");
@@ -135,6 +231,7 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
     };
   }, [clientQuery, clientMode]);
 
+  // ===== fixed_schedule: data/horário a partir das departures existentes =====
   const tourDepartures = useMemo(() => departures.filter((d) => d.tour_id === tourId), [departures, tourId]);
   const availableDates = useMemo(() => {
     const set = new Set<string>();
@@ -149,23 +246,30 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
     [tourDepartures, date]
   );
   const selectedDeparture = departures.find((d) => d.id === departureId) ?? null;
-  const selectedTour = tours.find((t) => t.id === tourId) ?? null;
 
-  // preço unitário/base: departure.price_cents quando existir, senão o
-  // base_price_cents do passeio (mesma prioridade de sempre); price_type
-  // EFETIVO: departure.price_type quando existir, senão o do passeio --
-  // idêntico ao que o marketplace já faz (route.ts: "effectivePriceType").
   const unitPriceCents = selectedDeparture ? selectedDeparture.price_cents ?? selectedTour?.base_price_cents ?? 0 : 0;
   const effectivePriceType = selectedDeparture?.price_type ?? selectedTour?.price_type ?? "por_pessoa";
   const autoPriceCents = selectedDeparture ? autoTotalCents(effectivePriceType, unitPriceCents, peopleCount) : 0;
-  // valor exibido/enviado: override manual se houver, senão o automático
-  // recém-calculado -- deriva a cada render, nunca via useEffect+setState.
-  const priceReais = manualPriceReais ?? centsToReaisInput(autoPriceCents);
+
+  // ===== flexible_private: datas permitidas + períodos ocupados =====
+  const flexAvailableDates = useMemo(() => (flexRule ? nextAllowedDates(flexRule.days_of_week, 14) : []), [flexRule]);
+  const flexDurationMinutes = flexStart && flexEnd ? minutesSinceMidnight(flexEnd) - minutesSinceMidnight(flexStart) : 0;
+  const flexAutoCents =
+    flexRule && selectedTour && flexDurationMinutes > 0 ? flexAutoPriceCents(flexRule, selectedTour, flexDurationMinutes) : 0;
+
+  // valor exibido/enviado (os dois fluxos): override manual se houver, senão
+  // o automático recém-calculado -- deriva a cada render, nunca via
+  // useEffect+setState (a causa raiz de um bug real já corrigido nesta
+  // mesma tela: o preço travava porque dependia de um efeito pra recalcular).
+  const priceReais = manualPriceReais ?? centsToReaisInput(isFlexible ? flexAutoCents : autoPriceCents);
 
   function pickTour(id: string) {
     setTourId(id);
     setDate("");
     setDepartureId("");
+    setFlexStart("");
+    setFlexEnd("");
+    setOccupiedPeriods([]);
     setManualPriceReais(null);
   }
 
@@ -173,6 +277,14 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
     setDate(d);
     setDepartureId("");
     setManualPriceReais(null);
+    if (isFlexible && flexRule) {
+      setFlexStart("");
+      setFlexEnd("");
+      setLoadingOccupied(true);
+      getVesselOccupiedPeriods(flexRule.vessel_id, d)
+        .then(setOccupiedPeriods)
+        .finally(() => setLoadingOccupied(false));
+    }
   }
 
   function pickDeparture(d: DepartureOption) {
@@ -183,9 +295,21 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
     setManualPriceReais(null);
   }
 
-  const overCapacity = !!selectedDeparture && peopleCount > selectedDeparture.available;
+  function pickFlexStart(t: string) {
+    setFlexStart(t);
+    if (flexRule) setFlexEnd(addMinutesToTime(t, flexRule.min_duration_minutes));
+    setManualPriceReais(null);
+  }
+
+  const overCapacity = isFlexible
+    ? !!flexRule && peopleCount > flexRule.vessel_capacity
+    : !!selectedDeparture && peopleCount > selectedDeparture.available;
+  const availableSpotsHint = isFlexible ? flexRule?.vessel_capacity ?? 0 : selectedDeparture?.available ?? 0;
   const clientReady = clientMode === "existing" ? !!selectedClient : quickName.trim().length > 0;
-  const canSave = !!departureId && clientReady && peopleCount >= 1 && !overCapacity;
+  const flexPeriodReady = isFlexible
+    ? !!flexRule && !!date && !!flexStart && !!flexEnd && flexDurationMinutes > 0
+    : !!departureId;
+  const canSave = flexPeriodReady && clientReady && peopleCount >= 1 && !overCapacity;
 
   const Toast = toast ? (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg bg-navy px-4 py-3 text-sm text-white shadow-lg">
@@ -217,7 +341,15 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
       <form action={action} className="space-y-5">
         <input type="hidden" name="client_mode" value={clientMode} />
         <input type="hidden" name="client_id" value={selectedClient?.id ?? ""} />
-        <input type="hidden" name="departure_id" value={departureId} />
+        {isFlexible ? (
+          <>
+            <input type="hidden" name="tour_id" value={tourId} />
+            <input type="hidden" name="starts_at" value={date && flexStart ? saoPauloToUTC(date, flexStart) : ""} />
+            <input type="hidden" name="ends_at" value={date && flexEnd ? saoPauloToUTC(date, flexEnd) : ""} />
+          </>
+        ) : (
+          <input type="hidden" name="departure_id" value={departureId} />
+        )}
 
         {/* Cliente */}
         <div>
@@ -340,8 +472,8 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
           </select>
         </div>
 
-        {/* Data */}
-        {tourId && (
+        {/* ===== FIXED_SCHEDULE: Data + Horário a partir de departures existentes ===== */}
+        {!isFlexible && tourId && (
           <div>
             <p className="mb-1.5 text-sm font-medium text-heading">Data</p>
             {availableDates.length === 0 ? (
@@ -368,8 +500,7 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
           </div>
         )}
 
-        {/* Horário */}
-        {date && (
+        {!isFlexible && date && (
           <div>
             <p className="mb-1.5 text-sm font-medium text-heading">Horário</p>
             <div className="flex flex-wrap gap-2">
@@ -390,8 +521,93 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
           </div>
         )}
 
+        {/* ===== FLEXIBLE_PRIVATE: Data + Início + Término ===== */}
+        {isFlexible && tourId && !flexRule && (
+          <p className="text-sm text-muted">
+            Este passeio ainda não tem disponibilidade configurada. Configure em Passeios → este passeio → Disponibilidade do
+            passeio privativo.
+          </p>
+        )}
+
+        {isFlexible && flexRule && (
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-heading">Data</p>
+            <div className="flex flex-wrap gap-2">
+              {flexAvailableDates.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => pickDate(d)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                    date === d ? "border-brand bg-brand text-white" : "border-line text-body hover:bg-surfaceHover"
+                  }`}
+                >
+                  {d.slice(8, 10)}/{d.slice(5, 7)}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              {flexRule.vessel_name} · janela {hhmm(flexRule.window_start)}–{hhmm(flexRule.window_end)}
+            </p>
+          </div>
+        )}
+
+        {isFlexible && flexRule && date && (
+          <div>
+            {loadingOccupied ? (
+              <p className="mb-2 text-xs text-muted">Verificando horários ocupados...</p>
+            ) : occupiedPeriods.length > 0 ? (
+              <div className="mb-3 space-y-1">
+                <p className="text-xs font-medium text-muted">Horários já ocupados nesta embarcação:</p>
+                {occupiedPeriods.map((p, i) => (
+                  <p key={i} className="text-xs text-muted">
+                    Indisponível: {fmtTime(p.starts_at)}
+                    {p.ends_at ? `–${fmtTime(p.ends_at)}` : ""}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="mb-3 text-xs text-muted">Nenhum horário ocupado nesta embarcação neste dia.</p>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label>Horário de início</label>
+                <input
+                  type="time"
+                  value={flexStart}
+                  step={flexRule.slot_interval_minutes * 60}
+                  min={hhmm(flexRule.window_start)}
+                  max={hhmm(flexRule.window_end)}
+                  onChange={(e) => pickFlexStart(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label>Horário de término</label>
+                <input
+                  type="time"
+                  value={flexEnd}
+                  min={flexStart || hhmm(flexRule.window_start)}
+                  max={hhmm(flexRule.window_end)}
+                  onChange={(e) => {
+                    setFlexEnd(e.target.value);
+                    setManualPriceReais(null);
+                  }}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              Duração mínima {formatDurationHours(flexRule.min_duration_minutes)} · máxima{" "}
+              {formatDurationHours(flexRule.max_duration_minutes)}
+              {flexDurationMinutes > 0 ? ` · selecionada: ${formatDurationHours(flexDurationMinutes)}` : ""}
+            </p>
+          </div>
+        )}
+
         {/* Pessoas + Valor */}
-        {departureId && (
+        {flexPeriodReady && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label>Pessoas</label>
@@ -399,13 +615,13 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
                 name="people_count"
                 type="number"
                 min={1}
-                max={selectedDeparture?.available ?? undefined}
+                max={availableSpotsHint || undefined}
                 value={peopleCount}
                 onChange={(e) => setPeopleCount(Math.max(1, Number(e.target.value) || 1))}
                 className="mt-1"
               />
               <p className={`mt-1 text-xs ${overCapacity ? "text-danger" : "text-muted"}`}>
-                {selectedDeparture?.available ?? 0} vagas disponíveis
+                {availableSpotsHint} {isFlexible ? "lugares (capacidade da embarcação)" : "vagas disponíveis"}
               </p>
             </div>
             <div>
@@ -419,13 +635,20 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
               />
               {/* ajuda o operador a entender de onde veio o valor -- some
                   assim que ele edita manualmente (vira negociação livre) */}
-              {manualPriceReais === null && (
+              {manualPriceReais === null && !isFlexible && (
                 <p className="mt-1 text-xs text-muted">
                   {effectivePriceType === "por_grupo"
                     ? `${brl(unitPriceCents)} por grupo`
                     : effectivePriceType === "a_partir_de"
                       ? `${brl(unitPriceCents)} a partir de -- ajuste o valor final`
                       : `${brl(unitPriceCents)} por pessoa × ${peopleCount} = ${brl(autoPriceCents)}`}
+                </p>
+              )}
+              {manualPriceReais === null && isFlexible && flexRule && flexDurationMinutes > 0 && (
+                <p className="mt-1 text-xs text-muted">
+                  {flexRule.pricing_mode === "per_hour" && flexRule.hourly_price_cents != null
+                    ? `${brl(flexRule.hourly_price_cents)}/h × ${formatDurationHours(flexDurationMinutes)} = ${brl(flexAutoCents)}`
+                    : "Valor fixo sugerido para este passeio"}
                 </p>
               )}
             </div>

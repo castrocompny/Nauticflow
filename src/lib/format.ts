@@ -22,6 +22,15 @@ export function fmtTime(iso: string): string {
   });
 }
 
+// "10:00" (sem término conhecido) ou "10:00–14:00" (departure com ends_at,
+// ex.: reserva privativa flexível, migration 0073) -- nunca inventa um
+// término quando `endsIso` é null/undefined (departure fixa antiga sem
+// duração conhecida).
+export function fmtTimeRange(startsIso: string, endsIso: string | null | undefined): string {
+  if (!endsIso) return fmtTime(startsIso);
+  return `${fmtTime(startsIso)}–${fmtTime(endsIso)}`;
+}
+
 export function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -35,12 +44,6 @@ export function fmtDate(iso: string): string {
 // `new Date(iso).getHours()`, que le a hora no fuso do processo (UTC na Vercel)
 export function saoPauloHour(iso: string): number {
   return new Date(new Date(iso).getTime() - SP_OFFSET_MS).getUTCHours();
-}
-
-// "HH:MM" no horario de Brasilia -- usada pra validar o horario comercial (08:00-19:00)
-export function saoPauloHHMM(iso: string): string {
-  const d = new Date(new Date(iso).getTime() - SP_OFFSET_MS);
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
 
 // chave "ano-mes-dia" do dia civil em Brasilia de um timestamp UTC -- usar pra

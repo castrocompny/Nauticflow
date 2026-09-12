@@ -2,11 +2,12 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
-import { fmtTime, saoPauloHour, saoPauloStartOfDay } from "@/lib/format";
+import { fmtTimeRange, saoPauloHour, saoPauloStartOfDay } from "@/lib/format";
 
 type Dep = {
   id: string;
   departs_at: string;
+  ends_at: string | null;
   capacity: number;
   vessels: { name: string } | null;
   tours: { name: string } | null;
@@ -46,7 +47,7 @@ export default async function AgendaPage(props: { searchParams: Promise<{ f?: st
   const supabase = createClient();
   const { data } = await supabase
     .from("departures")
-    .select("id, departs_at, capacity, status, vessels(name), tours(name), reservations(people_count, status)")
+    .select("id, departs_at, ends_at, capacity, status, vessels(name), tours(name), reservations(people_count, status)")
     .gte("departs_at", start.toISOString())
     .lt("departs_at", end.toISOString())
     .order("departs_at");
@@ -105,12 +106,13 @@ export default async function AgendaPage(props: { searchParams: Promise<{ f?: st
         <div className="space-y-4">
           {dayList.map((day) => {
             const ofDay = deps.filter((d) => sameDay(d.departs_at, day));
+            // linha-base 08h-19h (o comum), mas SEMPRE inclui a hora real de
+            // qualquer saída do dia -- a janela global 08:00-19:00 foi
+            // removida (migration 0073), então uma saída às 05:30 ou 22:00
+            // precisa continuar visível aqui, nunca escondida da agenda.
             const hours = new Set<number>();
             for (let h = 8; h <= 19; h++) hours.add(h);
-            ofDay.forEach((d) => {
-              const h = saoPauloHour(d.departs_at);
-              if (h <= 19) hours.add(h);
-            });
+            ofDay.forEach((d) => hours.add(saoPauloHour(d.departs_at)));
             const hourList = Array.from(hours).sort((a, b) => a - b);
             return (
               <Card key={day.toISOString()}>
@@ -143,7 +145,7 @@ export default async function AgendaPage(props: { searchParams: Promise<{ f?: st
                                     full ? "bg-red-50 text-danger" : "bg-blue-50 text-brand-dark"
                                   }`}
                                 >
-                                  {fmtTime(r.departs_at)} · {r.vessels?.name} · {b}/{r.capacity}
+                                  {fmtTimeRange(r.departs_at, r.ends_at)} · {r.vessels?.name} · {b}/{r.capacity}
                                 </Link>
                               );
                             })

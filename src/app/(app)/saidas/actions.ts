@@ -30,7 +30,10 @@ export async function createDeparture(_prev: unknown, formData: FormData) {
   const date = String(formData.get("date"));
   const time = String(formData.get("time"));
   if (!vessel_id || !date || !time) return { error: "Preencha embarcação, data e hora." };
-  if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
+  // janela global 08:00-19:00 REMOVIDA (pedido explícito) -- era uma regra
+  // histórica de negócio, errada como regra global (um passeio de horário
+  // fixo pode ocorrer às 05:30, 22:00 etc.). Só "não pode ser no passado"
+  // continua, aqui e no banco (check_departure_schedule, migration 0073).
   if (new Date(saoPauloToUTC(date, time)) < new Date()) return { error: "Não é possível criar uma saída em um horário que já passou." };
 
   // confere que a embarcacao escolhida e da propria empresa -- sem isso, um usuario
@@ -135,7 +138,7 @@ export async function updateDeparture(_prev: unknown, formData: FormData) {
   const date = String(formData.get("date"));
   const time = String(formData.get("time"));
   if (!vessel_id || !tour_id || !date || !time) return { error: "Preencha embarcação, passeio, data e hora." };
-  if (time < "08:00" || time > "19:00") return { error: "O horário de saída deve ser entre 08:00 e 19:00." };
+  // janela global 08:00-19:00 removida (pedido explícito) -- ver createDeparture acima.
 
   // mesma checagem de dono do createDeparture -- editar tambem aceitava trocar pra uma
   // embarcacao/passeio de outra empresa sem validacao

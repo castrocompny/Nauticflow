@@ -7,7 +7,7 @@ import { Pencil, History } from "lucide-react";
 import { DeleteButton } from "@/components/delete-button";
 import { ReservationStatusSelect } from "@/components/reservation-status-select";
 import { Badge } from "@/components/ui";
-import { brl, fmtTime } from "@/lib/format";
+import { brl, fmtTimeRange } from "@/lib/format";
 import { deleteReservation, updateReservationStatus } from "./actions";
 
 const ReservationEditForm = dynamic(
@@ -28,7 +28,7 @@ type ResRow = {
   client_id: string;
   departure_id: string;
   clients: { name: string } | null;
-  departures: { departs_at: string; vessels: { name: string } | null } | null;
+  departures: { departs_at: string; ends_at: string | null; vessels: { name: string } | null } | null;
 };
 
 // Origem/canal da reserva (reservations.source, migration 0035) -- rótulo e
@@ -72,7 +72,7 @@ export function ReservationRow({
         </td>
         <td className="px-4 py-3 text-body">
           {r.departures?.vessels?.name}
-          {r.departures && ` · ${fmtTime(r.departures.departs_at)}`}
+          {r.departures && ` · ${fmtTimeRange(r.departures.departs_at, r.departures.ends_at)}`}
         </td>
         <td className="px-4 py-3 text-center">{r.people_count}</td>
         <td className="px-4 py-3 text-right">{brl(r.total_cents)}</td>

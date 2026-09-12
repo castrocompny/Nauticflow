@@ -89,7 +89,7 @@ export function DepartureEditForm({
           </div>
           <div>
             <label>Hora</label>
-            <input name="time" type="time" required min="08:00" max="19:00" defaultValue={timeHM} className="mt-1" />
+            <input name="time" type="time" required defaultValue={timeHM} className="mt-1" />
           </div>
           <div>
             <label>Preço desta saída (R$, opcional)</label>

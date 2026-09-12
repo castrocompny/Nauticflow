@@ -42,7 +42,7 @@ export default async function Dashboard() {
   const [depsRes, weatherState] = await Promise.all([
     supabase
       .from("departures")
-      .select("id, departs_at, capacity, status, vessels(name), tours(name), reservations(people_count, status)")
+      .select("id, departs_at, ends_at, capacity, status, vessels(name), tours(name), reservations(people_count, status)")
       .gte("departs_at", rangeStart.toISOString())
       .lt("departs_at", rangeEnd.toISOString())
       .order("departs_at"),

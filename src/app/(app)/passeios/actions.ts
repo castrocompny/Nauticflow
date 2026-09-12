@@ -82,6 +82,14 @@ export async function updateTourFull(_prev: unknown, formData: FormData) {
   const priceReais = Number(String(formData.get("base_price_cents") || "0").replace(",", "."));
   if (!Number.isFinite(priceReais) || priceReais < 0) return { error: "Preço-base inválido." };
 
+  // booking_model (migration 0073) -- regra OPERACIONAL, distinta de
+  // category (comercial) e price_type (forma de precificar); nunca inferida
+  // a partir deles.
+  const bookingModel = String(formData.get("booking_model") || "fixed_schedule");
+  if (bookingModel !== "fixed_schedule" && bookingModel !== "flexible_private") {
+    return { error: "Modelo de reserva inválido." };
+  }
+
   const patch: Record<string, unknown> = {
     name,
     short_description: toNullableText(formData.get("short_description")),
@@ -91,6 +99,7 @@ export async function updateTourFull(_prev: unknown, formData: FormData) {
     duration_minutes: toNullableInt(formData.get("duration_minutes")),
     price_type: String(formData.get("price_type") || "por_pessoa"),
     base_price_cents: Math.round(priceReais * 100),
+    booking_model: bookingModel,
     itinerary: toNullableText(formData.get("itinerary")),
     included: toNullableText(formData.get("included")),
     not_included: toNullableText(formData.get("not_included")),
@@ -127,6 +136,27 @@ export async function updateTourFull(_prev: unknown, formData: FormData) {
   const { error } = await supabase.from("tours").update(patch).eq("id", id).eq("company_id", company_id);
   if (error) {
     if (error.code === "23505") return { error: "Já existe um passeio com este nome ou endereço (slug)." };
+    // troca de booking_model bloqueada pelo gatilho quando há estado
+    // operacional conflitante (migration 0073, seção 23 -- nunca apaga/
+    // reconcilia nada silenciosamente, só bloqueia e explica o que resolver).
+    if (error.message.includes("BOOKING_MODEL_HAS_FUTURE_DEPARTURES")) {
+      return {
+        error:
+          "Não é possível trocar o modelo de reserva: existem saídas futuras para este passeio. Cancele ou aguarde essas saídas antes de trocar.",
+      };
+    }
+    if (error.message.includes("BOOKING_MODEL_HAS_ACTIVE_SCHEDULE_RULE")) {
+      return {
+        error:
+          "Não é possível trocar o modelo de reserva: existe uma agenda recorrente ativa para este passeio. Pause a agenda antes de trocar.",
+      };
+    }
+    if (error.message.includes("BOOKING_MODEL_HAS_ACTIVE_FLEXIBLE_RULE")) {
+      return {
+        error:
+          "Não é possível trocar o modelo de reserva: existe uma configuração de disponibilidade privativa ativa para este passeio. Desative-a antes de trocar.",
+      };
+    }
     // passeio JÁ publicado tem o conteúdo protegido no banco
     // (trg_tour_content_while_published, migration 0044) -- acontece só quando
     // o passeio já está no ar e a edição introduziria contato externo/link

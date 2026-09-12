@@ -30,6 +30,9 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
     .eq("active", true)
     .is("marketplace_suspended_at", null)
     .is("companies.suspended_at", null)
+    // Defesa em profundidade (migration 0073) -- ver comentário equivalente
+    // em /api/public/tours/route.ts.
+    .neq("booking_model", "flexible_private")
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: "Erro ao consultar o passeio." }, { status: 500 });

@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { Pencil, Check, Ban } from "lucide-react";
 import { Card, OccupancyBar, Badge } from "@/components/ui";
 import { DeleteButton } from "@/components/delete-button";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { fmtDate, fmtTimeRange } from "@/lib/format";
 import { deleteDeparture, confirmDeparture, cancelDeparture } from "./actions";
 import type { Tour, Vessel } from "@/lib/types";
 
@@ -18,6 +18,7 @@ const DepartureEditForm = dynamic(
 type Row = {
   id: string;
   departs_at: string;
+  ends_at: string | null;
   capacity: number;
   status: string;
   vessel_id: string;
@@ -61,8 +62,8 @@ export function DepartureRow({ r, vessels, tours }: { r: Row; vessels: Vessel[];
           mesmo layout de sempre, sem duplicar código pra cada tamanho de tela */}
       <Card className="flex flex-wrap items-center gap-3">
         <Link href={`/saidas/${r.id}`} className="flex min-w-0 w-full items-center gap-4 sm:w-auto sm:flex-1">
-          <div className="w-20">
-            <p className="font-display font-semibold text-heading">{fmtTime(r.departs_at)}</p>
+          <div className="w-28">
+            <p className="font-display font-semibold text-heading">{fmtTimeRange(r.departs_at, r.ends_at)}</p>
             <p className="text-xs text-muted">{fmtDate(r.departs_at)}</p>
           </div>
           <div className="min-w-0 flex-1">

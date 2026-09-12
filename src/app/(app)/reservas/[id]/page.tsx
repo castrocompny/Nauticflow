@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Check, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, Badge } from "@/components/ui";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { fmtDate, fmtTimeRange } from "@/lib/format";
 import { AddPassengerForm } from "./passengers-ui";
 import { setPassengerStatus, removePassenger } from "./passenger-actions";
 import { OutcomeButtons } from "./outcome-ui";
@@ -18,7 +18,7 @@ type Detail = {
   status: string;
   outcome: string | null;
   clients: { name: string } | null;
-  departures: { departs_at: string; vessels: { name: string } | null } | null;
+  departures: { departs_at: string; ends_at: string | null; vessels: { name: string } | null } | null;
   passengers: {
     id: string;
     name: string;
@@ -40,7 +40,7 @@ export default async function ReservationDetail(props: { params: Promise<{ id: s
   const { data } = await supabase
     .from("reservations")
     .select(
-      "id, people_count, status, outcome, clients(name), departures(departs_at, vessels(name)), passengers(id, name, document, nationality, status)"
+      "id, people_count, status, outcome, clients(name), departures(departs_at, ends_at, vessels(name)), passengers(id, name, document, nationality, status)"
     )
     .eq("id", params.id)
     .single();
@@ -67,7 +67,7 @@ export default async function ReservationDetail(props: { params: Promise<{ id: s
           {r.departures && (
             <p className="mt-0.5 text-sm text-muted">
               {r.departures.vessels?.name} · {fmtDate(r.departures.departs_at)}{" "}
-              {fmtTime(r.departures.departs_at)}
+              {fmtTimeRange(r.departures.departs_at, r.departures.ends_at)}
             </p>
           )}
         </div>

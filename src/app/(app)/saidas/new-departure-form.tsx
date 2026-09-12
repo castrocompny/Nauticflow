@@ -85,7 +85,7 @@ export function NewDepartureForm({ vessels, tours, defaultTourId }: { vessels: V
           </div>
           <div>
             <label>Hora</label>
-            <input name="time" type="time" required min="08:00" max="19:00" className="mt-1" />
+            <input name="time" type="time" required className="mt-1" />
           </div>
           <div>
             <label>Preço desta saída (R$, opcional)</label>

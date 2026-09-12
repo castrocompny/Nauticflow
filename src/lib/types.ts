@@ -8,6 +8,10 @@ export type DepartureStatus = "agendada" | "em_andamento" | "encerrada" | "cance
 export type TourCategory = "passeio_privativo" | "por_do_sol" | "praias" | "ilhas" | "passeio_compartilhado" | "outro";
 export type TourPriceType = "por_pessoa" | "por_grupo" | "a_partir_de";
 export type TourMarketplaceStatus = "draft" | "review" | "published" | "paused" | "rejected";
+// Regra OPERACIONAL de como a reserva funciona -- distinta de category
+// (comercial) e price_type (forma de precificar). Ver migration 0073.
+export type TourBookingModel = "fixed_schedule" | "flexible_private";
+export type FlexiblePricingMode = "fixed" | "per_hour";
 
 export type Profile = {
   id: string;
@@ -72,6 +76,7 @@ export type Tour = {
   marketplace_suspended_at: string | null;
   marketplace_suspended_by: string | null;
   marketplace_suspension_reason: string | null;
+  booking_model: TourBookingModel;
 };
 
 export type PhotoModerationStatus = "pending" | "approved" | "rejected" | "moderation_unavailable" | "legacy_approved" | "manual_approved";
@@ -108,6 +113,7 @@ export type Departure = {
   vessel_id: string;
   tour_id: string;
   departs_at: string;
+  ends_at: string | null;
   capacity: number;
   status: DepartureStatus;
   price_cents: number | null;
@@ -126,6 +132,27 @@ export type TourScheduleRule = {
   capacity_override: number | null;
   price_cents_override: number | null;
   auto_extend: boolean;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+// Disponibilidade do passeio flexible_private -- uma regra por passeio
+// (migration 0073). Escrita exclusivamente via save_flexible_booking_rule/
+// set_flexible_booking_rule_active (RPCs), nunca INSERT/UPDATE direto.
+export type TourFlexibleBookingRule = {
+  id: string;
+  company_id: string;
+  tour_id: string;
+  vessel_id: string;
+  days_of_week: number[];
+  window_start: string;
+  window_end: string;
+  min_duration_minutes: number;
+  max_duration_minutes: number;
+  slot_interval_minutes: number;
+  pricing_mode: FlexiblePricingMode;
+  hourly_price_cents: number | null;
   active: boolean;
   created_at: string;
   updated_at: string;
