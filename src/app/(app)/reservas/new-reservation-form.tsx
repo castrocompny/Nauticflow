@@ -3,20 +3,39 @@
 import { useEffect, useMemo, useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { fmtTime } from "@/lib/format";
+import { brl, fmtTime } from "@/lib/format";
+import { calculateTotalCents, isSellablePriceType } from "@/lib/price-calc";
 import { createCounterReservation, searchClients } from "./actions";
 
-type TourOption = { id: string; name: string; base_price_cents: number };
+type TourOption = { id: string; name: string; base_price_cents: number; price_type: string };
 type DepartureOption = {
   id: string;
   tour_id: string;
   departs_at: string;
   capacity: number;
   price_cents: number | null;
+  price_type: string | null;
   vessel_name: string | null;
   available: number;
 };
 type ClientHit = { id: string; name: string; phone: string | null };
+
+// Total automático a partir do price_type EFETIVO (departure.price_type ??
+// tour.price_type -- MESMA prioridade que o marketplace usa, ver
+// src/app/api/marketplace/bookings/route.ts:230). 'por_pessoa'/'por_grupo'
+// reaproveitam a MESMA função usada pelo ToursFlow (calculateTotalCents,
+// agora em src/lib/price-calc.ts) -- nenhuma segunda interpretação. Regra
+// pra 'a_partir_de' (decisão desta tela, documentada em DOCUMENTACAO.md):
+// não existe cálculo automático de total pra este price_type em NENHUM
+// lugar do sistema hoje -- nem o marketplace vende esse tipo (ver
+// SELLABLE_PRICE_TYPES) -- então o comportamento aqui é o mais conservador
+// possível: nunca multiplica pela quantidade (evitaria inflar um valor "a
+// partir de" pra um total inventado maior que o real), só mostra o preço-
+// base como ponto de partida, sempre editável.
+function autoTotalCents(priceType: string, unitPriceCents: number, quantity: number): number {
+  if (isSellablePriceType(priceType)) return calculateTotalCents(priceType, unitPriceCents, quantity);
+  return unitPriceCents;
+}
 
 function Save({ disabled }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
@@ -54,7 +73,13 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
   const [date, setDate] = useState("");
   const [departureId, setDepartureId] = useState("");
   const [peopleCount, setPeopleCount] = useState(1);
-  const [priceReais, setPriceReais] = useState("");
+  // null = automático (recalcula ao mudar pessoas/saída); uma vez que o
+  // operador edita o campo manualmente, vira override e para de acompanhar
+  // mudanças de "Pessoas" -- só volta a ser automático se outro passeio ou
+  // outra saída for escolhido (pickTour/pickDate/pickDeparture resetam pra
+  // null). Nenhum useEffect sincronizando estado -- o valor exibido é
+  // sempre derivado na hora do render (ver `priceReais` abaixo).
+  const [manualPriceReais, setManualPriceReais] = useState<string | null>(null);
   const [originName, setOriginName] = useState("");
 
   const [state, action] = useActionState(
@@ -84,7 +109,7 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
     setDate("");
     setDepartureId("");
     setPeopleCount(1);
-    setPriceReais("");
+    setManualPriceReais(null);
     setOriginName("");
   }
 
@@ -126,26 +151,36 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
   const selectedDeparture = departures.find((d) => d.id === departureId) ?? null;
   const selectedTour = tours.find((t) => t.id === tourId) ?? null;
 
+  // preço unitário/base: departure.price_cents quando existir, senão o
+  // base_price_cents do passeio (mesma prioridade de sempre); price_type
+  // EFETIVO: departure.price_type quando existir, senão o do passeio --
+  // idêntico ao que o marketplace já faz (route.ts: "effectivePriceType").
+  const unitPriceCents = selectedDeparture ? selectedDeparture.price_cents ?? selectedTour?.base_price_cents ?? 0 : 0;
+  const effectivePriceType = selectedDeparture?.price_type ?? selectedTour?.price_type ?? "por_pessoa";
+  const autoPriceCents = selectedDeparture ? autoTotalCents(effectivePriceType, unitPriceCents, peopleCount) : 0;
+  // valor exibido/enviado: override manual se houver, senão o automático
+  // recém-calculado -- deriva a cada render, nunca via useEffect+setState.
+  const priceReais = manualPriceReais ?? centsToReaisInput(autoPriceCents);
+
   function pickTour(id: string) {
     setTourId(id);
     setDate("");
     setDepartureId("");
-    setPriceReais("");
+    setManualPriceReais(null);
   }
 
   function pickDate(d: string) {
     setDate(d);
     setDepartureId("");
-    setPriceReais("");
+    setManualPriceReais(null);
   }
 
   function pickDeparture(d: DepartureOption) {
     setDepartureId(d.id);
-    // preço: departure.price_cents quando existir, senão o base_price_cents
-    // do passeio -- só preenche automaticamente, continua editável abaixo
-    // (mesma flexibilidade de negociação/desconto que o fluxo já tinha).
-    const cents = d.price_cents ?? selectedTour?.base_price_cents ?? 0;
-    setPriceReais(centsToReaisInput(cents));
+    // troca de saída sempre reseta um eventual override manual anterior --
+    // volta a calcular automaticamente a partir do preço/price_type da NOVA
+    // saída (pedido explícito).
+    setManualPriceReais(null);
   }
 
   const overCapacity = !!selectedDeparture && peopleCount > selectedDeparture.available;
@@ -375,7 +410,24 @@ export function NewReservationForm({ tours, departures }: { tours: TourOption[];
             </div>
             <div>
               <label>Valor da reserva (R$)</label>
-              <input name="value" value={priceReais} onChange={(e) => setPriceReais(e.target.value)} className="mt-1" placeholder="320,00" />
+              <input
+                name="value"
+                value={priceReais}
+                onChange={(e) => setManualPriceReais(e.target.value)}
+                className="mt-1"
+                placeholder="320,00"
+              />
+              {/* ajuda o operador a entender de onde veio o valor -- some
+                  assim que ele edita manualmente (vira negociação livre) */}
+              {manualPriceReais === null && (
+                <p className="mt-1 text-xs text-muted">
+                  {effectivePriceType === "por_grupo"
+                    ? `${brl(unitPriceCents)} por grupo`
+                    : effectivePriceType === "a_partir_de"
+                      ? `${brl(unitPriceCents)} a partir de -- ajuste o valor final`
+                      : `${brl(unitPriceCents)} por pessoa × ${peopleCount} = ${brl(autoPriceCents)}`}
+                </p>
+              )}
             </div>
             <div className="col-span-2">
               <label>Origem (parceiro / hotel) -- opcional</label>

@@ -25,6 +25,7 @@ type NewFormDepRow = {
   departs_at: string;
   capacity: number;
   price_cents: number | null;
+  price_type: string | null;
   vessels: { name: string } | null;
   reservations: { people_count: number; status: string }[];
 };
@@ -56,11 +57,11 @@ export default async function ReservationsPage() {
     // recorte de horario comercial) -- nao mostra saida passada.
     supabase
       .from("departures")
-      .select("id, tour_id, departs_at, capacity, price_cents, vessels(name), reservations(people_count, status)")
+      .select("id, tour_id, departs_at, capacity, price_cents, price_type, vessels(name), reservations(people_count, status)")
       .in("status", ["agendada", "em_andamento"])
       .gte("departs_at", new Date().toISOString())
       .order("departs_at"),
-    supabase.from("tours").select("id, name, base_price_cents").eq("active", true).order("name"),
+    supabase.from("tours").select("id, name, base_price_cents, price_type").eq("active", true).order("name"),
     supabase.from("clients").select("id, name").order("name"),
     supabase
       .from("reservations")
@@ -105,6 +106,7 @@ export default async function ReservationsPage() {
         departs_at: d.departs_at,
         capacity: d.capacity,
         price_cents: d.price_cents,
+        price_type: d.price_type,
         vessel_name: d.vessels?.name ?? null,
         available: d.capacity - booked,
       };
@@ -117,7 +119,7 @@ export default async function ReservationsPage() {
       <RealtimeRefresh tables={["reservations", "departures"]} />
       <PageHeader title="Reservas" />
       <NewReservationForm
-        tours={(tours ?? []) as { id: string; name: string; base_price_cents: number }[]}
+        tours={(tours ?? []) as { id: string; name: string; base_price_cents: number; price_type: string }[]}
         departures={newFormDepOptions}
       />
 

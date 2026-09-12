@@ -6,6 +6,7 @@
 // Só importado por código server-only (a própria rota) -- import de "crypto"
 // abaixo nunca entra em bundle de client.
 import { createHash, timingSafeEqual } from "crypto";
+import type { SellablePriceType } from "./price-calc";
 
 // Hold de vaga: decisão de produto já aprovada, fixo em 15 minutos (não é
 // parâmetro de configuração de ambiente -- é regra de negócio).
@@ -56,26 +57,18 @@ export function buildClientRateLimitConsumerKey(normalizedClientKey: string): st
   return `toursflow:client:${normalizedClientKey}`;
 }
 
-// price_type efetivamente vendável nesta primeira versão -- 'a_partir_de' existe
-// no catálogo (migration 0039) mas não tem regra de cálculo de total definida,
-// então nunca é aceito na criação de reserva (decisão aprovada, não inventada aqui).
-export const SELLABLE_PRICE_TYPES = ["por_pessoa", "por_grupo"] as const;
-export type SellablePriceType = (typeof SELLABLE_PRICE_TYPES)[number];
+// price_type/cálculo de total -- movidos pra src/lib/price-calc.ts (módulo
+// puro, sem "crypto") pra poder ser importado também por um Client Component
+// (Reserva de balcão, seção "fix preço automático"); reexportado aqui pra
+// nenhum importador existente (ex.: src/app/api/marketplace/bookings/route.ts)
+// precisar mudar o import.
+export { SELLABLE_PRICE_TYPES, isSellablePriceType, calculateTotalCents, type SellablePriceType } from "./price-calc";
 
-export function isSellablePriceType(value: string | null | undefined): value is SellablePriceType {
-  return !!value && (SELLABLE_PRICE_TYPES as readonly string[]).includes(value);
-}
-
-// cálculo com inteiros (centavos) -- nunca float para dinheiro. Postgres `int`
-// (reservations.total_cents) vai até 2147483647 -- MAX_TOTAL_CENTS abaixo é o
-// limite real da coluna, checado ANTES do insert pra devolver um 400/422 claro
-// em vez de deixar o banco estourar com um erro genérico.
+// Postgres `int` (reservations.total_cents) vai até 2147483647 --
+// MAX_TOTAL_CENTS abaixo é o limite real da coluna, checado ANTES do insert
+// pra devolver um 400/422 claro em vez de deixar o banco estourar com um
+// erro genérico.
 export const POSTGRES_INT4_MAX = 2147483647;
-
-export function calculateTotalCents(priceType: SellablePriceType, priceCents: number, quantity: number): number {
-  if (priceType === "por_grupo") return priceCents;
-  return priceCents * quantity;
-}
 
 // limites de payload -- "razoáveis", não arbitrariamente apertados. quantity
 // tem um teto bem acima de qualquer embarcação real (capacidade real quem
