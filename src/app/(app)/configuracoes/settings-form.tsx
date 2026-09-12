@@ -23,6 +23,9 @@ export function SettingsForm({
   phone,
   adminName,
   adminEmail,
+  weatherLocationName,
+  weatherLatitude,
+  weatherLongitude,
 }: {
   companyName: string;
   cnpj: string;
@@ -30,6 +33,9 @@ export function SettingsForm({
   phone: string;
   adminName: string;
   adminEmail: string;
+  weatherLocationName: string;
+  weatherLatitude: number | null;
+  weatherLongitude: number | null;
 }) {
   const [state, action] = useActionState(updateSettings, { error: "", ok: false });
 
@@ -60,6 +66,49 @@ export function SettingsForm({
             <input name="phone" defaultValue={phone} className="mt-1" />
           </div>
         </div>
+      </div>
+
+      <div className="rounded-card border border-line bg-surface p-5">
+        <h2 className="mb-1 font-display font-semibold text-heading">Localização de operação</h2>
+        <p className="mb-4 text-xs text-muted">
+          Usada para mostrar as condições do vento no Dashboard -- é onde as embarcações operam, não onde você está
+          acessando o sistema agora.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label>Nome do local</label>
+            <input name="weather_location_name" defaultValue={weatherLocationName} className="mt-1" placeholder="Ex.: Búzios" />
+          </div>
+          <div>
+            <label>Latitude</label>
+            <input
+              name="weather_latitude"
+              type="number"
+              step="0.000001"
+              min={-90}
+              max={90}
+              defaultValue={weatherLatitude ?? ""}
+              className="mt-1"
+              placeholder="-22.756479"
+            />
+          </div>
+          <div>
+            <label>Longitude</label>
+            <input
+              name="weather_longitude"
+              type="number"
+              step="0.000001"
+              min={-180}
+              max={180}
+              defaultValue={weatherLongitude ?? ""}
+              className="mt-1"
+              placeholder="-41.881767"
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          Deixe em branco para não mostrar as condições do vento no Dashboard.
+        </p>
       </div>
 
       <div className="rounded-card border border-line bg-surface p-5">

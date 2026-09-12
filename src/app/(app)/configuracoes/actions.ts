@@ -27,6 +27,23 @@ export async function updateSettings(_prev: unknown, formData: FormData) {
     return { error: "Só o administrador da empresa pode alterar essas configurações.", ok: false };
   }
 
+  // Localização de operação (Condições do vento, Dashboard -- migration
+  // 0071). Latitude/longitude são opcionais (limpar os dois campos desliga
+  // o card do Dashboard, sem erro nenhum) -- mas se preenchidos, precisam
+  // ser números válidos dentro do intervalo geográfico real; nunca grava
+  // um valor "quase certo" que o `check` do banco recusaria de qualquer
+  // forma, sempre com uma mensagem legível aqui.
+  const latRaw = String(formData.get("weather_latitude") || "").trim();
+  const lngRaw = String(formData.get("weather_longitude") || "").trim();
+  const weatherLatitude = latRaw ? Number(latRaw) : null;
+  const weatherLongitude = lngRaw ? Number(lngRaw) : null;
+  if (latRaw && (!Number.isFinite(weatherLatitude) || (weatherLatitude as number) < -90 || (weatherLatitude as number) > 90)) {
+    return { error: "Latitude inválida (deve estar entre -90 e 90).", ok: false };
+  }
+  if (lngRaw && (!Number.isFinite(weatherLongitude) || (weatherLongitude as number) < -180 || (weatherLongitude as number) > 180)) {
+    return { error: "Longitude inválida (deve estar entre -180 e 180).", ok: false };
+  }
+
   // atualiza dados da empresa (RLS permite a propria empresa) -- sem campo de e-mail
   // aqui: o e-mail de login (profiles.email) é o único e-mail da empresa agora
   const { error: cErr } = await supabase
@@ -36,6 +53,9 @@ export async function updateSettings(_prev: unknown, formData: FormData) {
       cnpj: String(formData.get("cnpj") || "") || null,
       city: String(formData.get("city") || "") || null,
       phone: String(formData.get("phone") || "") || null,
+      weather_location_name: String(formData.get("weather_location_name") || "").trim() || null,
+      weather_latitude: weatherLatitude,
+      weather_longitude: weatherLongitude,
     })
     .eq("id", profile.company_id);
   if (cErr) {

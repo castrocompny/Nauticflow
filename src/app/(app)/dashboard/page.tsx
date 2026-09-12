@@ -19,6 +19,7 @@ import { brl, fmtTime, fmtDate, startEndOfToday, saoPauloHour, saoPauloStartOfDa
 import { getProfile } from "@/lib/profile";
 import { Card, Badge } from "@/components/ui";
 import { BarsChart } from "./bars-chart";
+import { WindConditionsCard } from "./wind-conditions-card";
 
 const PERIODS = [
   { key: "7d", label: "7 dias" },
@@ -273,6 +274,12 @@ export default async function Dashboard(props: { searchParams: Promise<{ p?: str
         <Metric icon={<Users size={20} />} tone="bg-purpleflow" label="Clientes" value={String(clientesAtivos)} />
         <Metric icon={<Ship size={20} />} tone="bg-navy" label="Passageiros hoje" value={String(passageirosHoje)} />
       </div>
+
+      {/* Condições do vento -- Etapa 1, só informativo (ver DOCUMENTACAO.md).
+          Componente 100% best-effort: nunca lança, nunca derruba o resto do
+          Dashboard se a empresa não tiver localização configurada ou o
+          provider de clima estiver fora do ar. */}
+      <WindConditionsCard />
 
       {/* Desempenho do periodo */}
       <div className="mb-3 mt-8 flex flex-wrap items-center justify-between gap-3">
