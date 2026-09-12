@@ -28,7 +28,7 @@ type Row = {
   reservations: { people_count: number; status: string }[];
 };
 
-const statusTone: Record<string, "green" | "amber" | "slate" | "red"> = {
+export const statusTone: Record<string, "green" | "amber" | "slate" | "red"> = {
   agendada: "amber",
   em_andamento: "green",
   encerrada: "slate",

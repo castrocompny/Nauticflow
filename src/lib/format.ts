@@ -63,6 +63,12 @@ export function saoPauloStartOfMonth(instant: Date, monthOffset = 0): Date {
   return new Date(Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth() + monthOffset, 1) + SP_OFFSET_MS);
 }
 
+// instante UTC real do dia 1 de janeiro (00:00) do ano em Brasilia em que `instant` cai
+export function saoPauloStartOfYear(instant: Date): Date {
+  const wall = new Date(instant.getTime() - SP_OFFSET_MS);
+  return new Date(Date.UTC(wall.getUTCFullYear(), 0, 1) + SP_OFFSET_MS);
+}
+
 // timestamp UTC (ISO) a partir de uma data "YYYY-MM-DD" e hora "HH:MM" vindas de
 // um formulario (<input type="date"/"time">), interpretados como horario de Brasilia
 export function saoPauloToUTC(date: string, time: string): string {

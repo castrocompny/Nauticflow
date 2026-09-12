@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { brl, fmtDate, startEndOfToday } from "@/lib/format";
-import { BarsChart } from "../dashboard/bars-chart";
+import { BarsChart } from "@/components/bars-chart";
 import { getFinancialSummary } from "./payout-actions";
 import { PayoutAccountForm } from "./payout-account-ui";
 import { listWithdrawals } from "./withdrawal-actions";
