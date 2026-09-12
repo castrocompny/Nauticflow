@@ -49,16 +49,20 @@ export default async function DeparturesPage(props: { searchParams: Promise<{ pa
   return (
     <>
       <RealtimeRefresh tables={["departures", "reservations"]} />
-      <PageHeader
-        title="Saídas"
-        subtitle="Cada saída é uma embarcação em uma data e hora, com sua capacidade."
-        action={<BulkDeleteDeparturesButton />}
-      />
-      <p className="mb-3 text-xs text-muted">
+      <PageHeader title="Saídas" subtitle="Cada saída é uma embarcação em uma data e hora, com sua capacidade." />
+      <p className="mb-4 text-xs text-muted">
         As saídas normais são geradas automaticamente pela agenda de cada passeio (em Passeios → Agenda e
         disponibilidade). Use &quot;Adicionar saída avulsa&quot; só para uma data fora do padrão.
       </p>
-      <NewDepartureForm vessels={vessels} tours={(tours ?? []) as Tour[]} />
+
+      {/* Duas ações da área de gestão de saídas na mesma linha -- operacional
+          (criar) à esquerda, global/destrutiva (limpar tudo) à direita.
+          `flex-wrap` deixa quebrar pra duas linhas em telas pequenas sem
+          nunca colar um elemento no outro (gap cuida disso nos dois casos). */}
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <NewDepartureForm vessels={vessels} tours={(tours ?? []) as Tour[]} />
+        <BulkDeleteDeparturesButton />
+      </div>
 
       {rows.length === 0 ? (
         <EmptyState
