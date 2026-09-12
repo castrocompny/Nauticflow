@@ -8,7 +8,9 @@ const MAX_DEPARTURES = 100;
 
 // GET /api/public/tours/[slug]/departures -- saídas futuras, não canceladas e já
 // precificadas de um passeio PUBLICADO. Nunca expõe a capacidade real da
-// embarcação (dado interno) -- só um booleano "soldOut" calculado no servidor.
+// embarcação (dado interno) -- só `availableSpots` (vagas restantes, já
+// descontada a ocupação) e o booleano "soldOut" derivado dele, ambos
+// calculados no servidor.
 export async function GET(_request: Request, context: { params: Promise<{ slug: string }> }) {
   if (!(await checkPublicApiRateLimit())) {
     return NextResponse.json({ error: "Muitas requisições. Tente novamente em instantes." }, { status: 429 });
@@ -70,13 +72,21 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
     }
   }
 
-  const items: PublicDepartureDTO[] = rows.map((d) => ({
-    id: d.id,
-    departsAt: d.departs_at,
-    priceCents: d.price_cents as number,
-    priceType: (d.price_type as string | null) ?? tour.price_type,
-    soldOut: (bookedByDeparture.get(d.id) ?? 0) >= d.capacity,
-  }));
+  const items: PublicDepartureDTO[] = rows.map((d) => {
+    // mesma regra de ocupação de sempre (confirmada + pendente com hold
+    // ainda válido); capacity nunca sai daqui pro DTO público, só o
+    // resultado já subtraído -- nunca negativo.
+    const booked = bookedByDeparture.get(d.id) ?? 0;
+    const availableSpots = Math.max(d.capacity - booked, 0);
+    return {
+      id: d.id,
+      departsAt: d.departs_at,
+      priceCents: d.price_cents as number,
+      priceType: (d.price_type as string | null) ?? tour.price_type,
+      availableSpots,
+      soldOut: availableSpots <= 0,
+    };
+  });
 
   return NextResponse.json({ data: items });
 }

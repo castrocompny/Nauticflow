@@ -2861,3 +2861,42 @@ Bug relatado: passeio `price_type='por_pessoa'` a R$ 50,00, mudar Pessoas de 1 p
 **Não verificado nesta sessão** (sem ferramenta de navegador): observação visual real do recálculo ao vivo no formulário, do texto de preço unitário, e do comportamento do override manual num navegador de verdade -- validação limitada a typecheck/lint/build + à lógica de derivação re-lida linha a linha (sem `useEffect` nenhum computando o preço, eliminando a classe de bug que causou o problema original) e às 13 asserções funcionais acima.
 
 **Não tocado** (pedido explícito, nenhuma migration): RPC `create_counter_reservation`, gatilho de capacidade, estoque compartilhado, cliente rápido, origem/`source`, voucher, ToursFlow, Asaas, pagamentos, comissão, withdrawals, Dashboard, condições do vento.
+
+## 133. Exibir vagas disponíveis no marketplace -- API pública passa a expor `availableSpots` (nunca a capacidade interna), consumido pelo ToursFlow (branch `main` em ambos os repos, sessão de 2026-09-12)
+
+Lacuna real encontrada em Production: uma reserva de balcão de 2 passageiros já reduzia corretamente a ocupação no NauticFlow, mas a API pública (`/api/public/tours/[slug]/departures`) só devolvia `soldOut` binário -- o ToursFlow não tinha como mostrar "8 vagas disponíveis", só "esgotado sim/não".
+
+**NauticFlow -- `src/app/api/public/tours/[slug]/departures/route.ts`**: preservada exatamente a mesma regra de ocupação já existente (confirmada + pendente com `hold_expires_at > now()`, nada mudou nessa consulta). Adicionado só o cálculo final: `availableSpots = max(capacity - booked, 0)`, e `soldOut` passou a ser **derivado** de `availableSpots <= 0` em vez de uma segunda comparação (`booked >= capacity`) -- as duas expressões são matematicamente equivalentes, mas agora só existe UMA fonte de verdade, nunca duas regras que poderiam divergir se uma fosse editada sem a outra.
+
+**`PublicDepartureDTO`** (`src/lib/public-api.ts`) ganhou `availableSpots: number`. **`capacity` continua nunca exposta** (nem bruta nem como novo campo) -- só o resultado já subtraído, nunca negativo. Nenhuma reserva individual, nome de cliente ou dado interno da embarcação exposto -- mudança estritamente aditiva no contrato público, nenhum campo removido.
+
+**Validação funcional real em staging** (fixture autocontido, `BEGIN`/`ROLLBACK`, réplica exata da consulta da rota), 5 cenários pedidos, todos confirmados:
+1. capacidade 10, 0 ocupado -> 10 vagas.
+2. capacidade 10, 2 confirmada (balcão) -> 8 vagas.
+3. capacidade 10, 2 confirmada + 3 pendente com hold VÁLIDO -> 5 vagas.
+4. hold JÁ EXPIRADO -> não conta, volta a 8 vagas (sem precisar apagar a reserva antes -- mesma regra de `hold_expires_at` de sempre, só lida, nunca reescrita).
+5. capacidade 5, 5 confirmada -> 0 vagas, nunca negativo.
+
+`tsc --noEmit`/`eslint .`/`next build` do NauticFlow limpos, nenhum erro novo, `/api/public/tours/[slug]/departures` continua a única rota tocada.
+
+**Não tocado** (pedido explícito, nenhuma migration): schema, RPCs, pagamentos, Asaas, comissão, withdrawals, Dashboard, reserva de balcão, `price_type`/preço, publicação, condições do vento. `capacity` (bruta) continua nunca exposta publicamente.
+
+---
+
+**ToursFlow (`/Users/joaolucasdecastromartins/Documents/toursflow`, repositório irmão, branch `main`)** -- consumo do novo campo, sem inventar disponibilidade no cliente (NauticFlow continua a única fonte de verdade):
+
+- **`src/types/index.ts`**: `Departure` ganhou `availableSpots: number`.
+- **`src/data/sources/nauticflow-source.ts`**: `NauticFlowDepartureDTO`/`mapDeparture` passam o campo adiante, com o mesmo tratamento defensivo já usado no resto do arquivo (nunca repassa `NaN`/`undefined`/negativo -- `Math.max(0, Math.round(dto.availableSpots))` se o valor vier no formato esperado, senão `0`). `listDepartures()` **continua `no-store`** (`revalidate: false`) -- não tocado, confirmado por leitura de código.
+- **`src/lib/booking-selection.ts`**: `clampQuantity(value, maxAvailable?)` ganhou um segundo parâmetro OPCIONAL -- quando informado, vira o teto visual da quantidade; quando omitido, mantém o comportamento antigo (sem teto), preservando os testes existentes que dependiam disso ("sem teto fictício"). `canContinueBooking` passou a recusar (`false`) quando `quantity > departure.availableSpots` -- nunca deixa "Continuar" habilitado com uma quantidade que o NauticFlow já recusaria de qualquer forma.
+- **`src/components/tours/BookingSelector.tsx`**: cada card de saída vendável e disponível mostra "N vaga(s) disponível(is)" (ícone `Users`, discreto, `text-xs`) -- singular pra 1, plural pra 2+, nunca renderizado como texto quando esgotada (o badge "Esgotado" já existente cobre esse caso, sem duplicar). O mesmo texto aparece de novo perto do seletor "Quantas pessoas?" depois de uma saída ser escolhida. O botão "+" agora **desabilita** ao atingir `availableSpots` (antes não tinha nenhum teto); `handleSelectDeparture` reajusta a quantidade pro teto da NOVA saída escolhida, pra nunca deixar uma quantidade inválida de uma saída anterior escondida atrás de um "Continuar" desabilitado sem explicação. Comentário desatualizado ("não existe restam N vagas... sem teto de quantidade") corrigido pra refletir a nova realidade.
+- **`src/data/sources/mock-source.ts`** (dev local): saídas sintéticas passaram a variar `availableSpots` (8/1/0) pra exercitar singular/plural/esgotado em desenvolvimento, sem precisar de dado real.
+
+**Segurança/concorrência preservada, não alterada (pedido explícito, seção 6)**: o teto de quantidade é só conveniência de UI -- `handleConfirmBooking`/`submitBooking`/a RPC `create_marketplace_booking` (NauticFlow) e o gatilho de capacidade **não foram tocados nesta tarefa**. O cenário "turista A vê 1 vaga, turista B compra antes, turista A tenta continuar" continua protegido pelo mesmo mecanismo de sempre: se a vaga já tiver sido consumida, o NauticFlow recusa com `INSUFFICIENT_CAPACITY` (código já existente, tratado pelo `BookingSelector` desde antes desta mudança, inclusive já disparando `router.refresh()` pra buscar disponibilidade fresca).
+
+**Testes (`npm test`, Vitest)** -- fixtures de `Departure` em 6 arquivos de teste ganharam `availableSpots` (quebrariam o `tsc` sem isso, já que o campo é obrigatório no tipo); novos testes adicionados cobrindo exatamente os cenários pedidos: `clampQuantity` com teto informado/omitido/inválido (0, negativo, NaN não viram teto), `canContinueBooking` recusando quantidade acima de `availableSpots` e aceitando quando igual, card mostrando "10 vagas disponíveis"/"1 vaga disponível", botão "+" desabilitando no teto, e trocar de saída reajustando a quantidade pro novo teto. **313 testes passando** (24 arquivos), nenhuma regressão nos testes já existentes (a fixture-base `perPerson`/`available` ganhou um `availableSpots` alto o bastante pra não afetar nenhum teste antigo que dependia do comportamento "sem teto").
+
+`npm run typecheck`/`npm run lint`/`npm run build` do ToursFlow limpos, nenhum erro novo.
+
+**Não verificado nesta sessão** (sem ferramenta de navegador em nenhum dos dois repos): observação visual real do card/seletor num navegador -- validação limitada a testes automatizados reais (Vitest, 313 passando) + a validação funcional real da consulta SQL contra staging (5 cenários). Concorrência real (duas compras simultâneas de verdade) não foi re-testada nesta tarefa -- o mecanismo (gatilho de capacidade + RPC do marketplace) é infraestrutura pré-existente, não tocada.
+
+**Não tocado no ToursFlow** (pedido explícito): pagamentos, Asaas, comissão, `submitBooking`/`create_marketplace_booking`, fluxo de hold/PIX, frontend fora do necessário pra exibir disponibilidade.

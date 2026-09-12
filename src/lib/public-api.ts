@@ -103,6 +103,12 @@ export type PublicDepartureDTO = {
   departsAt: string;
   priceCents: number;
   priceType: string;
+  // Vagas restantes -- NUNCA a capacidade interna/comercial da embarcação
+  // (dado que o marketplace não deve expor). Sempre >= 0 (max(capacity -
+  // booked, 0), calculado no servidor). `soldOut` é sempre derivado deste
+  // valor (`availableSpots <= 0`) -- nunca uma segunda regra calculada em
+  // paralelo, pra nunca divergir.
+  availableSpots: number;
   soldOut: boolean;
 };
 
