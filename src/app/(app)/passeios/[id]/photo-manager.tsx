@@ -103,8 +103,11 @@ export function PhotoManager({
   }
 
   return (
-    <Card>
-      <h3 className="mb-3 font-display text-sm font-semibold text-heading">Fotos</h3>
+    <Card id="photos-section">
+      <h3 className="font-display text-sm font-semibold text-heading">Fotos do passeio</h3>
+      <p className="mb-3 mt-1 text-xs text-muted">
+        Pelo menos uma foto aprovada (com uma marcada como capa) é necessária para publicar.
+      </p>
       {error && <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
 
       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-line py-6 text-sm text-muted hover:bg-surfaceHover">

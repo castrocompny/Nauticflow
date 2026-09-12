@@ -62,13 +62,15 @@ export default async function EditTourPage({ params }: { params: Promise<{ id: s
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">
-          <ScheduleSection
-            tourId={tour.id}
-            vessels={(vesselsData ?? []) as Vessel[]}
-            rule={(ruleData as TourScheduleRule) ?? null}
-            upcomingCount={upcomingCount ?? 0}
-            tourBasePriceCents={(tour as Tour).base_price_cents}
-          />
+          <div id="schedule-section">
+            <ScheduleSection
+              tourId={tour.id}
+              vessels={(vesselsData ?? []) as Vessel[]}
+              rule={(ruleData as TourScheduleRule) ?? null}
+              upcomingCount={upcomingCount ?? 0}
+              tourBasePriceCents={(tour as Tour).base_price_cents}
+            />
+          </div>
           <TourForm tour={tour as Tour} />
           <PhotoManager tourId={tour.id} companyId={profile.company_id} photos={signedPhotos} />
         </div>

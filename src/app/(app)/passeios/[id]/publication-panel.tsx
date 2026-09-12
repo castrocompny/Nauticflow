@@ -18,6 +18,46 @@ function displayStatus(tour: Tour): "published" | "draft" {
   return tour.marketplace_status === "published" ? "published" : "draft";
 }
 
+// Cada `field` aqui é EXATAMENTE o que validate_tour_for_publishing
+// (migration 0044/0063) devolve pra cada código de erro -- nunca inventado
+// aqui, só mapeado pro `id` do campo correspondente na própria página (ver
+// tour-form.tsx/photo-manager.tsx/página, cada `id` bate 1:1 com isto).
+// Campo sem entrada aqui (ex.: TOUR_NOT_FOUND, ADMIN_SUSPENDED,
+// POSSIBLE_DUPLICATE_TOUR) não tem "onde ir" -- fica como texto simples,
+// nunca clicável fingindo que leva a algum lugar.
+const FIELD_ANCHORS: Record<string, string> = {
+  name: "name",
+  short_description: "short_description",
+  description: "description",
+  destination: "destination",
+  category: "category",
+  duration_minutes: "duration_minutes",
+  price_type: "price_type",
+  boarding: "boarding_name",
+  boarding_latitude: "boarding_latitude",
+  boarding_longitude: "boarding_longitude",
+  photos: "photos-section",
+  departures: "schedule-section",
+};
+
+// Rola até o campo e foca (quando for um campo de verdade, não uma seção) --
+// abre qualquer <details> ancestral fechado no caminho primeiro, senão um
+// campo escondido dentro de "Mais opções de embarque"/"Mais detalhes" nunca
+// fica visível pro scrollIntoView.
+function revealField(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  let node: HTMLElement | null = el;
+  while (node) {
+    if (node.tagName === "DETAILS") (node as HTMLDetailsElement).open = true;
+    node = node.parentElement;
+  }
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    el.focus({ preventScroll: true });
+  }
+}
+
 // Checklist "pronto pra publicar?" -- os ITENS aqui são só apresentação; a
 // REGRA de cada um vem inteira do banco (validate_tour_for_publishing,
 // migration 0044) -- só mostra os problemas que o backend encontrou (nunca
@@ -25,9 +65,28 @@ function displayStatus(tour: Tour): "published" | "draft" {
 // que algo passou quando a regra real diz outra coisa).
 function IssueRow({ issue }: { issue: PublicationIssue }) {
   const isWarning = issue.severity === "warning";
+  const anchor = issue.field ? FIELD_ANCHORS[issue.field] : undefined;
+  const icon = isWarning ? <AlertTriangle size={14} className="mt-0.5 shrink-0" /> : <X size={14} className="mt-0.5 shrink-0" />;
+  const tone = isWarning ? "text-amber-700" : "text-red-700";
+
+  if (anchor) {
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => revealField(anchor)}
+          className={`flex w-full items-start gap-2 text-left text-xs underline-offset-2 hover:underline ${tone}`}
+        >
+          {icon}
+          {issue.message}
+        </button>
+      </li>
+    );
+  }
+
   return (
-    <li className={`flex items-start gap-2 text-xs ${isWarning ? "text-amber-700" : "text-red-700"}`}>
-      {isWarning ? <AlertTriangle size={14} className="mt-0.5 shrink-0" /> : <X size={14} className="mt-0.5 shrink-0" />}
+    <li className={`flex items-start gap-2 text-xs ${tone}`}>
+      {icon}
       {issue.message}
     </li>
   );
@@ -45,18 +104,24 @@ export function PublicationPanel({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
-  const [publishErrors, setPublishErrors] = useState<PublicationIssue[]>([]);
   const suspended = !!tour.marketplace_suspended_at;
   const status = displayStatus(tour);
 
+  // Nunca guarda a lista de erros da resposta da action em estado próprio --
+  // depois de publicar/despublicar, router.refresh() já traz um `checklist`
+  // novo do servidor (validateTourForPublishing de novo); se guardássemos os
+  // erros da resposta TAMBÉM, a mesma lista apareceria duas vezes na tela
+  // (achado de UX real: checklist + caixa azul repetindo tudo). Só a
+  // mensagem curta fica em estado local.
   function run(action: () => Promise<{ ok: boolean; message: string; errors?: PublicationIssue[] }>) {
     startTransition(async () => {
       const res = await action();
       setMessage(res.message);
-      setPublishErrors(res.errors ?? []);
       router.refresh();
     });
   }
+
+  const errorCount = checklist.errors.length;
 
   return (
     <Card>
@@ -94,8 +159,10 @@ export function PublicationPanel({
           ainda não está publicado (depois de publicado, o conteúdo já passou) */}
       {status === "draft" && !suspended && (
         <div className="mt-3 rounded-lg border border-line p-3">
-          <p className="mb-2 text-xs font-medium text-heading">Pronto para publicar?</p>
-          {checklist.errors.length === 0 && checklist.warnings.length === 0 ? (
+          <p className="mb-2 text-xs font-medium text-heading">
+            {errorCount === 0 ? "Pronto para publicar" : `Faltam ${errorCount} ${errorCount === 1 ? "item" : "itens"} para publicar`}
+          </p>
+          {errorCount === 0 && checklist.warnings.length === 0 ? (
             <p className="flex items-center gap-2 text-xs text-emerald-700">
               <Check size={14} /> Tudo certo, pronto para publicar.
             </p>
@@ -112,18 +179,7 @@ export function PublicationPanel({
         </div>
       )}
 
-      {message && (
-        <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-brand-dark">
-          <p>{message}</p>
-          {publishErrors.length > 0 && (
-            <ul className="mt-1.5 space-y-1">
-              {publishErrors.map((issue) => (
-                <li key={issue.code}>• {issue.message}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {message && <p className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-brand-dark">{message}</p>}
 
       {/* suspenso administrativamente: operador nunca vê botão pra remover a
           suspensão -- só o super admin consegue (ver /admin/passeios) */}
