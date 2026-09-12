@@ -130,8 +130,11 @@ function DepartureRow({ dep }: { dep: CalendarDeparture }) {
       </div>
 
       <div className="basis-full sm:basis-auto sm:w-32 sm:shrink-0">
-        <p className="text-xs text-muted">
-          {confirmed}/{dep.capacity} passageiros
+        <p className="text-xs">
+          <span className="font-medium text-body">
+            {confirmed}/{dep.capacity}
+          </span>{" "}
+          <span className="text-muted">passageiros</span>
         </p>
         <div className="mt-1">
           <OccupancyBar booked={confirmed} capacity={dep.capacity} />
@@ -141,14 +144,16 @@ function DepartureRow({ dep }: { dep: CalendarDeparture }) {
       {/* Etapa 2 do vento: resumo por saida, ja associado server-side (nunca
           uma chamada por departure -- ver wind-forecast-match.ts). Ausente
           sempre que nao houver previsao disponivel, nunca um valor
-          inventado ("undefined km/h"/NaN). */}
+          inventado ("undefined km/h"/NaN). Velocidade/direção com mais
+          contraste que rajadas (secundária) -- tokens já existentes
+          (text-body/text-muted), nenhuma cor nova. */}
       {dep.wind && (
-        <div className="flex basis-full items-center gap-1 text-xs text-muted sm:basis-auto sm:w-auto sm:shrink-0">
-          <Wind size={12} />
-          <span>
+        <div className="flex basis-full items-center gap-1 text-xs sm:basis-auto sm:w-auto sm:shrink-0">
+          <Wind size={12} className="text-body" />
+          <span className="font-medium text-body">
             {dep.wind.speedKmh} km/h {dep.wind.directionLabel}
-            {dep.wind.gustKmh != null ? ` · Raj. ${dep.wind.gustKmh} km/h` : ""}
           </span>
+          {dep.wind.gustKmh != null && <span className="text-muted">· Raj. {dep.wind.gustKmh} km/h</span>}
         </div>
       )}
 

@@ -32,7 +32,7 @@ export function WindConditionsCard({ state }: { state: WeatherState }) {
 
   if (state.kind === "no-location") {
     return (
-      <Card className="mb-5">
+      <Card className="mb-5 !py-4">
         <div className="mb-1.5 flex items-center gap-2">
           <Wind size={18} className="text-muted" />
           <h3 className="font-display text-base font-semibold text-heading">Condições do vento</h3>
@@ -52,7 +52,7 @@ export function WindConditionsCard({ state }: { state: WeatherState }) {
 
   if (state.kind === "error") {
     return (
-      <Card className="mb-5">
+      <Card className="mb-5 !py-4">
         <div className="mb-1 flex items-center gap-2">
           <Wind size={18} className="text-muted" />
           <h3 className="font-display text-base font-semibold text-heading">Condições do vento</h3>
@@ -71,8 +71,8 @@ export function WindConditionsCard({ state }: { state: WeatherState }) {
   const hourly = state.conditions.hourly.slice(0, CARD_HOURLY_COUNT);
 
   return (
-    <Card className="mb-5">
-      <div className="mb-2 flex items-start justify-between gap-2">
+    <Card className="mb-5 !py-4">
+      <div className="mb-1.5 flex items-start justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
             <Wind size={18} className="text-brand" />
@@ -82,7 +82,7 @@ export function WindConditionsCard({ state }: { state: WeatherState }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-2.5">
         <div>
           <p className="font-display text-2xl font-semibold text-heading">{current.windSpeedKmh} km/h</p>
           <p className="text-xs text-muted">Vento atual</p>
@@ -105,11 +105,11 @@ export function WindConditionsCard({ state }: { state: WeatherState }) {
       </div>
 
       {hourly.length > 0 && (
-        <div className="mt-3 border-t border-line pt-2.5">
-          <p className="mb-1.5 text-xs text-muted">Próximas horas</p>
+        <div className="mt-2.5 border-t border-line pt-2">
+          <p className="mb-1 text-xs text-muted">Próximas horas</p>
           <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
             {hourly.map((h) => (
-              <div key={h.time} className="rounded-lg border border-line px-2 py-1 text-center">
+              <div key={h.time} className="rounded-lg border border-line px-1.5 py-0.5 text-center">
                 <p className="text-xs text-muted">{hourLabel(h.time)}</p>
                 <p className="text-sm font-semibold text-heading">{h.windSpeedKmh} km/h</p>
                 <p className="text-[11px] text-muted">{h.windDirectionLabel}</p>

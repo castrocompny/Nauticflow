@@ -2755,3 +2755,29 @@ Quarta e última rodada desta sequência de Dashboard: refinamento visual da Age
 **Não verificado nesta sessão** (sem ferramenta de navegador): observação visual do resultado num navegador real (distribuição da faixa de 7 dias no desktop, quebra de linha da saída em mobile, aparência do resumo de vento ao lado da ocupação) -- validação limitada a typecheck/lint/build + os testes funcionais reais acima (a parte que mais importa pra correção, especialmente a associação por fuso horário).
 
 **Não tocado** (pedido explícito, nenhuma migration): schema do banco, migrations, migration `0071`, reservas, geração automática de saídas, ToursFlow, Realtime, pagamentos, Asaas, withdrawals, comissão, `/relatorios`, `/financeiro`. Nenhuma classificação de segurança de navegação introduzida.
+
+## 130. Polimento visual final do Dashboard -- contraste de ocupação/vento por saída, WindConditionsCard mais compacto (branch `main`, sessão de 2026-09-12)
+
+Última rodada, SOMENTE CSS/layout -- nenhuma query, agrupamento, associação de vento ou regra de negócio tocada. Fecha a sequência de trabalho no Dashboard iniciada nas seções 126-129.
+
+**Contraste na linha da saída (`tour-calendar.tsx`)**:
+- **Ocupação**: `{confirmed}/{capacity}` passou a usar `font-medium text-body` (era `text-xs text-muted` junto com "passageiros"); a palavra "passageiros" continua `text-muted`; o percentual/barra (`OccupancyBar`, já existente) não mudou. O número fica mais legível sem competir com o nome do passeio (que continua `text-heading`, maior e mais forte que `text-body`).
+- **Vento por saída**: velocidade + direção (`{speedKmh} km/h {directionLabel}`) e o ícone `Wind` passaram a usar `text-body` (eram `text-muted` junto com tudo); rajadas (`· Raj. X km/h`) continuam `text-muted`, claramente secundárias. Nenhuma cor nova introduzida -- só troca de token dentro da mesma paleta já usada no projeto (`text-heading` > `text-body` > `text-muted`), sem nenhum badge novo.
+- Hierarquia resultante, de cima pra baixo em força visual: nome do passeio/horário (`text-heading`) → ocupação/vento (`text-body`) → passageiros/rajadas/embarcação (`text-muted`) -- exatamente a ordem pedida.
+
+**WindConditionsCard mais compacto (`wind-conditions-card.tsx`)**: reduções pequenas e cumulativas, sem tocar em nenhuma lógica/estado/provider:
+- Padding vertical do `Card` em si: de `p-5` (20px) pra `py-4` (16px) nos três estados (`no-location`/`error`/`ok`) -- usando o modificador `!` do Tailwind (`!py-4`, compila pra `padding-top/bottom: 1rem !important`) porque o `Card` compartilhado (`@/components/ui`) já define `p-5` por padrão e uma classe comum (`py-4`) sem `!` não teria prioridade garantida sobre o padding shorthand do componente -- confirmado inspecionando o CSS gerado pelo build (`padding-top:1rem!important` presente no bundle).
+- Espaço cabeçalho → vento atual: `mb-2` → `mb-1.5`.
+- Espaço antes de "Próximas horas": `mt-3 pt-2.5` → `mt-2.5 pt-2`, label `mb-1.5` → `mb-1`.
+- Padding dos 6 cards de hora: `px-2 py-1` → `px-1.5 py-0.5`.
+- Preservado sem alteração: título, localização, vento atual, rajadas, direção, "Atualizado às", as 6 horas seguintes -- só espaçamento, nenhum dado removido ou reorganizado.
+
+**Linhas compactas com muitas saídas (pedido de confirmação, seção 3)**: nenhuma mudança de padding/gap na própria `DepartureRow` foi necessária -- o padding já estabelecido na seção 129 (`px-3 py-2.5`, `space-y-2` entre linhas) já era compacto o bastante; nenhuma descrição/endereço/duração foi adicionada. Confirmado por inspeção: cada linha continua mostrando só horário, passeio, embarcação, ocupação, vento e status (quando relevante), independente de quantas saídas o dia tiver.
+
+**Mobile (seção 6)**: nenhuma mudança nas classes de quebra de linha (`flex-wrap`/`basis-full`/`sm:basis-auto`, já implementadas na seção 129) -- só cor/peso de fonte dentro dos blocos que já quebravam corretamente. A única área com `overflow-x-auto` continua sendo a faixa de 7 dias (via `ScrollShadowX`); a lista de saídas nunca teve rolagem horizontal própria, nem antes nem depois desta mudança.
+
+**Validação**: `tsc --noEmit` limpo. `eslint .` 0 erros (4 warnings pré-existentes de `<img>`, não relacionados). `next build` sucesso -- `/dashboard` continua dinâmica, nenhum erro novo; CSS gerado inspecionado diretamente (`grep` no bundle) pra confirmar que `!py-4` realmente compila com `!important` e vence o `p-5` do `Card` compartilhado, em vez de assumir que funcionaria. Reconfirmado por leitura de código, sem regressão: Dashboard continua com exatamente 1 consulta de `departures` + 1 leitura de clima por renderização (nenhuma query nova), agrupamento/filtro de canceladas/em-andamento/saída passada intactos (nenhuma linha tocada fora de classes CSS e o texto de ocupação/vento), seleção de dia continua só `useState` local.
+
+**Não verificado nesta sessão** (sem ferramenta de navegador): observação visual real do contraste e da altura reduzida do card num navegador (a mudança em si é de baixo risco -- CSS puro, sem lógica -- mas a aparência final não foi vista, só o CSS gerado inspecionado).
+
+**Não tocado** (pedido explícito, nenhuma migration): Supabase, schema, migrations, migration `0071`, reservas, saídas, agenda automática, ToursFlow, pagamentos, Asaas, Realtime, `/relatorios`, `/financeiro`, `/configuracoes`, provider Open-Meteo (nenhuma linha de `src/lib/weather/` tocada nesta rodada).
