@@ -308,7 +308,7 @@ export async function archiveTour(tourId: string): Promise<{ ok: boolean; messag
 
   const { data: existing } = await supabase
     .from("tours")
-    .select("company_id, active, marketplace_status")
+    .select("company_id, active, marketplace_status, booking_model")
     .eq("id", tourId)
     .maybeSingle();
   if (!existing || existing.company_id !== company_id) return { ok: false, message: "Passeio inválido." };
@@ -352,6 +352,41 @@ export async function archiveTour(tourId: string): Promise<{ ok: boolean; messag
         ok: true,
         message: "Passeio excluído, mas não foi possível pausar a agenda automática. Pause manualmente em Agenda e disponibilidade.",
       };
+    }
+  }
+
+  // NF2-001 (migration 0075): mesmo espírito do bloco acima, agora pro
+  // privativo flexível -- sem isso, tour_flexible_booking_rules.active
+  // continuava true depois do passeio arquivado (create_flexible_counter_
+  // reservation agora também recusa TOUR_ARCHIVED antes disso, mas a regra
+  // em si não devia continuar "ativa" pra um passeio excluído). Reaproveita
+  // set_flexible_booking_rule_active (migration 0073, já usada pelo botão
+  // "Pausar disponibilidade" em flexible-booking-section.tsx) -- nunca
+  // apaga a regra, só desativa; FLEXIBLE_RULE_NOT_FOUND (passeio flexível
+  // sem regra configurada ainda) não pode derrubar a exclusão já feita.
+  if (existing.booking_model === "flexible_private") {
+    const { data: flexRule } = await supabase
+      .from("tour_flexible_booking_rules")
+      .select("active")
+      .eq("tour_id", tourId)
+      .eq("company_id", company_id)
+      .maybeSingle();
+
+    if (flexRule?.active) {
+      const { error: pauseFlexError } = await supabase.rpc("set_flexible_booking_rule_active", {
+        p_tour_id: tourId,
+        p_active: false,
+      });
+      if (pauseFlexError) {
+        console.error("archiveTour/pauseFlexible:", pauseFlexError);
+        revalidatePath("/passeios");
+        revalidatePath(`/passeios/${tourId}`);
+        revalidatePath("/saidas");
+        return {
+          ok: true,
+          message: "Passeio excluído, mas não foi possível desativar a disponibilidade privativa. Desative manualmente em Agenda e disponibilidade.",
+        };
+      }
     }
   }
 

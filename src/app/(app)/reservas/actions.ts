@@ -62,6 +62,9 @@ export async function createCounterReservation(_prev: unknown, formData: FormDat
     if (error?.message.includes("DEPARTURE_NOT_FOUND")) return { error: "Saída inválida." };
     if (error?.message.includes("CLIENT_NOT_FOUND")) return { error: "Cliente inválido." };
     if (error?.message.includes("CLIENT_NAME_REQUIRED")) return { error: "Informe o nome do cliente." };
+    // NF2-001 (migration 0075) -- passeio arquivado nunca aceita reserva nova.
+    if (error?.message.includes("TOUR_ARCHIVED"))
+      return { error: "Este passeio está arquivado e não aceita novas reservas." };
     console.error("createCounterReservation:", error);
     return { error: "Não foi possível criar a reserva. Tente novamente." };
   }
@@ -152,6 +155,8 @@ export async function createFlexibleCounterReservation(_prev: unknown, formData:
     if (msg.includes("INVALID_PERIOD") || msg.includes("PERIOD_IN_PAST")) return { error: "Período inválido para esta reserva." };
     if (msg.includes("TOUR_NOT_FLEXIBLE") || msg.includes("TOUR_NOT_FOUND")) return { error: "Passeio inválido." };
     if (msg.includes("FLEXIBLE_RULE_NOT_FOUND")) return { error: "Este passeio ainda não tem disponibilidade configurada." };
+    // NF2-001 (migration 0075) -- passeio arquivado nunca aceita reserva nova.
+    if (msg.includes("TOUR_ARCHIVED")) return { error: "Este passeio está arquivado e não aceita novas reservas." };
     if (msg.includes("CLIENT_NOT_FOUND")) return { error: "Cliente inválido." };
     if (msg.includes("CLIENT_NAME_REQUIRED")) return { error: "Informe o nome do cliente." };
     console.error("createFlexibleCounterReservation:", error);
