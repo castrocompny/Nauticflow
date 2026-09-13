@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { AppShell } from "@/components/app-shell";
+import { ReservationNotifier } from "@/components/reservation-notifier";
 import { startEndOfToday } from "@/lib/format";
 import { OverdueBanner } from "./overdue-banner";
 import type { Notif } from "@/components/notifications-bell";
@@ -82,23 +83,30 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     notifications.push({ id: "saidas-lotadas", title: `${lotadas} saídas lotadas hoje`, desc: "capacidade máxima atingida" });
 
   return (
-    <AppShell
-      sidebar={{
-        company: companyName,
-        city: companyCity,
-        planName,
-        overdue: isOverdue || isSuspended,
-        isSuperAdmin: rawRole === "super_admin",
-        isStaff: rawRole === "staff",
-      }}
-      topbar={{ name: firstName, role, notifications }}
-      banner={
-        (isOverdue || isSuspended) && (
-          <OverdueBanner companyName={companyName} suspended={isSuspended} suspendedReason={suspendedReason} />
-        )
-      }
-    >
-      {children}
-    </AppShell>
+    <>
+      {/* Listener global de novas reservas (marketplace/partner) -- fora de
+          qualquer tela específica, pra funcionar independente de onde o
+          operador estiver navegando (pedido explícito). Uma única instância
+          por sessão de app, montada aqui, nunca duplicada por página. */}
+      <ReservationNotifier />
+      <AppShell
+        sidebar={{
+          company: companyName,
+          city: companyCity,
+          planName,
+          overdue: isOverdue || isSuspended,
+          isSuperAdmin: rawRole === "super_admin",
+          isStaff: rawRole === "staff",
+        }}
+        topbar={{ name: firstName, role, notifications }}
+        banner={
+          (isOverdue || isSuspended) && (
+            <OverdueBanner companyName={companyName} suspended={isSuspended} suspendedReason={suspendedReason} />
+          )
+        }
+      >
+        {children}
+      </AppShell>
+    </>
   );
 }
