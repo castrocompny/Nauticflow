@@ -1,5 +1,5 @@
-import { MessageCircle, Mail } from "lucide-react";
-import { MKT_LINKS, MKT_NAV, MKT_CONTACT } from "./plans";
+import { MessageCircle, Mail, Globe, Instagram } from "lucide-react";
+import { MKT_LINKS, MKT_NAV, MKT_CONTACT, CASTRO_COMPNY } from "./plans";
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
@@ -67,15 +67,53 @@ export function SiteFooter() {
           </div>
         </div>
 
-        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-line pt-6 text-sm text-muted sm:flex-row">
-          <p>© {year} NauticFlow. Todos os direitos reservados.</p>
-          <div className="flex items-center gap-5">
-            <a href={MKT_LINKS.termos} className="transition-colors hover:text-brand">
-              Termos de uso
+        <div className="mt-12 border-t border-line pt-6 text-sm text-muted">
+          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
+            <p>© {year} NauticFlow. Todos os direitos reservados.</p>
+            <div className="flex items-center gap-5">
+              <a href={MKT_LINKS.termos} className="transition-colors hover:text-brand">
+                Termos de uso
+              </a>
+              <a href={MKT_LINKS.privacidade} className="transition-colors hover:text-brand">
+                Privacidade
+              </a>
+            </div>
+          </div>
+
+          {/* credito institucional -- discreto de proposito, nunca mais chamativo
+              que a marca NauticFlow acima */}
+          <div className="mt-4 flex flex-col items-center justify-center gap-2 text-xs sm:flex-row sm:gap-3">
+            <a
+              href={CASTRO_COMPNY.site}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition-colors hover:text-brand"
+            >
+              Um produto <span className="font-medium text-body">Castro Compny</span>
             </a>
-            <a href={MKT_LINKS.privacidade} className="transition-colors hover:text-brand">
-              Privacidade
-            </a>
+            <span className="hidden text-line sm:inline" aria-hidden="true">
+              ·
+            </span>
+            <span className="inline-flex items-center gap-3">
+              <a
+                href={CASTRO_COMPNY.site}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Site da Castro Compny"
+                className="transition-colors hover:text-brand"
+              >
+                <Globe size={14} />
+              </a>
+              <a
+                href={CASTRO_COMPNY.instagram}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Instagram da Castro Compny"
+                className="transition-colors hover:text-brand"
+              >
+                <Instagram size={14} />
+              </a>
+            </span>
           </div>
         </div>
       </div>

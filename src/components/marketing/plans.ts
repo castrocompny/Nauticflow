@@ -15,6 +15,14 @@ export const MKT_CONTACT = {
   email: "castrocompny@gmail.com",
 } as const;
 
+// Credito institucional no rodape: NauticFlow e um produto da Castro Compny.
+// URL do site sem parametros de rastreamento (utm_source/fbclid vieram de um
+// clique especifico no Instagram, nao fazem sentido fixos num link permanente).
+export const CASTRO_COMPNY = {
+  site: "https://castrocompny.com.br/",
+  instagram: "https://instagram.com/castro_compny",
+} as const;
+
 // Navegacao do header (e reaproveitada no rodape). Mantida em 5 itens de
 // proposito: a partir de 6 o menu desktop comeca a apertar em 768px, onde ele
 // ainda e exibido (md:flex). "Contato" saiu daqui porque o rodape ja tem uma
