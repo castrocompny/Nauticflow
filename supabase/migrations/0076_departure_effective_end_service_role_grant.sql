@@ -1,0 +1,23 @@
+-- NAUTICFLOW — grant faltante em departure_effective_end para service_role
+--
+-- Achado real durante o teste E2E do alerta de nova reserva (harness de
+-- teste fazendo INSERT direto em departures via service_role, pra montar
+-- fixtures de isolamento multi-tenant): "permission denied for function
+-- departure_effective_end". Causa: a migration 0074 (NF-001, overlap de
+-- embarcação) só concedeu EXECUTE em departure_effective_end pra
+-- `authenticated`, com o raciocínio de que qualquer caminho SECURITY
+-- DEFINER (create_flexible_counter_reservation, generate_departures_for_
+-- schedule_rule) já roda como o DONO da função (postgres) ao disparar o
+-- gatilho, então nunca precisaria do grant explícito. Isso é verdade só
+-- QUANDO o INSERT em departures acontece de dentro de uma função SECURITY
+-- DEFINER -- um INSERT direto na tabela via service_role (bypassa RLS, mas
+-- NÃO é automaticamente o dono de funções) dispara o MESMO gatilho
+-- (trg_departure_vessel_overlap) rodando como `service_role` de verdade, que
+-- nunca tinha o grant.
+--
+-- service_role já tem acesso irrestrito à tabela departures (bypassa RLS
+-- por natureza) -- restringir só esta função auxiliar de cálculo (sem efeito
+-- colateral nenhum, só aritmética de data) nunca foi uma fronteira de
+-- segurança real, só um descuido. Nenhuma mudança de comportamento pra
+-- nenhum caminho já existente (authenticated continua exatamente igual).
+grant execute on function public.departure_effective_end(timestamptz, timestamptz, int) to service_role;
