@@ -1,23 +1,25 @@
+import { SectionHeading } from "./section";
+
 const STEPS = [
   {
     n: "1",
-    title: "Cadastre sua empresa",
-    desc: "Crie a conta em minutos e comece o teste grátis — sem cartão de crédito.",
+    title: "Cadastre seus passeios e embarcações",
+    desc: "Registre a frota, a capacidade comercial de cada barco e os passeios que você vende.",
   },
   {
     n: "2",
-    title: "Cadastre embarcações e passeios",
-    desc: "Registre suas escunas, lanchas e catamarãs, com horários e capacidade de cada saída.",
+    title: "Configure dias, horários e disponibilidade",
+    desc: "Defina a programação uma vez — recorrente ou por período — e o sistema monta a agenda.",
   },
   {
     n: "3",
-    title: "Agende as saídas",
-    desc: "Monte a agenda por horário e deixe a ocupação de cada barco visível para a equipe.",
+    title: "Receba e gerencie reservas",
+    desc: "Reservas do balcão, de parceiros ou do ToursFlow entram centralizadas, com a vaga já descontada.",
   },
   {
     n: "4",
-    title: "Receba reservas com voucher",
-    desc: "Cada reserva gera o voucher automático por e-mail e entra no seu manifesto de embarque.",
+    title: "Acompanhe sua operação em tempo real",
+    desc: "Agenda do dia, ocupação, alertas de reserva nova e relatórios sempre atualizados.",
   },
 ];
 
@@ -25,17 +27,11 @@ export function HowItWorks() {
   return (
     <section id="como-funciona" className="scroll-mt-20 bg-surface py-20 sm:py-24">
       <div className="mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/5 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-brand">
-            Como funciona
-          </span>
-          <h2 className="mt-4 font-display text-3xl font-semibold leading-tight text-heading sm:text-4xl">
-            Do cadastro à primeira reserva
-          </h2>
-          <p className="mt-4 text-lg text-body">
-            Quatro passos simples para tirar a operação da planilha e colocar no piloto automático.
-          </p>
-        </div>
+        <SectionHeading
+          eyebrow="Como funciona"
+          title="Do cadastro à operação no automático"
+          subtitle="Quatro passos para tirar a operação da planilha. A configuração é uma vez só — o resto o sistema repete por você."
+        />
 
         <ol className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((step, i) => (

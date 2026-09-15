@@ -2,9 +2,15 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { Hero } from "@/components/marketing/hero";
 import { Audience } from "@/components/marketing/audience";
-import { Features } from "@/components/marketing/features";
-import { HowItWorks } from "@/components/marketing/how-it-works";
+import { BeforeAfter } from "@/components/marketing/before-after";
+import { Automation } from "@/components/marketing/automation";
+import { Ecosystem } from "@/components/marketing/ecosystem";
+import { SalesFlow } from "@/components/marketing/sales-flow";
+import { BookingModels } from "@/components/marketing/booking-models";
+import { OperationOverview } from "@/components/marketing/operation-overview";
+import { OperationSuite } from "@/components/marketing/operation-suite";
 import { Showcase } from "@/components/marketing/showcase";
+import { HowItWorks } from "@/components/marketing/how-it-works";
 import { Pricing } from "@/components/marketing/pricing";
 import { Trust } from "@/components/marketing/trust";
 import { Faq } from "@/components/marketing/faq";
@@ -14,37 +20,40 @@ import { WhatsAppButton } from "@/components/marketing/whatsapp-button";
 import { MKT_PLANS } from "@/components/marketing/plans";
 
 export const metadata: Metadata = {
-  title: "NauticFlow — Sistema de gestão para empresas de turismo náutico",
+  title: "NauticFlow — Sistema automatizado de gestão para turismo náutico",
   description:
-    "Software de gestão para empresas de passeio de barco: agenda de saídas, reservas com voucher automático, manifesto de embarque e dashboard de receita. Sistema para escuna, lancha, jet-ski e catamarã. Teste grátis por 7 dias.",
+    "Automatize reservas, saídas, embarcações e agenda da sua empresa de turismo náutico com o NauticFlow. Agenda gerada sozinha, vagas atualizadas em tempo real e alertas de reserva nova — conectado ao ecossistema de vendas ToursFlow. Teste grátis por 7 dias.",
   keywords: [
+    "sistema automatizado para turismo náutico",
     "gestão para empresas de passeio de barco",
-    "sistema para escuna e lancha",
-    "software para turismo náutico",
     "sistema de reservas de passeio de barco",
-    "gestão de embarcações",
-    "manifesto de embarque",
+    "agenda automática de saídas",
+    "sistema para escuna e lancha",
+    "controle de embarcações e capacidade",
+    "software para turismo náutico",
   ],
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     locale: "pt_BR",
     siteName: "NauticFlow",
-    title: "NauticFlow — Gestão completa para empresas de turismo náutico",
+    title: "NauticFlow — Sua operação náutica no automático",
     description:
-      "Pare de controlar reservas e saídas de barco em planilha e WhatsApp. Agenda, reservas com voucher automático, manifesto de embarque e dashboard num só lugar. Teste grátis por 7 dias.",
+      "Configure uma vez e o NauticFlow cuida do restante: agenda de saídas gerada sozinha, reservas centralizadas, vagas atualizadas em tempo real e alertas na hora. Parte do ecossistema NauticFlow + ToursFlow.",
     images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "NauticFlow" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "NauticFlow — Gestão para empresas de turismo náutico",
+    title: "NauticFlow — Sistema automatizado para turismo náutico",
     description:
-      "Agenda de saídas, reservas com voucher automático e dashboard de receita para empresas de passeio de barco. Teste grátis por 7 dias.",
+      "Automatize reservas, saídas, embarcações e agenda da sua empresa de passeio de barco. Teste grátis por 7 dias.",
     images: ["/og-image.png"],
   },
 };
 
-// Dados estruturados (SEO) descrevendo o SaaS e os planos.
+// Dados estruturados (SEO) descrevendo o SaaS e os planos. A descricao acompanha
+// o posicionamento visivel da pagina (automacao da operacao) -- os dois textos
+// nunca devem divergir.
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -53,7 +62,7 @@ const jsonLd = {
   operatingSystem: "Web",
   inLanguage: "pt-BR",
   description:
-    "Sistema de gestão para empresas de turismo náutico: agenda de saídas, reservas com voucher automático, manifesto de embarque e dashboard de receita.",
+    "Sistema automatizado de gestão para empresas de turismo náutico: agenda de saídas gerada automaticamente, reservas centralizadas em tempo real, controle de capacidade e vagas, frota, clientes e relatórios da operação.",
   url: "https://nauticflow.com.br",
   offers: MKT_PLANS.map((plan) => ({
     "@type": "Offer",
@@ -67,6 +76,9 @@ const jsonLd = {
 // O redirecionamento de quem esta logado (/ -> /dashboard) e feito no proxy
 // (src/lib/supabase/middleware.ts), junto com o restante do roteamento de auth.
 // Aqui a home so renderiza a landing institucional para o visitante.
+//
+// Narrativa da pagina: problema -> automacao -> ecossistema (gestao + vendas) ->
+// capacidades da operacao -> prova -> planos -> conversao.
 export default function Home() {
   return (
     <>
@@ -78,9 +90,15 @@ export default function Home() {
       <main>
         <Hero />
         <Audience />
-        <Features />
-        <HowItWorks />
+        <BeforeAfter />
+        <Automation />
+        <Ecosystem />
+        <SalesFlow />
+        <BookingModels />
+        <OperationOverview />
+        <OperationSuite />
         <Showcase />
+        <HowItWorks />
         <Pricing />
         <Trust />
         <Faq />

@@ -15,12 +15,17 @@ export const MKT_CONTACT = {
   email: "castrocompny@gmail.com",
 } as const;
 
+// Navegacao do header (e reaproveitada no rodape). Mantida em 5 itens de
+// proposito: a partir de 6 o menu desktop comeca a apertar em 768px, onde ele
+// ainda e exibido (md:flex). "Contato" saiu daqui porque o rodape ja tem uma
+// coluna propria de contato (alem do botao flutuante de WhatsApp), enquanto o
+// ecossistema NauticFlow + ToursFlow precisava de um acesso direto.
 export const MKT_NAV = [
+  { href: "#automacao", label: "Automação" },
+  { href: "#ecossistema", label: "Ecossistema" },
   { href: "#funcionalidades", label: "Funcionalidades" },
-  { href: "#como-funciona", label: "Como funciona" },
   { href: "#planos", label: "Planos" },
   { href: "#faq", label: "Perguntas" },
-  { href: "#contato", label: "Contato" },
 ] as const;
 
 export type MktPlan = {

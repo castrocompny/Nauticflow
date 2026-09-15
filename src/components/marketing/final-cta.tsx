@@ -13,11 +13,11 @@ export function FinalCta() {
 
           <div className="relative mx-auto max-w-2xl">
             <h2 className="font-display text-3xl font-semibold leading-tight text-white sm:text-4xl">
-              Comece hoje a organizar sua empresa de passeio de barco
+              Pronto para tirar sua operação das planilhas?
             </h2>
             <p className="mt-4 text-lg text-slate-300">
-              Teste o NauticFlow grátis por 7 dias. Sem cartão de crédito, sem compromisso — cancele
-              quando quiser.
+              Centralize sua operação náutica e deixe o NauticFlow cuidar da parte repetitiva. Teste
+              grátis por 7 dias, sem cartão de crédito.
             </p>
 
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -25,14 +25,14 @@ export function FinalCta() {
                 href={MKT_LINKS.signup}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-7 py-3.5 text-base font-semibold text-white transition hover:bg-brand-dark"
               >
-                Teste grátis por 7 dias
+                Começar grátis
                 <ArrowRight size={20} />
               </a>
               <a
                 href={MKT_LINKS.login}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/5 px-7 py-3.5 text-base font-semibold text-white transition hover:border-brand-light/50"
               >
-                Já tenho conta
+                Entrar
               </a>
             </div>
 

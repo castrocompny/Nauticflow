@@ -1,6 +1,8 @@
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { DashboardMockup } from "./dashboard-mockup";
 import { MKT_LINKS } from "./plans";
+
+const MICROCOPY = ["Sem cartão de crédito", "Configuração rápida", "Comece em poucos minutos"];
 
 export function Hero() {
   return (
@@ -12,24 +14,22 @@ export function Hero() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(45,156,255,0.12),transparent_55%)]" />
       </div>
 
-      {/* padding-top 16 unidades (4rem = altura do header, que agora e "fixed" e nao
-          reserva espaco no fluxo) a mais que o padding-bottom -- compensa o header
-          flutuando por cima, mantendo o conteudo na mesma posicao vertical de antes */}
+      {/* padding-top maior que o bottom: o header e "fixed" e nao reserva espaco
+          no fluxo, entao o conteudo precisa compensar a altura dele (h-16). */}
       <div className="relative mx-auto grid w-full max-w-6xl items-center gap-12 px-5 pb-16 pt-32 sm:px-6 sm:pb-20 sm:pt-36 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:px-8 lg:pb-28 lg:pt-44">
         <div>
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-brand-light">
-            Sistema de gestão para turismo náutico
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-brand-light sm:text-xs">
+            Sistema automatizado para turismo náutico
           </span>
 
-          <h1 className="mt-5 font-display text-4xl font-semibold leading-[1.1] tracking-tight sm:text-5xl lg:text-[3.4rem]">
-            Pare de controlar reservas e saídas de barco em{" "}
-            <span className="text-brand-light">planilha e WhatsApp</span>
+          <h1 className="mt-5 font-display text-[2.1rem] font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.4rem]">
+            Sua operação náutica{" "}
+            <span className="text-brand-light">no automático</span>
           </h1>
 
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-300">
-            O NauticFlow organiza agenda de saídas, reservas com voucher automático, manifesto de
-            embarque e o financeiro da sua empresa de passeio de barco — tudo num só lugar, do celular
-            ao computador.
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
+            Reservas, saídas, disponibilidade, embarcações e clientes organizados em tempo real, num
+            só lugar. Sem planilha, sem agenda montada à mão, sem contar vaga no papel.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -37,30 +37,40 @@ export function Hero() {
               href={MKT_LINKS.signup}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-brand-dark"
             >
-              Teste grátis por 7 dias
+              Começar grátis
               <ArrowRight size={20} />
             </a>
             <a
-              href="#como-funciona"
+              href="#automacao"
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/5 px-6 py-3.5 text-base font-semibold text-white transition hover:border-brand-light/50"
             >
               Ver como funciona
             </a>
           </div>
 
-          <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-300">
-            {["Sem precisar de cartão de crédito", "Configuração em minutos", "Cancele quando quiser"].map(
-              (item) => (
-                <li key={item} className="flex items-center gap-2">
-                  <Check size={16} className="text-brand-light" />
-                  {item}
-                </li>
-              )
-            )}
-          </ul>
+          <p className="mt-6 text-sm text-slate-400">
+            {MICROCOPY.map((item, i) => (
+              <span key={item}>
+                {i > 0 && <span className="px-2 text-slate-600">•</span>}
+                {item}
+              </span>
+            ))}
+          </p>
+
+          {/* Mencao discreta ao ecossistema: o NauticFlow continua sendo o
+              assunto do hero, o ToursFlow so aparece como contexto e leva pra
+              secao propria mais abaixo (ancora interna, nunca link externo). */}
+          <a
+            href="#ecossistema"
+            className="mt-7 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs text-slate-300 transition hover:border-brand-light/40 hover:text-white"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-light" />
+            Parte do ecossistema NauticFlow + ToursFlow
+            <ArrowRight size={13} className="text-brand-light" />
+          </a>
         </div>
 
-        <div>
+        <div className="lg:pl-4">
           <DashboardMockup />
         </div>
       </div>

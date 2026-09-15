@@ -82,7 +82,11 @@ export function SiteHeader() {
           <MarketingLogo onNavy={onNavy} />
         </a>
 
-        <nav className="hidden items-center gap-7 md:flex" aria-label="Principal">
+        {/* Menu completo só a partir de lg (1024px). Em 768px (md) o conjunto
+            "5 links + tema + Entrar + Começar grátis" estourava a largura da
+            barra -- os botões da direita chegavam a x=940 numa viewport de 768,
+            saindo da tela. Abaixo de lg vale o menu hambúrguer. */}
+        <nav className="hidden items-center gap-6 lg:flex" aria-label="Principal">
           {MKT_NAV.map((link) => (
             <a
               key={link.href}
@@ -96,7 +100,7 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 md:flex">
+        <div className="hidden items-center gap-2 lg:flex">
           <ThemeToggle borderClassName={onNavy ? "border-white/30" : "border-slate-300"} />
           <a
             href={MKT_LINKS.login}
@@ -114,7 +118,7 @@ export function SiteHeader() {
           </a>
         </div>
 
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 lg:hidden">
           <ThemeToggle borderClassName={onNavy ? "border-white/30" : "border-slate-300"} />
           <button
             type="button"
@@ -131,7 +135,7 @@ export function SiteHeader() {
       </div>
 
       {open && (
-        <div className="border-t border-line bg-surface md:hidden">
+        <div className="border-t border-line bg-surface lg:hidden">
           <nav className="mx-auto flex w-full max-w-6xl flex-col gap-1 px-5 py-4 sm:px-6" aria-label="Mobile">
             {MKT_NAV.map((link) => (
               <a

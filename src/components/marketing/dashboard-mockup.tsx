@@ -1,24 +1,26 @@
-"use client";
-
-import { useState } from "react";
 import {
   LayoutDashboard,
   ClipboardList,
   CalendarDays,
   Anchor,
   Users,
-  CalendarCheck,
-  DollarSign,
-  Gauge,
   Ship,
-  Plus,
+  Navigation,
+  Wind,
   type LucideIcon,
 } from "lucide-react";
+import { WindowChrome } from "./section";
 
-// Recriacao fiel do painel real do NauticFlow (mesmo layout: sidebar, KPIs,
-// "Desempenho do periodo", proximas saidas), com numeros ilustrativos saudaveis --
-// nao e print da conta de teste, e uma demonstracao do produto. Fixo no tema escuro
-// (o app e escuro), sobre o hero navy. Interativo: o toggle de periodo anima o grafico.
+// Mockup do Dashboard real do NauticFlow recriado em HTML/CSS: agenda de hoje
+// (horario, passeio, embarcacao, passageiros/capacidade e % de ocupacao),
+// condicoes do vento ao lado da agenda (exatamente como o produto mostra hoje --
+// ver src/app/(app)/dashboard/wind-conditions-card.tsx) e as reservas que
+// acabaram de entrar, com a origem de cada uma.
+//
+// IMPORTANTE: numeros ILUSTRATIVOS, escolhidos a mao. Nao e print de tela nem
+// dado de nenhuma conta de Producao. Fixo no tema escuro (o app e escuro),
+// porque o cartao funciona como "screenshot" do produto sobre o hero navy --
+// as secoes em volta continuam reagindo ao tema normalmente.
 
 const NAV: { icon: LucideIcon; active?: boolean }[] = [
   { icon: LayoutDashboard, active: true },
@@ -28,50 +30,41 @@ const NAV: { icon: LucideIcon; active?: boolean }[] = [
   { icon: Users },
 ];
 
-const KPIS: { icon: LucideIcon; label: string; value: string; tile: string }[] = [
-  { icon: CalendarCheck, label: "Reservas hoje", value: "12", tile: "bg-[#2563EB]" },
-  { icon: DollarSign, label: "Receita do mês", value: "R$ 38.240", tile: "bg-[#16A34A]" },
-  { icon: Gauge, label: "Ocupação hoje", value: "82%", tile: "bg-[#F59E0B]" },
-  { icon: Ship, label: "Passageiros", value: "148", tile: "bg-[#7C3AED]" },
+// Agenda do dia: cada linha e uma saida com ocupacao real sobre a capacidade
+// comercial da embarcacao.
+const AGENDA = [
+  { time: "09:00", tour: "Ilhas do Sul", boat: "Escuna Amigos", booked: 32, capacity: 40 },
+  { time: "11:30", tour: "Pôr do sol", boat: "Lancha Azul", booked: 6, capacity: 8 },
+  { time: "14:00", tour: "Ilha Feia", boat: "Catamarã Sol", booked: 18, capacity: 24 },
 ];
 
-const PERIODS: Record<string, { bars: number[]; total: string }> = {
-  "7 dias": { bars: [46, 62, 40, 78, 58, 92, 70], total: "R$ 9.120" },
-  "30 dias": { bars: [52, 44, 66, 58, 74, 62, 84, 70, 90, 78], total: "R$ 38.240" },
-  "90 dias": { bars: [48, 70, 60, 82, 76, 96], total: "R$ 104.500" },
-};
-
-const SAIDAS = [
-  { t: "09:00", name: "Escuna Amigos", sub: "Ilhas · 32/40", tone: "text-emerald-400" },
-  { t: "11:30", name: "Rio Azul", sub: "Geribá · 26/46", tone: "text-brand-light" },
-  { t: "14:00", name: "Catamarã Sol", sub: "Tartarugas · 20/24", tone: "text-amber-400" },
+const RESERVAS = [
+  { tour: "Ilha Feia", detail: "2 passageiros · 14:00", origin: "ToursFlow", fresh: true },
+  { tour: "Ilhas do Sul", detail: "4 passageiros · 09:00", origin: "Balcão" },
 ];
+
+const VENTO_HORAS = [
+  { h: "13h", v: "16" },
+  { h: "14h", v: "18" },
+  { h: "15h", v: "21" },
+];
+
+function occupancyTone(pct: number) {
+  if (pct >= 90) return { bar: "bg-amber-400", text: "text-amber-400" };
+  if (pct >= 70) return { bar: "bg-emerald-400", text: "text-emerald-400" };
+  return { bar: "bg-brand-light", text: "text-brand-light" };
+}
 
 export function DashboardMockup() {
-  const [period, setPeriod] = useState<keyof typeof PERIODS>("30 dias");
-  const { bars, total } = PERIODS[period];
-
   return (
     <div
       aria-hidden="true"
       className="w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0a1020] shadow-2xl ring-1 ring-black/20"
     >
-      {/* barra de janela */}
-      <div className="flex items-center gap-1.5 border-b border-white/5 px-3.5 py-2.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-red-400/70" />
-        <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
-        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
-        <span className="ml-3 text-[11px] font-medium text-slate-500">
-          nauticflow.com.br/dashboard
-        </span>
-        <span className="ml-auto flex items-center gap-1.5 text-[10px] font-medium text-emerald-400">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-          ao vivo
-        </span>
-      </div>
+      <WindowChrome label="nauticflow.com.br/dashboard" live />
 
       <div className="flex">
-        {/* sidebar */}
+        {/* menu lateral */}
         <div className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-white/5 bg-[#0b1428] py-3">
           <div className="mb-2 flex h-6 w-6 items-center justify-center rounded-md bg-brand/20 text-brand-light">
             <Ship size={14} />
@@ -79,10 +72,8 @@ export function DashboardMockup() {
           {NAV.map((item, i) => (
             <span
               key={i}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${
-                item.active
-                  ? "bg-brand text-white"
-                  : "text-slate-500 hover:bg-white/5 hover:text-slate-300"
+              className={`flex h-7 w-7 items-center justify-center rounded-lg ${
+                item.active ? "bg-brand text-white" : "text-slate-500"
               }`}
             >
               <item.icon size={15} />
@@ -93,89 +84,118 @@ export function DashboardMockup() {
         {/* conteudo */}
         <div className="min-w-0 flex-1 p-3.5">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <p className="text-[13px] font-semibold text-white">Boa tarde 👋</p>
-              <p className="text-[10px] text-slate-500">Resumo do seu negócio hoje</p>
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-white">Agenda de hoje</p>
+              {/* sem nome de dia da semana de proposito: o mockup e estatico e
+                  uma data fixa com "sábado"/"segunda" escrito envelhece errado. */}
+              <p className="text-[10px] text-slate-500">Hoje · 14 de setembro · 3 saídas</p>
             </div>
-            <span className="inline-flex items-center gap-1 rounded-lg bg-brand px-2.5 py-1.5 text-[10px] font-semibold text-white">
-              <Plus size={12} /> Nova reserva
+            <span className="shrink-0 rounded-lg bg-emerald-500/15 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-emerald-400">
+              76% ocupação
             </span>
           </div>
 
-          {/* KPIs */}
-          <div className="grid grid-cols-2 gap-2">
-            {KPIS.map((kpi) => (
-              <div
-                key={kpi.label}
-                className="flex items-center gap-2.5 rounded-xl border border-white/5 bg-white/[0.03] p-2.5 transition hover:border-white/15 hover:bg-white/[0.06]"
-              >
-                <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${kpi.tile}`}
-                >
-                  <kpi.icon size={16} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[9px] uppercase tracking-wide text-slate-500">
-                    {kpi.label}
-                  </span>
-                  <span className="block font-display text-sm font-semibold text-white">
-                    {kpi.value}
-                  </span>
-                </span>
+          {/* condicoes do vento -- informacao operacional ao lado da agenda */}
+          <div className="rounded-xl border border-white/5 bg-white/[0.03] p-2.5">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/20 text-brand-light">
+                <Wind size={16} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[9px] uppercase tracking-wide text-slate-500">
+                  Condições do vento
+                </p>
+                {/* rajada em linha propria: em 375px "18 km/h · rajadas 27 km/h"
+                    quebrava deixando um "km/h" orfao na linha de baixo. */}
+                <p className="font-display text-sm font-semibold leading-tight text-white">
+                  18 km/h
+                </p>
+                <p className="text-[10px] leading-tight text-slate-400">rajadas 27 km/h</p>
               </div>
-            ))}
-          </div>
-
-          {/* grafico de receita com toggle de periodo */}
-          <div className="mt-2.5 rounded-xl border border-white/5 bg-white/[0.03] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold text-white">Receita</p>
-                <p className="text-[10px] text-slate-500">Total: {total}</p>
-              </div>
-              <div className="flex gap-1 rounded-lg bg-black/30 p-0.5">
-                {(Object.keys(PERIODS) as (keyof typeof PERIODS)[]).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPeriod(p)}
-                    className={`rounded-md px-1.5 py-0.5 text-[9px] font-medium transition ${
-                      period === p ? "bg-brand text-white" : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
+              <span className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-1.5 py-1 text-[10px] font-medium text-slate-300">
+                <Navigation size={11} style={{ transform: "rotate(135deg)" }} />
+                SE
+              </span>
             </div>
-            <div className="flex h-16 items-end justify-between gap-1">
-              {bars.map((h, i) => (
-                <div
-                  key={`${period}-${i}`}
-                  className="flex-1 rounded-t bg-gradient-to-t from-brand to-brand-light transition-all duration-500 ease-out"
-                  style={{ height: `${h}%` }}
-                />
+            <div className="mt-2 flex gap-1.5">
+              {VENTO_HORAS.map((p) => (
+                <span
+                  key={p.h}
+                  className="flex-1 rounded-md bg-black/25 px-1 py-1 text-center text-[9px] text-slate-400"
+                >
+                  <span className="block text-slate-500">{p.h}</span>
+                  <span className="block font-semibold text-slate-200">{p.v} km/h</span>
+                </span>
               ))}
             </div>
           </div>
 
-          {/* proximas saidas */}
-          <div className="mt-2.5 rounded-xl border border-white/5 bg-white/[0.03] p-3">
-            <p className="mb-2 text-[11px] font-semibold text-white">Próximas saídas</p>
-            <ul className="space-y-1.5">
-              {SAIDAS.map((s) => (
-                <li
-                  key={s.t}
-                  className="flex items-center gap-2.5 rounded-lg px-1.5 py-1 transition hover:bg-white/5"
+          {/* saidas do dia com ocupacao */}
+          <div className="mt-2.5 space-y-1.5">
+            {AGENDA.map((s, i) => {
+              const pct = Math.round((s.booked / s.capacity) * 100);
+              const tone = occupancyTone(pct);
+              return (
+                <div
+                  key={s.time}
+                  className={`rounded-xl border p-2.5 ${
+                    i === 0
+                      ? "border-brand/30 bg-brand/10"
+                      : "border-white/5 bg-white/[0.03]"
+                  }`}
                 >
-                  <span className="font-display text-xs font-semibold text-white">{s.t}</span>
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-display text-xs font-semibold text-white">{s.time}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-medium text-slate-100">
+                        {s.tour}
+                      </span>
+                      <span className="block truncate text-[10px] text-slate-500">{s.boat}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[11px] font-semibold text-white">
+                        {s.booked}/{s.capacity}
+                      </span>
+                      <span className={`block text-[9px] font-medium ${tone.text}`}>{pct}%</span>
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/10">
+                    <div className={`h-1 rounded-full ${tone.bar}`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* reservas recentes com origem */}
+          <div className="mt-2.5 rounded-xl border border-white/5 bg-white/[0.03] p-3">
+            <p className="mb-2 text-[11px] font-semibold text-white">Reservas recentes</p>
+            <ul className="space-y-1.5">
+              {RESERVAS.map((r) => (
+                <li key={r.tour} className="flex items-center gap-2">
+                  {r.fresh ? (
+                    <span className="relative flex h-1.5 w-1.5 shrink-0">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    </span>
+                  ) : (
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-600" />
+                  )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[11px] font-medium text-slate-200">
-                      {s.name}
+                      {r.tour}
                     </span>
-                    <span className="block truncate text-[10px] text-slate-500">{s.sub}</span>
+                    <span className="block truncate text-[10px] text-slate-500">{r.detail}</span>
                   </span>
-                  <span className={`text-[10px] font-semibold ${s.tone}`}>●</span>
+                  <span
+                    className={`shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-semibold ${
+                      r.origin === "ToursFlow"
+                        ? "bg-brand/20 text-brand-light"
+                        : "bg-white/5 text-slate-400"
+                    }`}
+                  >
+                    {r.origin}
+                  </span>
                 </li>
               ))}
             </ul>

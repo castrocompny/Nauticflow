@@ -1,9 +1,11 @@
-import { CalendarClock, MailCheck, ClipboardList, Check, type LucideIcon } from "lucide-react";
+import { MailCheck, ClipboardList, Check, type LucideIcon } from "lucide-react";
 
-// "Veja por dentro" -- 3 telas recriadas em HTML fiéis ao layout real do app
-// (Agenda e Manifesto vistos em prints reais; Voucher é a peça que o cliente recebe
-// por e-mail). Dados de exemplo limpos, nada de conta real. As telas do app ficam no
-// tema escuro (como o produto); o voucher é claro porque é um e-mail pro cliente.
+// "Veja por dentro" -- telas recriadas em HTML fiéis ao layout real do app.
+// Dados de exemplo limpos, nada de conta real. As telas do app ficam no tema
+// escuro (como o produto); o voucher é claro porque é um e-mail pro cliente.
+// A tela de Agenda saiu daqui de propósito: o mockup do Dashboard no topo da
+// página já mostra a agenda do dia, e repetir a mesma tela duas vezes só
+// alongaria a landing sem dizer nada novo.
 
 function WindowChrome({ label }: { label: string }) {
   return (
@@ -12,45 +14,6 @@ function WindowChrome({ label }: { label: string }) {
       <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
       <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
       <span className="ml-3 text-[11px] font-medium text-slate-500">{label}</span>
-    </div>
-  );
-}
-
-function AgendaScreen() {
-  const rows = [
-    { t: "09:00", label: "livre" },
-    { t: "11:30", name: "Lancha Azul", sub: "Ilhas · 6/8", filled: true },
-    { t: "13:00", label: "livre" },
-    { t: "15:40", name: "Rio Azul", sub: "Geribá · 26/46", filled: true, hot: true },
-    { t: "17:00", name: "Escuna Amigos", sub: "Pôr do sol · 12/40", filled: true },
-    { t: "19:00", label: "livre" },
-  ];
-  return (
-    <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0a1020] shadow-2xl ring-1 ring-black/20">
-      <WindowChrome label="nauticflow.com.br/agenda" />
-      <div className="p-4">
-        <p className="text-[13px] font-semibold text-white">Agenda · Hoje</p>
-        <p className="mb-3 text-[10px] text-slate-500">Quinta-feira, 20 de agosto</p>
-        <div className="divide-y divide-white/5 rounded-xl border border-white/5 bg-white/[0.02]">
-          {rows.map((r) => (
-            <div key={r.t} className="flex items-center gap-3 px-3 py-2">
-              <span className="w-10 shrink-0 text-[11px] font-medium text-slate-400">{r.t}</span>
-              {r.filled ? (
-                <span
-                  className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1 text-[11px] font-medium ${
-                    r.hot ? "bg-brand/20 text-brand-light" : "bg-white/5 text-slate-200"
-                  }`}
-                >
-                  <span className="font-semibold">{r.name}</span>
-                  <span className="text-slate-400">{r.sub}</span>
-                </span>
-              ) : (
-                <span className="text-[11px] text-slate-600">{r.label}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
@@ -166,14 +129,6 @@ const ROWS: {
   screen: React.ReactNode;
 }[] = [
   {
-    icon: CalendarClock,
-    eyebrow: "Agenda",
-    title: "Toda a operação do dia numa tela",
-    desc: "Veja as saídas por horário, a lotação de cada embarcação e o que ainda está livre — do celular no píer ou do computador no escritório.",
-    bullets: ["Saídas por horário", "Lotação em tempo real", "Status de cada barco"],
-    screen: <AgendaScreen />,
-  },
-  {
     icon: MailCheck,
     eyebrow: "Voucher automático",
     title: "O cliente recebe o voucher na hora",
@@ -200,10 +155,10 @@ export function Showcase() {
             Veja por dentro
           </span>
           <h2 className="mt-4 font-display text-3xl font-semibold leading-tight text-heading sm:text-4xl">
-            O sistema por dentro, sem enrolação
+            Da reserva confirmada ao embarque
           </h2>
           <p className="mt-4 text-lg text-body">
-            Telas reais do que você usa no dia a dia — da agenda ao embarque.
+            O que o sistema entrega sozinho depois que a reserva entra — sem ninguém digitar nada.
           </p>
         </div>
 
