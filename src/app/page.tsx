@@ -6,6 +6,7 @@ import { BeforeAfter } from "@/components/marketing/before-after";
 import { Automation } from "@/components/marketing/automation";
 import { Ecosystem } from "@/components/marketing/ecosystem";
 import { SalesFlow } from "@/components/marketing/sales-flow";
+import { DemoVideo } from "@/components/marketing/demo-video";
 import { BookingModels } from "@/components/marketing/booking-models";
 import { OperationOverview } from "@/components/marketing/operation-overview";
 import { OperationSuite } from "@/components/marketing/operation-suite";
@@ -17,6 +18,7 @@ import { Faq } from "@/components/marketing/faq";
 import { FinalCta } from "@/components/marketing/final-cta";
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { WhatsAppButton } from "@/components/marketing/whatsapp-button";
+import { MarketingMotionStyles } from "@/components/marketing/motion";
 import { MKT_PLANS } from "@/components/marketing/plans";
 
 export const metadata: Metadata = {
@@ -86,6 +88,7 @@ export default function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+      <MarketingMotionStyles />
       <SiteHeader />
       <main>
         <Hero />
@@ -94,6 +97,7 @@ export default function Home() {
         <Automation />
         <Ecosystem />
         <SalesFlow />
+        <DemoVideo />
         <BookingModels />
         <OperationOverview />
         <OperationSuite />
