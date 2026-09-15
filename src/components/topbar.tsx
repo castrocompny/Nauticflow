@@ -1,9 +1,31 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { Menu } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { NotificationsBell, type Notif } from "@/components/notifications-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
+
+// "Hoje" nunca muda por conta própria enquanto a aba fica aberta (não
+// precisa de um `subscribe` real) -- só não pode ser calculado durante o
+// render (ver comentário abaixo), então useSyncExternalStore com um
+// getServerSnapshot fixo é o jeito correto, sem violar as regras de
+// pureza de render deste projeto.
+function subscribeNoop() {
+  return () => {};
+}
+function getServerToday() {
+  return "";
+}
+function getClientToday() {
+  return new Date().toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    timeZone: "America/Sao_Paulo",
+  });
+}
 
 export function Topbar({
   name,
@@ -16,12 +38,17 @@ export function Topbar({
   notifications: Notif[];
   onMenuClick?: () => void;
 }) {
-  const today = new Date().toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
+  // Achado real (auditoria E2E do alerta de reserva, sem relação com o
+  // recurso em si -- bug pré-existente, confirmado via teste A/B com/sem
+  // ReservationNotifier: o erro de hidratação continuava idêntico mesmo
+  // com o notifier desligado): `new Date()` direto no corpo do render é
+  // impuro -- o servidor calcula num instante, a hidratação no navegador
+  // recalcula num instante ligeiramente diferente (e potencialmente noutro
+  // fuso, já que o runtime da Vercel não roda em America/Sao_Paulo) -- o
+  // texto renderizado pode divergir e o React derruba a árvore inteira com
+  // erro de hidratação (#418, "text mismatch"). Corrigido com
+  // useSyncExternalStore (nunca calculado durante o render em si).
+  const today = useSyncExternalStore(subscribeNoop, getClientToday, getServerToday);
   const initial = (name || "?").trim().charAt(0).toUpperCase();
   return (
     <header className="flex items-center justify-between gap-4 border-b border-line bg-surface px-4 py-3 sm:px-6">
