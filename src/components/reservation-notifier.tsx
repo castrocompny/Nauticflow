@@ -37,13 +37,23 @@ const BROADCAST_CHANNEL_NAME = "nauticflow:reservation-alert";
 // Desempate determinístico entre abas (seção 11): cada aba que recebe o MESMO
 // evento (Realtime entrega a cada aba com sua própria subscrição -- não é uma
 // mensagem única compartilhada) faz um "claim" com seu próprio tabId + um
-// timestamp de alta resolução, transmite pelo BroadcastChannel, espera uma
-// janela curta por claims de outras abas do MESMO evento, e todas as abas
-// calculam o MESMO vencedor a partir do mesmo conjunto de claims (menor
-// timestamp, empate por tabId) -- sem precisar de um líder eleito
-// previamente nem de nenhuma coordenação central. Só a aba vencedora toca som
-// e dispara a Notification; toast aparece em todas (é só "atualizar a UI
-// normalmente", pedido explícito da seção 11).
+// timestamp, transmite pelo BroadcastChannel, espera uma janela curta por
+// claims de outras abas do MESMO evento, e todas as abas calculam o MESMO
+// vencedor a partir do mesmo conjunto de claims (menor timestamp, empate por
+// tabId) -- sem precisar de um líder eleito previamente nem de nenhuma
+// coordenação central. Só a aba vencedora toca som e dispara a Notification;
+// toast aparece em todas (é só "atualizar a UI normalmente", pedido explícito
+// da seção 11).
+//
+// BUG REAL encontrado e corrigido via teste E2E com duas abas de verdade
+// (Playwright): o timestamp do claim usava `performance.now()`, que é
+// relativo ao instante de NAVEGAÇÃO de CADA página, não um relógio
+// compartilhado -- comparar `performance.now()` de duas abas diferentes é
+// comparar números em escalas diferentes, então as duas abas podiam concluir
+// (cada uma, de forma independente e "correta" segundo sua própria conta)
+// que ELA MESMA era a vencedora -- som tocando duplicado. `Date.now()` é
+// hora de parede (época Unix), genuinamente comparável entre abas/páginas
+// diferentes -- é o valor certo para arbitragem entre abas.
 const CLAIM_WINDOW_MS = 150;
 const TAB_ID = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
@@ -96,7 +106,7 @@ export function ReservationNotifier() {
 
   const arbitrateAndAlert = useCallback(
     (payload: AlertPayload) => {
-      const myClaim = { tabId: TAB_ID, ts: performance.now() };
+      const myClaim = { tabId: TAB_ID, ts: Date.now() };
       const list = claimsRef.current.get(payload.id) ?? [];
       list.push(myClaim);
       claimsRef.current.set(payload.id, list);
