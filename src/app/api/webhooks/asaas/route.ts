@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { timingSafeEqual } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { logSecurityEvent } from "@/lib/security-log";
+import { verifyAsaasPaymentSettled } from "@/lib/asaas";
 
 // Recebe as notificacoes de pagamento do Asaas (evento PAYMENT_CONFIRMED/PAYMENT_RECEIVED)
 // e renova a assinatura da empresa correspondente automaticamente. TAMBÉM recebe (a
@@ -24,6 +25,14 @@ import { logSecurityEvent } from "@/lib/security-log";
 // que ELE diz, não pelo que "deveria" ter vindo antes.
 
 const RELEVANT_EVENTS = new Set(["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"]);
+
+// Status do Asaas (consultados na API, nunca lidos do corpo do webhook) que
+// contam como cobrança paga. Assinatura SaaS: CONFIRMED (cartão aprovado, ainda
+// não caiu na conta) renova, igual já acontecia com o evento PAYMENT_CONFIRMED.
+// Marketplace: só RECEIVED -- dinheiro efetivamente na conta, nunca
+// RECEIVED_IN_CASH (baixa manual no painel, sem dinheiro passando pelo Asaas).
+const SAAS_SETTLED_STATUSES = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"] as const;
+const MARKETPLACE_SETTLED_STATUSES = ["RECEIVED"] as const;
 
 // PIX DO CLIENTE (marketplace) -- MESMOS nomes de evento PAYMENT_CONFIRMED/
 // PAYMENT_RECEIVED do fluxo SaaS acima (Asaas não distingue "tipo" de
@@ -110,6 +119,20 @@ export async function POST(request: Request) {
 
   const paymentId = payment.id as string | undefined;
   if (!paymentId) return NextResponse.json({ ok: true });
+
+  // confirma no próprio Asaas ANTES da marca de dedupe -- se a consulta falhar
+  // por instabilidade, o evento não fica marcado como processado e o reenvio
+  // do Asaas ainda consegue renovar (ver verifyAsaasPaymentSettled).
+  const verification = await verifyAsaasPaymentSettled({
+    providerPaymentId: paymentId,
+    expectedExternalReference: companyId,
+    acceptedStatuses: SAAS_SETTLED_STATUSES,
+  });
+  if (!verification.ok) {
+    logSecurityEvent("asaas_webhook_payment_not_verified", { flow: "saas", event, paymentId, reason: verification.reason });
+    if (verification.retryable) return NextResponse.json({ error: "verification_unavailable" }, { status: 503 });
+    return NextResponse.json({ ok: true });
+  }
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -249,6 +272,30 @@ async function handleMarketplacePaymentEvent(
 
   const eventKey = notificationId ?? providerPaymentId;
 
+  // PAYMENT_RECEIVED é o único evento que move dinheiro (liquida e credita o
+  // ledger) -- confirmado no Asaas ANTES da marca de dedupe, mesmo motivo do
+  // fluxo SaaS. O valor liquidado passa a ser o que a API do Asaas devolve,
+  // nunca o `payment.value` do corpo do webhook.
+  let verifiedAmountCents: number | null = null;
+  if (event === "PAYMENT_RECEIVED") {
+    const verification = await verifyAsaasPaymentSettled({
+      providerPaymentId,
+      expectedExternalReference: internalPaymentId,
+      acceptedStatuses: MARKETPLACE_SETTLED_STATUSES,
+    });
+    if (!verification.ok) {
+      logSecurityEvent("asaas_webhook_payment_not_verified", {
+        flow: "marketplace",
+        event,
+        paymentId: internalPaymentId,
+        reason: verification.reason,
+      });
+      if (verification.retryable) return NextResponse.json({ error: "verification_unavailable" }, { status: 503 });
+      return NextResponse.json({ ok: true });
+    }
+    verifiedAmountCents = verification.valueCents;
+  }
+
   const { error: dedupeError } = await supabase
     .from("processed_webhook_events")
     .insert({ provider: "asaas", event_type: event, event_key: eventKey });
@@ -269,25 +316,17 @@ async function handleMarketplacePaymentEvent(
     return NextResponse.json({ ok: true });
   }
 
-  if (event === "PAYMENT_RECEIVED") {
+  if (event === "PAYMENT_RECEIVED" && verifiedAmountCents !== null) {
     // ÚNICO gatilho financeiro real -- delega pra settle_marketplace_
     // payment_received (migration 0059), que faz tudo atomicamente
     // (verifica amount, revalida capacidade, confirma reserva, congela
     // snapshot, credita ledger -- ou cai pra manual_review sem nunca
-    // overbookar nem perder o dinheiro do cliente).
-    const rawValue = payment.value;
-    const amountCents = typeof rawValue === "number" ? Math.round(rawValue * 100) : null;
-    if (amountCents === null) {
-      // payload sem valor numérico -- nunca assume um valor, nunca liquida
-      // sem saber quanto chegou de verdade.
-      logSecurityEvent("marketplace_payment_webhook_missing_value", { paymentId: internalPaymentId });
-      return NextResponse.json({ ok: true });
-    }
-
+    // overbookar nem perder o dinheiro do cliente). O amount aqui é o
+    // valor confirmado pela API do Asaas (verifyAsaasPaymentSettled acima).
     const { error: settleError } = await supabase.rpc("settle_marketplace_payment_received", {
       p_internal_payment_id: internalPaymentId,
       p_provider_payment_id: providerPaymentId,
-      p_confirmed_amount_cents: amountCents,
+      p_confirmed_amount_cents: verifiedAmountCents,
     });
     if (settleError) {
       // nunca falha silenciosamente -- loga sem PII/payload bruto (só o

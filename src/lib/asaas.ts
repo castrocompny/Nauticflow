@@ -94,6 +94,71 @@ export async function getFirstInvoiceUrl(subscriptionId: string): Promise<AsaasR
 }
 
 // ============================================================================
+// VERIFICAÇÃO DE PAGAMENTO NO PROVIDER -- defesa em profundidade do webhook
+// (src/app/api/webhooks/asaas/route.ts). O token do webhook prova que a
+// chamada veio de quem conhece ASAAS_WEBHOOK_TOKEN, mas o corpo dela nunca é
+// tratado como verdade financeira: antes de renovar um plano ou liquidar um
+// pagamento, o webhook consulta GET /v3/payments/{id} e só segue se o Asaas
+// confirmar que a cobrança existe, pertence àquele externalReference e está
+// num status aceito. Se o token vazar, um corpo forjado não renova nada nem
+// credita nada -- o pagamento precisa existir de verdade na conta.
+//
+// `retryable` separa os dois tipos de recusa: falha de comunicação/config
+// (timeout, 5xx, chave ausente/inválida) é retryable -- o webhook responde
+// erro e o Asaas reenvia depois, sem perder o evento; resposta definitiva do
+// Asaas (não existe, status errado, referência divergente) não é -- o
+// webhook ignora o evento e loga, nunca fica pedindo reenvio de algo forjado.
+// ============================================================================
+type AsaasPaymentLookup = {
+  id: string;
+  status: string;
+  value: number;
+  externalReference: string | null;
+  deleted?: boolean;
+};
+
+export type AsaasPaymentVerification =
+  | { ok: true; status: string; valueCents: number }
+  | { ok: false; retryable: boolean; reason: string };
+
+export async function verifyAsaasPaymentSettled(params: {
+  providerPaymentId: string;
+  expectedExternalReference: string;
+  acceptedStatuses: readonly string[];
+}): Promise<AsaasPaymentVerification> {
+  let res: AsaasResult<AsaasPaymentLookup>;
+  try {
+    res = await asaasFetch<AsaasPaymentLookup>(`/payments/${encodeURIComponent(params.providerPaymentId)}`, "GET");
+  } catch {
+    return { ok: false, retryable: true, reason: "PROVIDER_UNREACHABLE" };
+  }
+
+  if (!res.ok) {
+    // 404/400 = o Asaas respondeu que esse id não é uma cobrança válida desta
+    // conta -- definitivo. Qualquer outra coisa (sem status = chave ausente,
+    // 401 = chave inválida, 5xx) é problema nosso ou do provider, não do evento.
+    if (res.status === 404 || res.status === 400) return { ok: false, retryable: false, reason: "PAYMENT_NOT_FOUND" };
+    return { ok: false, retryable: true, reason: res.status ? `PROVIDER_HTTP_${res.status}` : "PROVIDER_NOT_CONFIGURED" };
+  }
+
+  const payment = res.data;
+  if (!payment || payment.deleted || payment.id !== params.providerPaymentId) {
+    return { ok: false, retryable: false, reason: "PAYMENT_NOT_FOUND" };
+  }
+  if (payment.externalReference !== params.expectedExternalReference) {
+    return { ok: false, retryable: false, reason: "EXTERNAL_REFERENCE_MISMATCH" };
+  }
+  if (!params.acceptedStatuses.includes(payment.status)) {
+    return { ok: false, retryable: false, reason: `STATUS_NOT_SETTLED_${payment.status}`.slice(0, 64) };
+  }
+  if (typeof payment.value !== "number") {
+    return { ok: false, retryable: false, reason: "PAYMENT_VALUE_MISSING" };
+  }
+
+  return { ok: true, status: payment.status, valueCents: Math.round(payment.value * 100) };
+}
+
+// ============================================================================
 // FASE 4A -- fundação de pagamento do MARKETPLACE (turista comprando um
 // passeio via ToursFlow), diferente de tudo acima (que é a assinatura SaaS
 // do operador). createMarketplacePayment() existe só como CONTRATO/adapter

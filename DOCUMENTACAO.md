@@ -3252,3 +3252,19 @@ Achado da revisão manual de segurança da mesma sessão: `npm audit` apontava 5
 
 **Não tocado**: código-fonte, Supabase, migrations, Asaas, variáveis de ambiente.
 
+## 149. Webhook do Asaas passa a confirmar o pagamento na API do Asaas antes de renovar plano ou liquidar marketplace (sessão de 2026-09-22)
+
+Achado da revisão manual de segurança (seção 148, mesma sessão): o webhook (`src/app/api/webhooks/asaas/route.ts`) só autenticava o header `asaas-access-token` e depois confiava no corpo -- se o `ASAAS_WEBHOOK_TOKEN` vazasse, um POST forjado renovaria qualquer plano (bastava o `externalReference` = company_id) ou liquidaria um pagamento de marketplace com o valor que o atacante escrevesse em `payment.value`.
+
+**Feito**: nova função `verifyAsaasPaymentSettled()` em `src/lib/asaas.ts` -- consulta `GET /v3/payments/{id}` e só aprova se a cobrança existe (não `deleted`), o `id` bate, o `externalReference` bate com o esperado e o status está na lista aceita. Chamada no webhook:
+- **Assinatura SaaS** (PAYMENT_CONFIRMED/RECEIVED): status aceitos `CONFIRMED`, `RECEIVED`, `RECEIVED_IN_CASH`; `externalReference` precisa ser o company_id.
+- **Marketplace PAYMENT_RECEIVED**: só `RECEIVED` (nunca `RECEIVED_IN_CASH`, que é baixa manual sem dinheiro passando pelo Asaas); `externalReference` precisa ser o `payments.id` interno; o valor passado pra `settle_marketplace_payment_received` agora é o **retornado pela API**, nunca `payment.value` do corpo.
+- Os demais eventos (PAYMENT_CONFIRMED do marketplace, DELETED, estornos, transferências) não foram alterados -- não renovam nem liquidam.
+
+**Ordem**: a verificação roda **antes** da marca de dedupe em `processed_webhook_events`. Recusa definitiva (404, status não pago, referência divergente) → loga `security.asaas_webhook_payment_not_verified` no Sentry e responde 200 (não pede reenvio de algo forjado). Falha transitória (rede, 5xx, `ASAAS_API_KEY` ausente/inválida) → responde **503**, o evento não fica marcado e o reenvio automático do Asaas processa depois.
+
+**Atenção operacional**: `ASAAS_API_URL`/`ASAAS_API_KEY` precisam apontar pra **mesma conta** que envia o webhook (sandbox com sandbox, produção com produção) -- senão todo pagamento real volta 404 e é ignorado. Vale também pra troca pra produção (ver pendência de lançamento). O Asaas pausa a fila de webhooks após falhas consecutivas; se a API dele ficar fora por muito tempo, reativar a fila no painel.
+
+**Testado**: script local com `fetch` mockado (Asaas + Supabase), 12 cenários -- token errado → 401 sem nenhuma chamada; pagamento inexistente, PENDING, ou de outra empresa → 200 sem renovar/sem dedupe; rede/500 → 503 sem dedupe; legítimo RECEIVED/CONFIRMED → renova; marketplace PENDING e RECEIVED_IN_CASH → recusados; marketplace legítimo → liquida com o valor da API (15000 centavos, ignorando os 999999 forjados no corpo); PAYMENT_CONFIRMED do marketplace não consulta a API. `tsc --noEmit` limpo, `eslint` sem erros, `next build` sucesso. **Não testado contra o sandbox real do Asaas.**
+
+**Não tocado**: migrations, RPCs, fluxo de transferências/saques, Supabase, variáveis de ambiente.
