@@ -3268,3 +3268,47 @@ Achado da revisão manual de segurança (seção 148, mesma sessão): o webhook 
 **Testado**: script local com `fetch` mockado (Asaas + Supabase), 12 cenários -- token errado → 401 sem nenhuma chamada; pagamento inexistente, PENDING, ou de outra empresa → 200 sem renovar/sem dedupe; rede/500 → 503 sem dedupe; legítimo RECEIVED/CONFIRMED → renova; marketplace PENDING e RECEIVED_IN_CASH → recusados; marketplace legítimo → liquida com o valor da API (15000 centavos, ignorando os 999999 forjados no corpo); PAYMENT_CONFIRMED do marketplace não consulta a API. `tsc --noEmit` limpo, `eslint` sem erros, `next build` sucesso. **Não testado contra o sandbox real do Asaas.**
 
 **Não tocado**: migrations, RPCs, fluxo de transferências/saques, Supabase, variáveis de ambiente.
+
+## 150. NF-01: operador não altera mais colunas administrativas da própria empresa -- guard em allowlist no banco (migration 0077) (sessões de 2026-09-22 e 2026-09-23) -- FECHADO, aplicado e validado em Production
+
+Achado NF-01 da auditoria pós-hardening: a policy "propria empresa - update" (0000) libera UPDATE na linha inteira de `companies` pra qualquer `authenticated` da empresa. Só `asaas_wallet_id`/`asaas_receiver_status` tinham guard (0052). Com um PATCH direto no PostgREST usando o próprio JWT, uma empresa suspensa conseguia apagar `suspended_at`/`suspended_reason` e trocar `asaas_customer_id`; staff também editava os dados da empresa (a checagem de cargo só existia na Server Action `updateSettings`).
+
+**Feito**: migration `0077_company_tenant_update_guard.sql` -- trigger `BEFORE UPDATE` `trg_company_tenant_update_guard` em **allowlist**: o operador só pode mudar `name`, `cnpj`, `city`, `phone`, `weather_latitude`, `weather_longitude`, `weather_location_name` (exatamente o que `updateSettings` grava). Qualquer outra coluna -- inclusive colunas futuras -- fica bloqueada por padrão.
+- **staff**: nenhuma alteração em `companies`.
+- **company_admin**: só a allowlist.
+- **super_admin** (`is_super_admin()`): sem restrição -- suspender/reativar e editar CNPJ/cidade pelo painel continuam iguais.
+- **service_role** (`auth.role() = 'service_role'`, inclusive dentro de SECURITY DEFINER chamada por ele): sem restrição -- `link_asaas_subscription` (0030) continua gravando `asaas_customer_id`.
+- **Todo o resto é bloqueado (default deny)**: anon, papel de banco desconhecido, e sessão **sem JWT** (migration via `db push`, SQL direto como `postgres`/`supabase_admin`).
+- Reenviar o mesmo valor numa coluna protegida é no-op e passa; qualquer diferença aborta o UPDATE inteiro (nada é gravado parcialmente).
+
+**Identidade = a do request, nunca `current_user`**: o guard decide por `auth.role()`/`auth.uid()` (claims do JWT), mesmo modelo de 0052/0053/0058. Uma primeira versão da `0077` (v1, rejeitada, nunca aplicada em nenhum ambiente) liberava qualquer `current_user` fora de `authenticated`/`anon` -- mas dentro de SECURITY DEFINER `current_user` vira o dono da função (`postgres`), então qualquer SECURITY DEFINER futura que fizesse UPDATE em `companies` passaria direto pelo guard mesmo chamada por um operador. Corrigido antes de aplicar, trocando pra default deny. `session_user` também não é usado: é sempre `authenticator` em request do PostgREST (não separa SECURITY DEFINER chamada por authenticated da chamada por service_role), e o nome do papel de login em sessão direta varia por ferramenta.
+
+**Manutenção SQL direta** (raro -- suspender/reativar/CNPJ já existem no painel admin): precisa se identificar explicitamente na mesma transação, nunca liberação implícita:
+```sql
+begin;
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+update public.companies set ... where id = '...';
+commit;
+```
+Nenhuma RPC exposta chama `set_config`, então um operador não consegue forjar essas claims pelo PostgREST. Consequência prática: editar uma linha de `companies` pelo Table Editor do dashboard (sessão sem JWT) passa a ser bloqueado.
+
+Trigger em vez de GRANT por coluna porque o super_admin usa o mesmo papel de banco `authenticated` que o operador -- revogar coluna travaria o painel admin.
+
+**Testado**: harness local com PGlite (Postgres em WASM, fora do projeto) no modelo de papéis do Supabase (`authenticator` → `SET ROLE`, `auth.role()`/`auth.uid()` com a mesma definição do Supabase), montando `companies`/`profiles`/policies/guard 0052/`link_asaas_subscription` a partir do texto das migrations reais e aplicando a `0077` inteira: 25/25 cenários -- bloqueio de `suspended_at`/`suspended_reason`/`asaas_customer_id`, UPDATE misto atômico, staff bloqueado, super_admin suspende/reativa, mesmo valor, fluxos legítimos, SECURITY DEFINER de teste (owner `postgres`) chamada por authenticated bloqueada e por service_role liberada, papel fictício com `bypassrls` bloqueado, sessão direta sem JWT bloqueada, opt-in explícito de manutenção liberado, RLS cross-tenant, anon, auto-promoção. Controle negativo com a primeira versão da `0077`: 6 cenários falham (SECURITY DEFINER por authenticated, papel fictício, sessão sem JWT).
+
+**Staging** (`ddlgkrpjzmtgmoucangh`, 2026-09-23): `0077` aplicada; testes reais via PostgREST com JWT de usuários de teste criados e removidos no próprio script -- **13/13 PASS**: company_admin altera `phone` (ok), `suspended_at`/`asaas_customer_id` bloqueados (42501), PATCH misto `phone`+`suspended_at` atômico (nada gravado), staff bloqueado, company_admin de outra empresa não atinge a empresa A (RLS, 0 linhas), empresa suspensa não apaga a própria suspensão, super_admin suspende e reativa, `service_role` executa `link_asaas_subscription`, `authenticated` não executa essa RPC, anon sem permissão na tabela, reenvio do mesmo valor é no-op, e as empresas fora do teste ficaram intactas (md5 igual antes/depois). Limpeza conferida: 0 usuários e 0 empresas de teste restantes.
+
+**Production** (`gggpihphjjxndpfntnvm`, 2026-09-23): `0077` aplicada **manualmente pelo usuário no SQL Editor**, com o conteúdo exato do arquivo (resposta: "Success. No rows returned"). Uma investigação somente leitura feita antes confirmou que a produção ainda não tinha nem a função nem o trigger. Pós-checagem somente leitura aprovada:
+- função `check_company_tenant_update_guard()` existe, `prosecdef = false`, `search_path=public`; EXECUTE: `authenticated` false, `anon` false, `service_role` true;
+- trigger `trg_company_tenant_update_guard` BEFORE UPDATE FOR EACH ROW, habilitado, chamando a função certa; triggers de `companies` = exatamente `trg_company_asaas_receiver_guard` (0052) + `trg_company_tenant_update_guard`;
+- **código em produção idêntico à versão FINAL** (md5 do `prosrc` = `97e5b29333fa6921e738d7ae3ac4e281`, o mesmo do arquivo), usa `auth.role()`/`auth.uid()`/`is_super_admin()`, sem `current_user` e sem o padrão da v1;
+- md5 de policies e de grants de `companies` iguais aos do Staging;
+- única função que faz UPDATE em `companies` continua sendo `link_asaas_subscription` (definer).
+
+Ressalva de evidência (não é defeito): os hashes "antes" usados na pós-checagem vieram de uma pré-checagem rodada por engano no **Staging**, então não existe comparação antes/depois de hashes dentro da própria produção. O md5 dos dados de `companies` ficou **não comparável** (e não reprovado) por isso. A garantia de que dados, policies e grants não mudaram vem do conteúdo da migration: a `0077` só tem `create or replace function`, `drop trigger if exists`/`create trigger` e `revoke ... on function` -- nenhum DML em `companies` e nenhum DDL de policy ou grant na tabela. Baseline de produção registrado **depois** da 0077: `md5_empresas_todas = 53aae11cc2e3a3a754b6ceea786ae37a` (muda com o uso normal). Testes de comportamento não foram repetidos em produção (escreveriam em dado real); a cobertura de comportamento é a do Staging, com código idêntico.
+
+**Histórico de migrations**: como a aplicação foi pelo SQL Editor, a `0077` não foi registrada automaticamente em `supabase_migrations.schema_migrations` da produção. Reconciliado pelo caminho oficial, com autorização: `npx supabase migration repair --status applied 0077 --linked` (só grava na tabela de controle do CLI, não reexecuta o SQL -- mesmo procedimento da seção 112; nenhum INSERT manual). `npx supabase migration list --linked` confirmou **LOCAL = REMOTE até `0077`**.
+
+**Status: NF-01 FECHADO -- aplicado e validado em Staging e em Production, histórico de migrations reconciliado, nenhum rollback necessário.**
+
+**Não tocado**: código da aplicação, outras tabelas, NF-02 em diante.
