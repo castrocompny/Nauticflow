@@ -1,11 +1,12 @@
 // Constantes da landing page institucional. Mantidas aqui pra ficar num lugar só.
-// Os CTAs sao links relativos: /login e /login?mode=up ja existem no proprio app.
+// Os CTAs internos usam rotas do proprio app; o ToursFlow e o marketplace externo oficial.
 
 export const MKT_LINKS = {
   login: "/login",
   signup: "/login?mode=up",
   termos: "/termos",
   privacidade: "/privacidade",
+  toursflow: "https://toursflow.com.br",
 } as const;
 
 export const MKT_CONTACT = {
