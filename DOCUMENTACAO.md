@@ -3241,3 +3241,14 @@ Conclusão da pendência registrada na seção 144. O usuário localizou e forne
 **Testado**: Playwright (dependência local temporária, removida ao fim) em 1440/1280/768/375px -- 0 overflow horizontal, 0 pageerrors, 0 console errors novos. Confirmado por texto renderizado: frase antiga ("reservas circulam em tempo real", "a reserva criada no ToursFlow entra no NauticFlow") ausente; frase nova presente; os 4 nomes do fluxo (Operador/NauticFlow/ToursFlow/Turista) presentes; link `https://toursflow.com.br` presente exatamente uma vez, com `target="_blank"` e `rel="noopener noreferrer"` corretos. `tsc --noEmit` limpo, `eslint` 0 erros/0 warnings, `next build` sucesso. Screenshots conferidos visualmente em desktop e mobile -- fluxo horizontal com setas no desktop, empilhado verticalmente com setas rotacionadas no mobile, sem corte de texto.
 
 **Não tocado**: qualquer outra seção da landing, app autenticado, Supabase, migrations, pagamentos, Asaas, banco, regras de negócio, API do NauticFlow, e nada no repositório do ToursFlow (só lido, nunca escrito).
+
+## 148. Atualização de segurança de dependências -- Next.js 16.3.1 → 16.3.6 + `npm audit fix` (sessão de 2026-09-22)
+
+Achado da revisão manual de segurança da mesma sessão: `npm audit` apontava 5 vulnerabilidades (1 crítica, 3 altas, 1 moderada) -- a crítica era o próprio `next` 16.0.0–16.3.2 (CVEs de execução remota de código), e as altas/moderada vinham de dependências transitivas (`sharp`, `fast-uri`, `browserslist`, `baseline-browser-mapping`).
+
+**Feito**: `next` e `eslint-config-next` fixados em `16.3.6` no `package.json` (mantidos na mesma versão entre si, como antes); `npm audit fix` (sem `--force`) atualizou as transitivas -- `sharp@0.35.4`, `fast-uri@3.1.8`, `browserslist@4.29.0`. Nenhuma outra dependência direta alterada.
+
+**Verificado**: `npm audit` → 0 vulnerabilidades; `tsc --noEmit` limpo; `eslint` 0 erros (4 warnings pré-existentes de `<img>`); `next build` sucesso, todas as rotas geradas e o Proxy (`src/proxy.ts`) reconhecido.
+
+**Não tocado**: código-fonte, Supabase, migrations, Asaas, variáveis de ambiente.
+
