@@ -7,6 +7,12 @@ import {
   isAuthorizedToursFlowRequest,
   normalizeClientKey,
   MARKETPLACE_PAYMENT_ERROR_STATUS,
+  TOURSFLOW_POLL_RATE_LIMIT_CONSUMER_KEY,
+  TOURSFLOW_POLL_RATE_LIMIT_MAX_REQUESTS,
+  TOURSFLOW_POLL_RATE_LIMIT_WINDOW_SECONDS,
+  TOURSFLOW_POLL_CLIENT_RATE_LIMIT_MAX_REQUESTS,
+  TOURSFLOW_POLL_CLIENT_RATE_LIMIT_WINDOW_SECONDS,
+  buildPollClientRateLimitConsumerKey,
   type MarketplacePaymentErrorCode,
   type MarketplaceBookingStatusDTO,
 } from "@/lib/marketplace-api";
@@ -41,10 +47,45 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const clientKey = normalizeClientKey(request.headers.get("x-toursflow-client-key"));
   if (!clientKey) return fail("INVALID_CLIENT_KEY", "Cabeçalho X-ToursFlow-Client-Key ausente ou inválido.");
 
+  const admin = createAdminClient();
+
+  // Rate limit do polling (migration/achado da auditoria de prontidão
+  // ToursFlow, 2026-09-24): mesma infraestrutura (public.check_rate_limit)
+  // e mesmo padrão fail-closed das rotas POST, mas com namespace/limite
+  // PRÓPRIOS -- um polling legítimo de status chama este GET com frequência
+  // bem maior que criar reserva/pagamento (ver TOURSFLOW_POLL_* em
+  // marketplace-api.ts).
+  //
+  // Checagem do cliente ANTES da global -- achado da revisão adversarial
+  // (2026-09-24): check_rate_limit incrementa o contador na própria
+  // chamada, então checar a global primeiro deixava um único cliente acima
+  // do PRÓPRIO limite (40/min) consumir o orçamento COMPARTILHADO (200/min)
+  // com requisições que ainda assim seriam rejeitadas -- na prática,
+  // esgotando o polling de status pra todo mundo. Checando o cliente
+  // primeiro, uma requisição rejeitada por estourar o limite individual
+  // nunca chega a gastar o orçamento global.
+  const clientPollRateLimit = await admin.rpc("check_rate_limit", {
+    p_consumer_key: buildPollClientRateLimitConsumerKey(clientKey),
+    p_max_requests: TOURSFLOW_POLL_CLIENT_RATE_LIMIT_MAX_REQUESTS,
+    p_window_seconds: TOURSFLOW_POLL_CLIENT_RATE_LIMIT_WINDOW_SECONDS,
+  });
+  if (clientPollRateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
+  if (clientPollRateLimit.data !== true) {
+    return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
+  }
+
+  const globalPollRateLimit = await admin.rpc("check_rate_limit", {
+    p_consumer_key: TOURSFLOW_POLL_RATE_LIMIT_CONSUMER_KEY,
+    p_max_requests: TOURSFLOW_POLL_RATE_LIMIT_MAX_REQUESTS,
+    p_window_seconds: TOURSFLOW_POLL_RATE_LIMIT_WINDOW_SECONDS,
+  });
+  if (globalPollRateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
+  if (globalPollRateLimit.data !== true) {
+    return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
+  }
+
   const { id: bookingId } = await params;
   if (!bookingId) return fail("BOOKING_NOT_FOUND", "Reserva não encontrada.");
-
-  const admin = createAdminClient();
 
   const { data: reservation, error } = await admin
     .from("reservations")

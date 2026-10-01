@@ -98,6 +98,25 @@ export async function POST(request: Request) {
   const clientKey = normalizeClientKey(request.headers.get("x-toursflow-client-key"));
   if (!clientKey) return fail("INVALID_CLIENT_KEY", "Cabeçalho X-ToursFlow-Client-Key ausente ou inválido.");
 
+  // Checagem do cliente ANTES da global -- mesmo achado da revisão adversarial
+  // já aplicado em GET /api/marketplace/bookings/[id] (2026-09-24):
+  // check_rate_limit incrementa o contador na própria chamada, então checar a
+  // global primeiro deixava um único cliente acima do PRÓPRIO limite (40/min)
+  // consumir o orçamento COMPARTILHADO com requisições que ainda assim seriam
+  // rejeitadas. Checando o cliente primeiro, uma requisição rejeitada por
+  // estourar o limite individual nunca chega a gastar o orçamento global.
+  const clientRateLimit = await admin.rpc("check_rate_limit", {
+    p_consumer_key: buildClientRateLimitConsumerKey(clientKey),
+    p_max_requests: TOURSFLOW_CLIENT_RATE_LIMIT_MAX_REQUESTS,
+    p_window_seconds: TOURSFLOW_CLIENT_RATE_LIMIT_WINDOW_SECONDS,
+  });
+  if (clientRateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
+  if (clientRateLimit.data !== true) {
+    // mesma mensagem genérica do limite global -- nunca revela qual das duas
+    // camadas bloqueou, nem contador, hash ou qualquer detalhe interno.
+    return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
+  }
+
   // rate limit GLOBAL do consumidor "toursflow" -- protege o NauticFlow contra
   // volume total excessivo vindo do marketplace como um todo, independente de
   // quantos visitantes distintos geraram esse volume.
@@ -108,22 +127,6 @@ export async function POST(request: Request) {
   });
   if (globalRateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
   if (globalRateLimit.data !== true) {
-    return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
-  }
-
-  // rate limit POR VISITANTE -- mesma função/tabela, consumer_key própria por
-  // hash de cliente (nunca cria tabela nova). Protege contra um único
-  // visitante monopolizar tentativas/vagas, independente do volume global
-  // ainda estar dentro do limite acima.
-  const clientRateLimit = await admin.rpc("check_rate_limit", {
-    p_consumer_key: buildClientRateLimitConsumerKey(clientKey),
-    p_max_requests: TOURSFLOW_CLIENT_RATE_LIMIT_MAX_REQUESTS,
-    p_window_seconds: TOURSFLOW_CLIENT_RATE_LIMIT_WINDOW_SECONDS,
-  });
-  if (clientRateLimit.error) return fail("INTERNAL_ERROR", "Erro interno.");
-  if (clientRateLimit.data !== true) {
-    // mesma mensagem genérica do limite global -- nunca revela qual das duas
-    // camadas bloqueou, nem contador, hash ou qualquer detalhe interno.
     return fail("RATE_LIMITED", "Muitas requisições. Tente novamente em instantes.");
   }
 
