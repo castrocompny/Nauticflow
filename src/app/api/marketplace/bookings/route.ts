@@ -278,6 +278,13 @@ export async function POST(request: Request) {
     if (rpcError.message.includes("DEPARTURE_NOT_FOUND")) {
       return fail("DEPARTURE_NOT_FOUND", "Saída não encontrada.");
     }
+    // defesa em profundidade (migration 0078): a rota já checou tour.active
+    // acima antes de chegar aqui, mas a RPC reconfirma na mesma transação que
+    // cria a reserva -- mesmo 404 genérico já usado pra passeio arquivado,
+    // nunca revela o motivo real pro ToursFlow.
+    if (rpcError.message.includes("TOUR_ARCHIVED")) {
+      return fail("DEPARTURE_NOT_FOUND", "Saída não encontrada.");
+    }
     // defesa em profundidade: a rota já checou isso acima antes de chegar aqui,
     // mas a RPC (migration 0044) reconfirma -- nunca confiar só na camada de cima.
     if (rpcError.message.includes("COMPANY_NOT_AVAILABLE")) {

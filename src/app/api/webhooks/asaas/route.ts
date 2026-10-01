@@ -75,6 +75,20 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Chave de idempotência POR EVENTO (fluxos de marketplace e transferência):
+// o id da notificação (`body.id`) quando o Asaas manda -- reenvio do mesmo
+// evento traz o mesmo id. Sem ele, `${event}:${id do objeto}` -- nunca o id do
+// objeto cru, que faria eventos DIFERENTES do mesmo pagamento/transferência
+// colidirem (ex: PAYMENT_CONFIRMED gravando payment.id e o PAYMENT_RECEIVED
+// seguinte, o que liquida, sendo descartado como "duplicado"). O prefixo com o
+// nome do evento também nunca colide com a chave do fluxo SaaS (payment.id
+// cru, migration 0079) nem com um id de notificação.
+function perEventKey(event: string, notificationId: string | undefined, providerObjectId: string): string {
+  return notificationId ? notificationId : `${event}:${providerObjectId}`;
+}
+
 export async function POST(request: Request) {
   const token = request.headers.get("asaas-access-token");
   const secret = process.env.ASAAS_WEBHOOK_TOKEN;
@@ -86,10 +100,10 @@ export async function POST(request: Request) {
   const event = body?.event as string | undefined;
   const payment = body?.payment;
   const transfer = body?.transfer;
-  // id do EVENTO em si (envelope da notificação, distinto de transfer.id) --
-  // usado como chave de idempotência do fluxo de transferência, ver
-  // handleTransferEvent.
-  const notificationId = body?.id as string | undefined;
+  // id do EVENTO em si (envelope da notificação, distinto de transfer.id/
+  // payment.id) -- chave de idempotência dos fluxos de transferência e de
+  // marketplace, ver perEventKey.
+  const notificationId = typeof body?.id === "string" && body.id.length > 0 ? (body.id as string) : undefined;
 
   if (event && transfer && (IN_PROGRESS_TRANSFER_EVENTS.has(event) || event in TERMINAL_TRANSFER_EVENTS)) {
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -98,12 +112,25 @@ export async function POST(request: Request) {
 
   if (event && payment && MARKETPLACE_PAYMENT_EVENTS.has(event)) {
     const internalPaymentId = payment.externalReference as string | undefined;
-    if (internalPaymentId) {
+    // payments.id é uuid -- externalReference fora desse formato nunca é uma
+    // linha de payments (e consultar geraria erro de cast, 5xx em loop).
+    if (internalPaymentId && UUID_RE.test(internalPaymentId)) {
       const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
       // só entra no fluxo marketplace se externalReference corresponder a
       // uma linha REAL de payments -- nunca assume pelo nome do evento
       // sozinho (que é idêntico ao do fluxo SaaS).
-      const { data: marketplacePayment } = await supabase.from("payments").select("id").eq("id", internalPaymentId).maybeSingle();
+      const { data: marketplacePayment, error: lookupError } = await supabase
+        .from("payments")
+        .select("id")
+        .eq("id", internalPaymentId)
+        .maybeSingle();
+      if (lookupError) {
+        // sem saber se é marketplace, não pode cair no fluxo SaaS (o pagamento
+        // seria tratado como company_id errado e descartado com 200) -- 5xx
+        // pro Asaas reenviar; nada foi gravado ainda.
+        logSecurityEvent("asaas_webhook_payment_lookup_failed", { event, paymentId: payment.id, errorCode: lookupError.message.slice(0, 64) });
+        return NextResponse.json({ error: "payment_lookup_failed" }, { status: 500 });
+      }
       if (marketplacePayment) {
         return handleMarketplacePaymentEvent(supabase, event, payment, notificationId);
       }
@@ -134,40 +161,44 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-
-  // idempotência: registra a chave (provider, payment.id) ANTES de renovar. Se o
-  // Asaas reenviar a mesma notificação, ou mandar PAYMENT_CONFIRMED e depois
-  // PAYMENT_RECEIVED pro mesmo pagamento, o insert bate na unique constraint e a
-  // gente nunca soma o prazo duas vezes pra mesma cobrança (migration 0037).
-  const { error: dedupeError } = await supabase
-    .from("processed_webhook_events")
-    .insert({ provider: "asaas", event_type: event, event_key: paymentId });
-  if (dedupeError) {
-    if (dedupeError.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
-    // erro inesperado ao gravar a marca de dedupe: não falha o webhook por isso
-    // (o Asaas reenviaria em loop), só não renova por segurança nesta chamada
+  // externalReference do SaaS é sempre o company_id (uuid) gravado por
+  // createSubscription -- qualquer outra coisa nunca vai casar com uma empresa,
+  // então é ignorada (e logada) em vez de virar erro de cast no banco e 5xx em loop.
+  if (!UUID_RE.test(companyId)) {
+    logSecurityEvent("asaas_webhook_invalid_company_reference", { flow: "saas", event, paymentId });
     return NextResponse.json({ ok: true });
   }
 
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("id, paid_until, billing_cycle")
-    .eq("company_id", companyId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!sub) return NextResponse.json({ ok: true });
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-  // renova pelo tamanho do ciclo: 1 ano (anual) ou 30 dias (mensal)
-  const days = sub.billing_cycle === "anual" ? 365 : 30;
-  const base = sub.paid_until && new Date(sub.paid_until) > new Date() ? new Date(sub.paid_until) : new Date();
-  base.setDate(base.getDate() + days);
-
-  await supabase
-    .from("subscriptions")
-    .update({ paid_until: base.toISOString(), status: "ativa" })
-    .eq("id", sub.id);
+  // idempotência + renovação numa única transação (migration 0079): a marca
+  // (provider, payment.id) da 0037 só fica gravada se a renovação também
+  // ficar. Reenvio da mesma notificação, ou PAYMENT_CONFIRMED seguido de
+  // PAYMENT_RECEIVED do mesmo pagamento, volta 'duplicate' e nunca soma o prazo
+  // duas vezes. Qualquer erro desfaz tudo e responde 5xx -- o Asaas reenvia e
+  // o evento é processado de novo, nunca fica "marcado mas não renovado".
+  const { data: renewal, error: renewalError } = await supabase.rpc("renew_subscription_from_asaas_payment", {
+    p_company_id: companyId,
+    p_provider_payment_id: paymentId,
+    p_event_type: event,
+  });
+  if (renewalError) {
+    logSecurityEvent("asaas_webhook_renewal_failed", { flow: "saas", event, paymentId, errorCode: renewalError.message.slice(0, 64) });
+    return NextResponse.json({ error: "renewal_failed" }, { status: 500 });
+  }
+  if (renewal === "duplicate") return NextResponse.json({ ok: true, duplicate: true });
+  if (renewal === "no_subscription") {
+    // pagamento confirmado no Asaas pra uma empresa sem assinatura -- nada foi
+    // gravado (nem a marca de dedupe), então um reenvio depois de corrigir o
+    // cadastro ainda renova. Não pede reenvio automático (não se resolve
+    // sozinho e pausaria a fila de webhooks do Asaas); fica pro log/revisão.
+    logSecurityEvent("asaas_webhook_subscription_not_found", { flow: "saas", event, paymentId, companyId });
+    return NextResponse.json({ ok: true, ignored: "no_subscription" });
+  }
+  if (renewal !== "renewed") {
+    logSecurityEvent("asaas_webhook_renewal_failed", { flow: "saas", event, paymentId, errorCode: "UNEXPECTED_RESULT" });
+    return NextResponse.json({ error: "renewal_failed" }, { status: 500 });
+  }
 
   // sem o "force-dynamic" global no layout, precisa disso pra sidebar/topbar da empresa
   // mostrarem o plano/vencimento renovados na próxima navegação, e não o dado antigo em cache
@@ -190,13 +221,9 @@ export async function POST(request: Request) {
 // diferentes da MESMA transferência uns contra os outros pela pouca sorte de
 // compartilharem o event_type em replays intermediários. A chave de
 // idempotência aqui é o id do EVENTO em si (o envelope da notificação,
-// `body.id` -- distinto de `transfer.id`) quando presente; cai pra
-// transfer.id só se o provider genuinamente não mandar um id de evento
-// (nesse caso o comportamento é o mesmo de antes: eventos com o mesmo
-// event_type "colidem" entre si, o que é aceitável já que os eventos
-// intermediários são todos idempotentes por natureza -- ver
-// IN_PROGRESS_TRANSFER_EVENTS abaixo). Fluxo de pagamento SaaS (payment.id)
-// NÃO foi alterado.
+// `body.id` -- distinto de `transfer.id`) quando presente; sem ele, cai pra
+// `${event}:${transfer.id}` (ver perEventKey) -- só o reenvio do MESMO
+// evento colide, nunca CREATED contra DONE da mesma transferência.
 async function handleTransferEvent(
   supabase: SupabaseClient,
   event: string,
@@ -207,14 +234,17 @@ async function handleTransferEvent(
   const withdrawalId = transfer.externalReference as string | undefined;
   if (!providerTransferId || !withdrawalId) return NextResponse.json({ ok: true });
 
-  const eventKey = notificationId ?? providerTransferId;
+  const eventKey = perEventKey(event, notificationId, providerTransferId);
 
   const { error: dedupeError } = await supabase
     .from("processed_webhook_events")
     .insert({ provider: "asaas", event_type: event, event_key: eventKey });
   if (dedupeError) {
     if (dedupeError.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
-    return NextResponse.json({ ok: true });
+    // erro inesperado ao gravar a marca: nada foi processado -- responde 5xx
+    // pro Asaas reenviar, em vez de 200 que descartaria o evento em silêncio.
+    logSecurityEvent("asaas_webhook_dedupe_failed", { flow: "transfer", event, errorCode: dedupeError.message.slice(0, 64) });
+    return NextResponse.json({ error: "dedupe_failed" }, { status: 500 });
   }
 
   // Eventos intermediários (incluindo BLOCKED) -- garante que o saque saia de
@@ -270,7 +300,7 @@ async function handleMarketplacePaymentEvent(
   const internalPaymentId = payment.externalReference as string | undefined;
   if (!providerPaymentId || !internalPaymentId) return NextResponse.json({ ok: true });
 
-  const eventKey = notificationId ?? providerPaymentId;
+  const eventKey = perEventKey(event, notificationId, providerPaymentId);
 
   // PAYMENT_RECEIVED é o único evento que move dinheiro (liquida e credita o
   // ledger) -- confirmado no Asaas ANTES da marca de dedupe, mesmo motivo do
@@ -301,7 +331,10 @@ async function handleMarketplacePaymentEvent(
     .insert({ provider: "asaas", event_type: event, event_key: eventKey });
   if (dedupeError) {
     if (dedupeError.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
-    return NextResponse.json({ ok: true });
+    // erro inesperado ao gravar a marca: nada foi processado -- responde 5xx
+    // pro Asaas reenviar, em vez de 200 que descartaria o evento em silêncio.
+    logSecurityEvent("asaas_webhook_dedupe_failed", { flow: "marketplace", event, errorCode: dedupeError.message.slice(0, 64) });
+    return NextResponse.json({ error: "dedupe_failed" }, { status: 500 });
   }
 
   if (event === "PAYMENT_CONFIRMED") {
