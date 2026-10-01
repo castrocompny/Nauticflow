@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ExternalLink } from "lucide-react";
 import { DashboardMockup } from "./dashboard-mockup";
 import { MKT_LINKS } from "./plans";
 
@@ -57,16 +57,16 @@ export function Hero() {
             ))}
           </p>
 
-          {/* Mencao discreta ao ecossistema: o NauticFlow continua sendo o
-              assunto do hero, o ToursFlow so aparece como contexto e leva pra
-              secao propria mais abaixo (ancora interna, nunca link externo). */}
+          {/* CTA secundario para o marketplace oficial. Mantem o NauticFlow como
+              foco principal do hero e abre o ToursFlow em uma nova aba. */}
           <a
-            href="#ecossistema"
-            className="mt-7 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs text-slate-300 transition hover:border-brand-light/40 hover:text-white"
+            href={MKT_LINKS.toursflow}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-7 inline-flex items-center gap-2 rounded-lg border border-brand-light/40 bg-brand-light/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-brand-light/70 hover:bg-brand-light/15"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-light" />
-            Parte do ecossistema NauticFlow + ToursFlow
-            <ArrowRight size={13} className="text-brand-light" />
+            Explorar passeios no ToursFlow
+            <ExternalLink size={15} className="text-brand-light" />
           </a>
         </div>
 
