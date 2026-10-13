@@ -41,7 +41,7 @@ Regras críticas ficam no PostgreSQL: capacidade comercial, vagas concorrentes, 
 
 ## Integrações
 
-- ToursFlow: marketplace público; consome passeios, destinos, categorias, saídas e registra reservas pela API.
+- ToursFlow: marketplace público; consome passeios, destinos, categorias, saídas e registra reservas pela API. É dono da política de cancelamento/reembolso; o NauticFlow grava na reserva um snapshot imutável da política aceita (migration 0080, `docs/PUBLIC-API-CONTRACT.md` seção 12).
 - Asaas: checkout, assinaturas e webhooks de pagamento.
 - Resend: e-mails transacionais.
 - Sentry: erros e observabilidade.
@@ -51,6 +51,8 @@ Regras críticas ficam no PostgreSQL: capacidade comercial, vagas concorrentes, 
 
 - Supabase service role somente no servidor/webhook/admin; nunca no bundle do navegador.
 - RLS, grants e triggers devem ser tratados como parte do contrato de segurança.
+- Reserva do marketplace tem identidade imutável no banco (`source`, `idempotency_key`, `request_fingerprint`, `company_id`) e não pode ser apagada, só cancelada (migration 0080) — a policy RLS de `reservations` é ampla (`for all`), então invariantes por coluna vivem em triggers. Reserva marketplace só nasce pelas RPCs `create_marketplace_booking` (marca transacional `nauticflow.marketplace_booking_insert` exigida pelo trigger, não lista de papéis).
+- Testes de banco (pgTAP) ficam em `supabase/tests/database/` e rodam só no Supabase local (`supabase test db --local`).
 - Webhooks precisam autenticar o token e manter idempotência.
 - Não expor detalhes internos ou stack traces em respostas públicas.
 - Não aplicar migrations diretamente sem confirmar ambiente e ordem.

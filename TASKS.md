@@ -15,6 +15,13 @@
 - [ ] Completar/validar `.env.example` sem incluir segredos.
 - [ ] Confirmar estado real de produção e Sandbox do Asaas antes de qualquer lançamento comercial.
 - [ ] Aplicar/verificar migrations pendentes no ambiente correto, sem assumir que arquivo local significa migration aplicada.
+- [x] Validar a migration `0080_marketplace_policy_snapshot.sql` em ambiente local/isolado antes de qualquer aplicação (2026-10-13: Supabase local, pgTAP `supabase/tests/database/` 83/83 — snapshot 46 + identidade/DELETE/marca da RPC 37).
+- [x] Corrigir bypass de idempotência: operador alterava `source`/key/fingerprint ou apagava reserva marketplace e o replay criava outra reserva (0080, triggers de identidade e DELETE).
+- [x] Autorização positiva do INSERT marketplace (marca transacional da RPC em vez de lista de papéis), forma canônica da política no banco, NUL → 400 e contrato com 201/200/`Idempotency-Replayed` e tabela de erros (2026-10-13).
+- [ ] Rodar o pgTAP (`supabase test db --local`) em CI/script do projeto.
+- [ ] Esconder o botão "Excluir" para reservas do marketplace na lista de reservas (hoje o banco recusa e a ação mostra mensagem orientando cancelar).
+- [ ] Aplicar 0080 em Staging e depois Produção na ordem da seção 12 de `docs/PUBLIC-API-CONTRACT.md` (ToursFlow enviando `marketplacePolicy` antes da rota nova).
+- [ ] Migration posterior revogando a assinatura antiga de `create_marketplace_booking` (10 parâmetros) após o deploy da rota nova.
 - [ ] Criar ou ampliar testes automatizados para RLS, RPCs, Server Actions críticas e webhooks.
 - [ ] Fechar revisão das mudanças atualmente não commitadas antes de iniciar outra tarefa.
 - [ ] Manter o contrato público sincronizado com o código e o ToursFlow.

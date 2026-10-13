@@ -55,6 +55,7 @@ Rota `POST /api/marketplace/bookings` — server-to-server (nunca o navegador do
 - `create_marketplace_booking()` (RPC atômica): cliente + reserva nascem numa única transação, nunca cria cliente órfão em corrida de retry.
 - Autenticação: `Authorization: Bearer <TOURSFLOW_API_SECRET>` (timing-safe) + `X-ToursFlow-Client-Key` (HMAC do IP do visitante, calculado no **servidor do ToursFlow** — o NauticFlow nunca recebe IP em claro). Ver [[10-flags-e-variaveis]].
 - Reserva vinda do marketplace é a **mesma** `reservations` que o operador já usa — nenhuma tabela paralela.
+- `marketplacePolicy` obrigatório no body (migration 0080): snapshot imutável da política aceita pelo turista; replay com política diferente → `409 MARKETPLACE_POLICY_CONFLICT`. Formato, regras e ordem segura de deploy em `docs/PUBLIC-API-CONTRACT.md`, seção 12.
 - E2E real ToursFlow→NauticFlow validado com sucesso em produção (seção 66).
 
 ## 6. Financeiro do marketplace — processo de negócio

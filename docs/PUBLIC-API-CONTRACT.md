@@ -263,7 +263,7 @@ Exatamente 2 campos, sem mais nada. Só lista destinos que têm **ao menos um pa
 
 | Situação | Status | Corpo real |
 |---|---|---|
-| Sucesso (qualquer rota) | `200` | `{ "data": ... }` |
+| Sucesso (rotas `GET /api/public/*` desta tabela) | `200` | `{ "data": ... }` — a rota de criação de reserva do marketplace tem status próprios (`201`/`200`), ver seção 12 |
 | `category` inválida em `/tours` | `400` | `{"error":"Categoria inválida."}` |
 | Slug inexistente **ou** passeio não publicado (`/tours/[slug]`) | `404` | `{"error":"Passeio não encontrado."}` — **de propósito, os dois casos dão o mesmo erro** (não dá pra saber se o slug nunca existiu ou se existe mas está em draft/paused/rejected) |
 | Slug inexistente/não publicado em `/departures` | `404` | `{"error":"Passeio não encontrado."}` |
@@ -288,3 +288,83 @@ Exatamente 2 campos, sem mais nada. Só lista destinos que têm **ao menos um pa
 **Só importaria** se, no futuro, uma página do ToursFlow quisesse chamar `https://nauticflow.com.br/api/public/*` **direto do JavaScript rodando no navegador do visitante** — nesse caso, o navegador bloquearia por falta de `Access-Control-Allow-Origin`, e seria necessário adicionar headers de CORS nessas rotas (mudança de código simples, não feita agora por estar fora do escopo desta etapa).
 
 Não há nenhuma outra limitação de rede/host — as rotas são endpoints HTTP públicos normais, sem allowlist de IP nem de domínio de origem.
+
+## 12. `POST /api/marketplace/bookings` — snapshot da política do marketplace (migration 0080)
+
+Rota server-to-server (mesma autenticação descrita em `docs/Obsidian/08-integracao-toursflow.md`, seção 5). O ToursFlow é dono da política pública de cancelamento/reembolso; o NauticFlow grava na reserva uma **cópia imutável** da política que o turista aceitou.
+
+### Campo obrigatório no body
+
+```json
+"marketplacePolicy": {
+  "id": "toursflow-cancelamento",
+  "version": "2026-10-01",
+  "title": "Política de cancelamento",
+  "summary": "Cancelamento gratuito até 24h antes.",
+  "terms": ["Reembolso integral até 24h antes da saída."]
+}
+```
+
+| Campo | Regra |
+|---|---|
+| `id` | string não vazia, até 100 caracteres |
+| `version` | string não vazia, até 50 caracteres |
+| `title` | string não vazia, até 200 caracteres |
+| `summary` | string não vazia, até 2000 caracteres |
+| `terms` | array de 1 a 20 strings não vazias, cada uma até 1000 caracteres |
+
+- **Normalização:** espaços e quebras de linha nas pontas de cada campo (inclusive de cada termo) são removidos **antes** de medir o tamanho (mesmo conjunto de `String.prototype.trim`). Os limites contam **caracteres Unicode** (code points): um emoji conta 1, igual ao PostgreSQL. **Campos extras são descartados** (só os cinco acima são persistidos).
+- A forma persistida é a canônica (aparada); o banco recusa snapshot fora dessa forma. Por isso reenviar o mesmo texto com espaços diferentes nas pontas **não** gera `MARKETPLACE_POLICY_CONFLICT`.
+- Ausente ou inválido → `400 INVALID_REQUEST` antes de chamar o banco (o contador de rate limit já foi incrementado). O banco revalida o formato (`is_valid_marketplace_policy_snapshot`) e também responde `400 INVALID_REQUEST`.
+- Caractere NUL (`\u0000`) em **qualquer** string do corpo (política, `customer.*`, `departureId`) → `400 INVALID_REQUEST`, nunca `500`.
+- A política **não entra no fingerprint** da `Idempotency-Key` (o hash das reservas já gravadas não muda).
+
+### Persistência e imutabilidade
+
+- Colunas `reservations.marketplace_policy_id`, `marketplace_policy_version`, `marketplace_policy_snapshot`: gravadas **só no INSERT**, pela RPC `create_marketplace_booking` (assinatura de 13 parâmetros).
+- CHECK `reservations_marketplace_policy_consistent`: as três são todas `NULL` (reserva antiga ou fora do marketplace) ou todas preenchidas e coerentes entre si.
+- Trigger `trg_reservation_marketplace_policy_guard`: qualquer `UPDATE` que mude as três colunas (inclusive `NULL` → valor e por `service_role`) falha com `MARKETPLACE_POLICY_IMMUTABLE`; snapshot em reserva que não é do marketplace falha com `MARKETPLACE_POLICY_ONLY_FOR_MARKETPLACE`. Outra empresa nem enxerga a reserva (RLS).
+
+### Identidade da reserva do marketplace (imutável)
+
+- `source`, `idempotency_key`, `request_fingerprint` e `company_id` de uma reserva `source='marketplace'` nunca mudam depois da criação (trigger `trg_reservation_marketplace_row_guard`, erro `MARKETPLACE_RESERVATION_IDENTITY_IMMUTABLE`), inclusive para `service_role`. Nenhuma reserva vira ou deixa de ser do marketplace.
+- **Reserva marketplace só nasce pelas RPCs autorizadas** (`create_marketplace_booking`, assinaturas de 13 e de 10 parâmetros, ambas via o núcleo `create_marketplace_booking_internal`). O núcleo grava uma marca transacional local (`nauticflow.marketplace_booking_insert` = transação + `Idempotency-Key`) só em volta do próprio INSERT e a limpa logo depois; o trigger exige essa marca **e** que o INSERT rode como dono do núcleo. INSERT direto por `anon`, `authenticated`, `service_role` ou `postgres`, ou por qualquer função `SECURITY DEFINER` que não passe pelo núcleo, falha com `MARKETPLACE_BOOKING_RPC_REQUIRED`. Quem chama pela API não consegue definir essa marca (o PostgREST não expõe `set_config`). Limite conhecido: o dono do banco pode tudo, inclusive desabilitar triggers — isso não é defesa contra ele.
+- Reserva do marketplace não é apagada (trigger `trg_reservation_marketplace_delete_guard`, erro `MARKETPLACE_RESERVATION_DELETE_FORBIDDEN`): cancelamento é lógico (`status = 'cancelada'`). Única exceção: exclusão da empresa inteira (cascata).
+- Consequência para o ToursFlow: um replay com a mesma `Idempotency-Key` sempre encontra a reserva original — o operador não consegue, por edição ou exclusão, fazer o replay criar uma segunda reserva.
+
+### Respostas
+
+| Situação | Status | Corpo / cabeçalho |
+|---|---|---|
+| Reserva criada | `201` | `{ "data": { "bookingId", "status": "pendente", "holdExpiresAt", ... } }`, **sem** `Idempotency-Replayed` |
+| Replay (mesma `Idempotency-Key`, mesmo pedido) | `200` | mesmo `data` da reserva original + cabeçalho `Idempotency-Replayed: true` |
+| Corpo, `marketplacePolicy`, `customer`, `quantity` inválidos ou com NUL | `400` | `INVALID_REQUEST` |
+| `Idempotency-Key` ausente/inválida | `400` | `INVALID_IDEMPOTENCY_KEY` |
+| `X-ToursFlow-Client-Key` ausente/inválida | `400` | `INVALID_CLIENT_KEY` |
+| Bearer ausente/errado | `401` | `UNAUTHORIZED` |
+| Saída inexistente, passeio não publicado/arquivado | `404` | `DEPARTURE_NOT_FOUND` |
+| Empresa indisponível | `404` | `COMPANY_NOT_AVAILABLE` |
+| Sem vagas | `409` | `INSUFFICIENT_CAPACITY` |
+| Mesma key, pedido diferente (fingerprint) | `409` | `IDEMPOTENCY_CONFLICT` |
+| Mesma key, mesmo pedido, **política diferente** | `409` | `MARKETPLACE_POLICY_CONFLICT` — definitivo, não adianta repetir |
+| Saída no passado / não vendável / sem preço / tipo de preço não vendável | `422` | `DEPARTURE_IN_PAST` / `DEPARTURE_NOT_SELLABLE` / `PRICE_NOT_CONFIGURED` / `PRICE_TYPE_NOT_SELLABLE` |
+| Rate limit | `429` | `RATE_LIMITED` |
+| Erro interno | `500` | `INTERNAL_ERROR` (mensagem genérica) |
+
+Erros sempre no formato `{ "error": { "code": "...", "message": "..." } }`.
+
+### Replay com a mesma `Idempotency-Key`
+
+| Situação | Resultado |
+|---|---|
+| Mesmo fingerprint, mesma política (ordem das chaves do JSON não importa) | `200` + `Idempotency-Replayed: true`, replay da reserva original |
+| Mesmo fingerprint, política diferente | `409 MARKETPLACE_POLICY_CONFLICT` — o snapshot gravado nunca é trocado; repetir com a mesma key nunca vai passar, use uma key nova |
+| Reserva original sem snapshot (pré-0080 ou criada pela assinatura antiga) | `200` replay; o snapshot continua `NULL` — nunca é gravado depois do fato |
+| Fingerprint diferente | `409 IDEMPOTENCY_CONFLICT` (inalterado) |
+
+### Ordem segura de deploy
+
+1. Aplicar a migration 0080. A assinatura antiga da RPC (10 parâmetros) fica **temporariamente** disponível (executável só por `service_role`, também com a marca transacional), então a rota atual segue criando reservas (sem snapshot) sem janela quebrada. Aplicar a rota nova **antes** da migration quebraria toda criação (`500`), porque a assinatura de 13 parâmetros ainda não existiria.
+2. ToursFlow passa a enviar `marketplacePolicy` em toda criação de reserva (a rota antiga ignora o campo).
+3. Publicar a rota nova do NauticFlow — a partir daqui, request sem `marketplacePolicy` recebe `400`.
+4. Depois de confirmar que nenhum deploy ativo usa a assinatura antiga, revogá-la numa migration **posterior** (ainda não criada).

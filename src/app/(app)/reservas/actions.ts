@@ -351,6 +351,11 @@ export async function deleteReservation(formData: FormData) {
     .eq("id", id)
     .eq("company_id", profile.company_id);
   if (error) {
+    // migration 0080: reserva do marketplace nunca é apagada (liberaria a
+    // Idempotency-Key e levaria o pagamento junto) -- só cancelamento lógico
+    if (error.message.includes("MARKETPLACE_RESERVATION_DELETE_FORBIDDEN")) {
+      return { error: "Reservas do marketplace não podem ser excluídas. Altere o status para Cancelada." };
+    }
     console.error("deleteReservation:", error);
     return { error: "Não foi possível excluir a reserva. Tente novamente." };
   }

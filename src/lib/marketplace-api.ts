@@ -152,6 +152,7 @@ export type MarketplaceBookingErrorCode =
   | "PRICE_TYPE_NOT_SELLABLE"
   | "INSUFFICIENT_CAPACITY"
   | "IDEMPOTENCY_CONFLICT"
+  | "MARKETPLACE_POLICY_CONFLICT"
   | "COMPANY_NOT_AVAILABLE"
   | "RATE_LIMITED"
   | "INTERNAL_ERROR";
@@ -168,6 +169,10 @@ export const MARKETPLACE_ERROR_STATUS: Record<MarketplaceBookingErrorCode, numbe
   PRICE_TYPE_NOT_SELLABLE: 422,
   INSUFFICIENT_CAPACITY: 409,
   IDEMPOTENCY_CONFLICT: 409,
+  // mesma Idempotency-Key reenviada com OUTRA política (migration 0080): o
+  // snapshot gravado na reserva nunca é trocado -- repetir com a mesma key
+  // nunca vai passar; o turista precisa aceitar a política nova numa key nova.
+  MARKETPLACE_POLICY_CONFLICT: 409,
   // 404, não 403/409 -- mesmo princípio de "não revelar motivo administrativo"
   // já usado em DEPARTURE_NOT_FOUND: do ponto de vista de quem chama, uma
   // company suspensa deveria parecer indistinguível de "não existe pra venda".

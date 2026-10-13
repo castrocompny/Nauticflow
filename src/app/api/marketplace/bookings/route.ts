@@ -43,6 +43,47 @@ function fail(code: MarketplaceBookingErrorCode, message: string) {
   return NextResponse.json({ error: { code, message } }, { status: MARKETPLACE_ERROR_STATUS[code] });
 }
 
+// Postgres não guarda NUL em text/jsonb: sem esta checagem o erro só aparecia
+// na RPC e virava 500. Percorre o corpo inteiro -- vale pra qualquer campo.
+function containsNulCharacter(value: unknown, depth = 0): boolean {
+  if (typeof value === "string") return value.includes("\u0000");
+  if (depth > 10 || !value || typeof value !== "object") return false;
+  const children = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
+  return children.some((child) => containsNulCharacter(child, depth + 1));
+}
+
+// Contagem por code point, igual ao length() do PostgreSQL -- String.length
+// conta unidades UTF-16 (um emoji = 2) e recusava política válida no banco.
+function charLength(value: string): number {
+  return Array.from(value).length;
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// Forma canônica (trim) ANTES de medir: é ela que vai pro banco, e o banco
+// exige exatamente essa forma (is_valid_marketplace_policy_snapshot) -- o
+// mesmo texto com espaços diferentes nunca vira falso MARKETPLACE_POLICY_CONFLICT.
+function parseMarketplacePolicySnapshot(raw: unknown): MarketplacePolicySnapshot | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const id = trimmedString(value.id);
+  const version = trimmedString(value.version);
+  const title = trimmedString(value.title);
+  const summary = trimmedString(value.summary);
+
+  if (!id || charLength(id) > 100 || !version || charLength(version) > 50) return null;
+  if (!title || charLength(title) > 200 || !summary || charLength(summary) > 2000) return null;
+  if (!Array.isArray(value.terms) || value.terms.length < 1 || value.terms.length > 20) return null;
+  if (!value.terms.every((term) => typeof term === "string")) return null;
+
+  const terms = value.terms.map((term: string) => term.trim());
+  if (!terms.every((term) => term.length > 0 && charLength(term) <= 1000)) return null;
+
+  return { id, version, title, summary, terms };
+}
+
 function onlyDigits(s: string): string {
   return s.replace(/\D/g, "");
 }
@@ -59,6 +100,14 @@ type TourEmbed = {
 
 type CompanyEmbed = {
   suspended_at: string | null;
+};
+
+type MarketplacePolicySnapshot = {
+  id: string;
+  version: string;
+  title: string;
+  summary: string;
+  terms: string[];
 };
 
 type BookingRpcRow = {
@@ -137,10 +186,12 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") return fail("INVALID_REQUEST", "Corpo da requisição inválido.");
+  if (containsNulCharacter(body)) return fail("INVALID_REQUEST", "Corpo da requisição contém caractere inválido.");
 
   const departureId = String((body as Record<string, unknown>).departureId ?? "").trim();
   const quantity = Number((body as Record<string, unknown>).quantity);
   const customer = (body as Record<string, unknown>).customer as Record<string, unknown> | undefined;
+  const marketplacePolicy = parseMarketplacePolicySnapshot((body as Record<string, unknown>).marketplacePolicy);
 
   if (!departureId) return fail("INVALID_REQUEST", "departureId é obrigatório.");
   // limite superior evita valor absurdo estourando o cálculo de preço antes de
@@ -149,6 +200,7 @@ export async function POST(request: Request) {
     return fail("INVALID_REQUEST", `quantity deve ser um número inteiro entre 1 e ${MARKETPLACE_QUANTITY_MAX}.`);
   }
   if (!customer || typeof customer !== "object") return fail("INVALID_REQUEST", "customer é obrigatório.");
+  if (!marketplacePolicy) return fail("INVALID_REQUEST", "marketplacePolicy é obrigatório e inválido.");
 
   const customerName = String(customer.name ?? "").trim();
   const customerEmail = String(customer.email ?? "").trim();
@@ -269,11 +321,24 @@ export async function POST(request: Request) {
     p_idempotency_key: idempotencyKey,
     p_request_fingerprint: requestFingerprint,
     p_hold_minutes: MARKETPLACE_HOLD_MINUTES,
+    p_marketplace_policy_id: marketplacePolicy.id,
+    p_marketplace_policy_version: marketplacePolicy.version,
+    p_marketplace_policy_snapshot: marketplacePolicy,
   });
 
   if (rpcError) {
     if (rpcError.message.includes("IDEMPOTENCY_CONFLICT")) {
       return fail("IDEMPOTENCY_CONFLICT", "Esta Idempotency-Key já foi usada para uma reserva diferente.");
+    }
+    // migration 0080: a política NÃO entra no fingerprint (mudaria o hash de
+    // toda reserva já gravada) -- o banco compara o snapshot à parte e recusa
+    // trocar o que já foi aceito. 409, nunca 500: não é erro temporário.
+    if (rpcError.message.includes("MARKETPLACE_POLICY_CONFLICT")) {
+      return fail("MARKETPLACE_POLICY_CONFLICT", "Esta Idempotency-Key já foi usada com outra política do marketplace.");
+    }
+    // a rota já valida o snapshot acima; o banco revalida (defesa em profundidade)
+    if (rpcError.message.includes("INVALID_MARKETPLACE_POLICY_SNAPSHOT")) {
+      return fail("INVALID_REQUEST", "marketplacePolicy é obrigatório e inválido.");
     }
     if (rpcError.message.includes("Capacidade excedida")) {
       return fail("INSUFFICIENT_CAPACITY", "Não há vagas suficientes nesta saída.");
