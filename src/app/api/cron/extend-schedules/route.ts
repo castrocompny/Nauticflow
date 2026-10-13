@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { summarizeGenerateRows, type GenerateRow } from "@/lib/tour-schedule";
+
+// Comparação em tempo constante -- mesmo padrão do webhook do Asaas e da
+// autenticação server-to-server do marketplace, evita timing attack na
+// comparação do secret.
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +45,7 @@ type ReconcileRow = { removed_count: number; updated_count: number; protected_co
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret || !authHeader || !safeEqual(authHeader, `Bearer ${cronSecret}`)) {
     return new Response("Unauthorized", { status: 401 });
   }
 

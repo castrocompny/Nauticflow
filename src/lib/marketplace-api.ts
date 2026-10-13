@@ -57,6 +57,40 @@ export function buildClientRateLimitConsumerKey(normalizedClientKey: string): st
   return `toursflow:client:${normalizedClientKey}`;
 }
 
+// Rate limit do GET /api/marketplace/bookings/[id] (polling de status --
+// achado na auditoria de prontidão ToursFlow, 2026-09-24: rota nunca teve
+// nenhum limite, diferente das duas rotas POST). Namespace/consumer_key
+// PRÓPRIOS (nunca reaproveita o orçamento de escrita) -- um polling normal
+// (acompanhar QR Pix/expiração do hold) chama isto com frequência bem maior
+// que criar reserva/pagamento, então o limite é deliberadamente mais alto.
+// Default assume polling a cada ~3-5s por visitante (folga generosa até
+// ~1/s, até o limite individual abaixo barrar) -- NÃO CONFIRMADO contra o
+// intervalo real do ToursFlow (fora deste repositório); se o ToursFlow
+// pollar mais rápido que isto, ver AÇÃO NECESSÁRIA NO TOURSFLOW no
+// relatório desta auditoria.
+//
+// Orçamento GLOBAL -- achado da revisão adversarial (2026-09-24): o valor
+// original (200/min) sustentava só ~11-17 checkouts concorrentes no pior
+// caso (~3s/poll cada), rejeitando tráfego normal de pico bem abaixo de
+// qualquer limite individual. Dimensionado agora pra sustentar ~150
+// checkouts concorrentes no pior caso (150 * 20/min a 3s/poll = 3000/min)
+// -- meta de concorrência também É UMA ESTIMATIVA (mesma pendência de
+// confirmação real acima), não um número medido; ajustar junto com o
+// intervalo real assim que o ToursFlow confirmar os dois.
+export const TOURSFLOW_POLL_RATE_LIMIT_MAX_REQUESTS =
+  Number(process.env.TOURSFLOW_POLL_RATE_LIMIT_MAX_REQUESTS) || 3000;
+export const TOURSFLOW_POLL_RATE_LIMIT_WINDOW_SECONDS =
+  Number(process.env.TOURSFLOW_POLL_RATE_LIMIT_WINDOW_SECONDS) || 60;
+export const TOURSFLOW_POLL_RATE_LIMIT_CONSUMER_KEY = "toursflow:poll";
+export const TOURSFLOW_POLL_CLIENT_RATE_LIMIT_MAX_REQUESTS =
+  Number(process.env.TOURSFLOW_POLL_CLIENT_RATE_LIMIT_MAX_REQUESTS) || 40;
+export const TOURSFLOW_POLL_CLIENT_RATE_LIMIT_WINDOW_SECONDS =
+  Number(process.env.TOURSFLOW_POLL_CLIENT_RATE_LIMIT_WINDOW_SECONDS) || 60;
+
+export function buildPollClientRateLimitConsumerKey(normalizedClientKey: string): string {
+  return `toursflow:poll:client:${normalizedClientKey}`;
+}
+
 // price_type/cálculo de total -- movidos pra src/lib/price-calc.ts (módulo
 // puro, sem "crypto") pra poder ser importado também por um Client Component
 // (Reserva de balcão, seção "fix preço automático"); reexportado aqui pra
