@@ -329,3 +329,38 @@ export async function deleteInvoice(formData: FormData) {
   revalidateAffectedCompany(companyId);
   return { error: "" };
 }
+
+// Fila de exceções de pagamento (migration 0082): encerrar é só OPERACIONAL --
+// registra responsável, data e nota de reconciliação. Nunca altera payment,
+// reserva, ledger, saldo nem refund, e nunca chama o Asaas; a RPC
+// resolve_marketplace_payment_exception revalida super_admin + aal2 no banco.
+const PAYMENT_EXCEPTION_ERRORS: Record<string, string> = {
+  RESOLUTION_NOTE_REQUIRED: "Descreva a reconciliação feita (10 a 2000 caracteres).",
+  EXCEPTION_ALREADY_RESOLVED: "Este caso já foi encerrado.",
+  EXCEPTION_NOT_FOUND: "Caso não encontrado.",
+  FORBIDDEN: "Sem permissão.",
+  MFA_REQUIRED: "Verificação de dois fatores necessária. Entre novamente em /admin.",
+};
+
+export async function resolvePaymentException(exceptionId: string, note: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { ok: false, message: auth.message };
+  const { supabase, adminId, adminName } = auth;
+
+  const trimmed = note.trim();
+  if (trimmed.length < 10) return { ok: false, message: PAYMENT_EXCEPTION_ERRORS.RESOLUTION_NOTE_REQUIRED };
+
+  const { data, error } = await supabase
+    .rpc("resolve_marketplace_payment_exception", { p_exception_id: exceptionId, p_note: trimmed })
+    .maybeSingle();
+  if (error || !data) {
+    const code = Object.keys(PAYMENT_EXCEPTION_ERRORS).find((c) => error?.message.includes(c));
+    if (!code) console.error("resolvePaymentException:", error);
+    return { ok: false, message: code ? PAYMENT_EXCEPTION_ERRORS[code] : "Não foi possível encerrar o caso. Tente novamente." };
+  }
+
+  const resolved = data as { id: string; company_id: string };
+  await logAction(supabase, adminId, adminName, "encerrar_excecao_pagamento", resolved.company_id, { excecao_id: resolved.id });
+  revalidatePath("/admin/excecoes-pagamento");
+  return { ok: true, message: "Caso encerrado. Nenhum valor foi movimentado nem estornado pelo sistema." };
+}

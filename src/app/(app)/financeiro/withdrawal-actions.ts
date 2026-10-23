@@ -81,38 +81,84 @@ export async function createWithdrawal(_prev: CreateWithdrawalResult, formData: 
 // da sessão do operador (mesma separação de todo o resto do marketplace:
 // service_role pra mutação financeira automatizada, authenticated só pra
 // autoservice do próprio operador).
+// Nenhuma falha aqui desfaz o pedido nem é reportada como transferência feita:
+// o saque continua 'pending' (saldo reservado) e a UI mostra esse status. Toda
+// saída antes da transferência é registrada (marketplace_withdrawal_dispatch_
+// not_sent) -- nada foi enviado ao provedor. Não há reenvio automático.
+function dispatchNotSent(withdrawalId: string, reason: string, errorCode?: string) {
+  logSecurityEvent("marketplace_withdrawal_dispatch_not_sent", {
+    withdrawalId,
+    reason,
+    ...(errorCode !== undefined ? { errorCode: errorCode.slice(0, 64) } : {}),
+  });
+}
+
 async function dispatchWithdrawalToProvider(withdrawalId: string): Promise<void> {
   const admin = createAdminClient();
 
-  const { data: w } = await admin
-    .from("marketplace_withdrawals")
-    .select("id, amount_cents, payout_account_id")
-    .eq("id", withdrawalId)
-    .maybeSingle();
-  if (!w || !w.payout_account_id) return;
+  // Leitura estreita (migration 0088): o service_role não tem SELECT em
+  // amount_cents/payout_account_id da tabela -- e não deve ganhar.
+  const { data: ctxData, error: ctxError } = await admin.rpc("get_marketplace_withdrawal_dispatch_context", {
+    p_withdrawal_id: withdrawalId,
+  });
+  if (ctxError) return dispatchNotSent(withdrawalId, "withdrawal_read_failed", ctxError.message);
+  const w = (Array.isArray(ctxData) ? ctxData[0] : ctxData) as
+    | { withdrawal_id: string; amount_cents: number; payout_account_id: string | null; status: string }
+    | undefined;
+  if (!w) return dispatchNotSent(withdrawalId, "withdrawal_not_found");
+  // só um saque ainda 'pending' pode ser enviado -- qualquer outro estado já
+  // saiu daqui (ou foi resolvido pelo webhook).
+  if (w.status !== "pending") return dispatchNotSent(withdrawalId, "withdrawal_not_pending");
+  if (!w.payout_account_id) return dispatchNotSent(withdrawalId, "payout_account_missing");
 
   // ÚNICO ponto do sistema que lê a chave Pix CRUA -- exclusivamente pra
   // repassar ao provider, nunca devolvida a nenhuma resposta de API/UI.
   // get_marketplace_payout_account_raw_for_transfer (migration 0056) é uma
   // exceção deliberada e estreita à decisão de 0054 ("nenhuma leitura crua,
   // nem pro backend") -- só existe pra este caminho específico.
-  const { data: payout } = await admin.rpc("get_marketplace_payout_account_raw_for_transfer", {
+  const { data: payout, error: payoutError } = await admin.rpc("get_marketplace_payout_account_raw_for_transfer", {
     p_payout_account_id: w.payout_account_id,
   });
+  if (payoutError) return dispatchNotSent(withdrawalId, "payout_key_read_failed", payoutError.message);
   const payoutRow = (Array.isArray(payout) ? payout[0] : payout) as { pix_key_type: PixKeyType; pix_key_normalized: string } | undefined;
-  if (!payoutRow) return;
+  if (!payoutRow) return dispatchNotSent(withdrawalId, "payout_key_missing");
 
   const transferResult = await createMarketplacePixTransfer({
-    withdrawalId: w.id,
+    withdrawalId: w.withdrawal_id,
     amountCents: w.amount_cents,
     pixKeyType: payoutRow.pix_key_type,
     pixKeyNormalized: payoutRow.pix_key_normalized,
   });
 
-  if (transferResult.ok) {
-    await admin.rpc("mark_marketplace_withdrawal_processing", {
-      p_withdrawal_id: w.id,
-      p_provider_transfer_id: transferResult.data.providerTransferId,
+  if (!transferResult.ok) {
+    // O provedor respondeu com erro (ou a flag/validação local recusou). O
+    // resultado pode ser ambíguo para alguns erros do provedor -- sem
+    // consulta autoritativa ao Asaas, nunca reenvia nem marca o saque como
+    // falho (o saldo continua reservado). Fica registrado para revisão; o
+    // webhook TRANSFER_* resolve se a transferência existir.
+    logSecurityEvent("marketplace_withdrawal_dispatch_rejected", {
+      withdrawalId: w.withdrawal_id,
+      providerStatus: transferResult.status ?? null,
+      errorCode: transferResult.error.slice(0, 64),
+    });
+    return;
+  }
+
+  const { error: markError } = await admin.rpc("mark_marketplace_withdrawal_processing", {
+    p_withdrawal_id: w.withdrawal_id,
+    p_provider_transfer_id: transferResult.data.providerTransferId,
+  });
+  if (markError) {
+    // A transferência JÁ foi aceita pelo provedor -- nunca dispara outra
+    // (createMarketplacePixTransfer não reconcilia por externalReference).
+    // O saque fica 'pending' localmente; o webhook TRANSFER_* (autoridade
+    // final, externalReference = id do saque) o leva a processing/final.
+    // Registrado para revisão: um job de retry futuro NÃO pode tratar
+    // 'pending' como "nunca enviado" sem consultar o provedor.
+    logSecurityEvent("marketplace_withdrawal_mark_processing_failed", {
+      withdrawalId: w.withdrawal_id,
+      providerTransferId: transferResult.data.providerTransferId,
+      errorCode: markError.message.slice(0, 64),
     });
   }
 }

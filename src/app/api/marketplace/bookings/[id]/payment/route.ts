@@ -228,10 +228,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível criar a cobrança Pix. Tente novamente.");
   }
 
-  await admin.rpc("mark_marketplace_payment_provider_created", {
+  // Sem o vínculo local a cobrança não é rastreável (webhooks de DELETED/
+  // refund exigem provider_payment_id gravado, migration 0086) -- nunca
+  // devolve o QR dela. O retry do ToursFlow é seguro: createOrReconcile...
+  // procura pelo externalReference antes de criar, então reencontra esta
+  // mesma cobrança em vez de gerar outra.
+  const { error: linkError } = await admin.rpc("mark_marketplace_payment_provider_created", {
     p_payment_id: result.payment_id,
     p_provider_payment_id: chargeResult.data.providerPaymentId,
   });
+  if (linkError) {
+    logSecurityEvent("marketplace_payment_provider_link_failed", {
+      paymentId: result.payment_id,
+      errorCode: linkError.message.slice(0, 64),
+    });
+    return fail("INTERNAL_ERROR", "Não foi possível registrar a cobrança Pix. Tente novamente.");
+  }
 
   const qrResult = await getMarketplacePixQrCode(chargeResult.data.providerPaymentId);
   if (!qrResult.ok) {
