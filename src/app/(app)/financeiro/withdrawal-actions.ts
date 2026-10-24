@@ -81,26 +81,41 @@ export async function createWithdrawal(_prev: CreateWithdrawalResult, formData: 
 // da sessão do operador (mesma separação de todo o resto do marketplace:
 // service_role pra mutação financeira automatizada, authenticated só pra
 // autoservice do próprio operador).
+// Nenhuma falha aqui desfaz o pedido nem é reportada como transferência feita:
+// o saque continua 'pending' (saldo reservado). Toda saída antes da
+// transferência é registrada (marketplace_withdrawal_dispatch_not_sent) --
+// nada foi enviado ao provedor. Não há reenvio automático.
+function dispatchNotSent(withdrawalId: string, reason: string, errorCode?: string) {
+  logSecurityEvent("marketplace_withdrawal_dispatch_not_sent", {
+    withdrawalId,
+    reason,
+    ...(errorCode !== undefined ? { errorCode: errorCode.slice(0, 64) } : {}),
+  });
+}
+
 async function dispatchWithdrawalToProvider(withdrawalId: string): Promise<void> {
   const admin = createAdminClient();
 
-  const { data: w } = await admin
+  const { data: w, error: readError } = await admin
     .from("marketplace_withdrawals")
     .select("id, amount_cents, payout_account_id")
     .eq("id", withdrawalId)
     .maybeSingle();
-  if (!w || !w.payout_account_id) return;
+  if (readError) return dispatchNotSent(withdrawalId, "withdrawal_read_failed", readError.message);
+  if (!w) return dispatchNotSent(withdrawalId, "withdrawal_not_found");
+  if (!w.payout_account_id) return dispatchNotSent(withdrawalId, "payout_account_missing");
 
   // ÚNICO ponto do sistema que lê a chave Pix CRUA -- exclusivamente pra
   // repassar ao provider, nunca devolvida a nenhuma resposta de API/UI.
   // get_marketplace_payout_account_raw_for_transfer (migration 0056) é uma
   // exceção deliberada e estreita à decisão de 0054 ("nenhuma leitura crua,
   // nem pro backend") -- só existe pra este caminho específico.
-  const { data: payout } = await admin.rpc("get_marketplace_payout_account_raw_for_transfer", {
+  const { data: payout, error: payoutError } = await admin.rpc("get_marketplace_payout_account_raw_for_transfer", {
     p_payout_account_id: w.payout_account_id,
   });
+  if (payoutError) return dispatchNotSent(withdrawalId, "payout_key_read_failed", payoutError.message);
   const payoutRow = (Array.isArray(payout) ? payout[0] : payout) as { pix_key_type: PixKeyType; pix_key_normalized: string } | undefined;
-  if (!payoutRow) return;
+  if (!payoutRow) return dispatchNotSent(withdrawalId, "payout_key_missing");
 
   const transferResult = await createMarketplacePixTransfer({
     withdrawalId: w.id,
@@ -109,10 +124,31 @@ async function dispatchWithdrawalToProvider(withdrawalId: string): Promise<void>
     pixKeyNormalized: payoutRow.pix_key_normalized,
   });
 
-  if (transferResult.ok) {
-    await admin.rpc("mark_marketplace_withdrawal_processing", {
-      p_withdrawal_id: w.id,
-      p_provider_transfer_id: transferResult.data.providerTransferId,
+  if (!transferResult.ok) {
+    // Resultado possivelmente ambíguo: sem consulta autoritativa ao Asaas
+    // (externalReference não garante unicidade/deduplicação), nunca reenvia
+    // nem marca o saque como falho -- fica 'pending' com o saldo reservado,
+    // para revisão manual. O webhook TRANSFER_* resolve se a transferência existir.
+    logSecurityEvent("marketplace_withdrawal_dispatch_rejected", {
+      withdrawalId: w.id,
+      providerStatus: transferResult.status ?? null,
+      errorCode: transferResult.error.slice(0, 64),
+    });
+    return;
+  }
+
+  const { error: markError } = await admin.rpc("mark_marketplace_withdrawal_processing", {
+    p_withdrawal_id: w.id,
+    p_provider_transfer_id: transferResult.data.providerTransferId,
+  });
+  if (markError) {
+    // A transferência JÁ foi aceita pelo provedor -- nunca dispara outra. O
+    // saque fica 'pending' localmente até o webhook TRANSFER_*; um retry futuro
+    // NÃO pode tratar 'pending' como "nunca enviado" sem consultar o provedor.
+    logSecurityEvent("marketplace_withdrawal_mark_processing_failed", {
+      withdrawalId: w.id,
+      providerTransferId: transferResult.data.providerTransferId,
+      errorCode: markError.message.slice(0, 64),
     });
   }
 }

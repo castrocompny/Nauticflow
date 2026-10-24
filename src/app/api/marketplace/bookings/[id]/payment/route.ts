@@ -218,22 +218,68 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await admin.from("clients").update({ asaas_customer_id: customerResult.data.customerId }).eq("id", client.id);
   }
 
-  const chargeResult = await createOrReconcileMarketplacePixCharge({
-    internalPaymentId: result.payment_id,
-    customerId: customerResult.data.customerId,
-    amountCents: result.amount_cents,
-  });
-  if (!chargeResult.ok) {
-    console.error("createOrReconcileMarketplacePixCharge:", chargeResult.error);
-    return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível criar a cobrança Pix. Tente novamente.");
+  // RESERVA DURÁVEL ANTES DO POST (migration 0082). Só quem recebe `claimed`
+  // pode chamar o provider; `linked` reutiliza o id já persistido (sem POST);
+  // `blocked` = já reservado e sem id (envio de resultado incerto) -> NUNCA um
+  // novo POST, só reconciliação manual. Nenhuma garantia de unicidade/
+  // idempotência de `/payments` por externalReference foi verificada, então
+  // nenhum retry automático pode depender dela.
+  const claimResult = await admin.rpc("claim_marketplace_pix_charge_creation", { p_payment_id: result.payment_id });
+  const claim = (Array.isArray(claimResult.data) ? claimResult.data[0] : claimResult.data) as
+    | { outcome: string; provider_payment_id: string | null }
+    | null
+    | undefined;
+  if (claimResult.error || !claim) {
+    logSecurityEvent("marketplace_payment_charge_claim_failed", {
+      paymentId: result.payment_id,
+      errorCode: claimResult.error?.message.slice(0, 64),
+    });
+    return fail("INTERNAL_ERROR", "Não foi possível preparar a cobrança Pix. Tente novamente.");
   }
 
-  await admin.rpc("mark_marketplace_payment_provider_created", {
-    p_payment_id: result.payment_id,
-    p_provider_payment_id: chargeResult.data.providerPaymentId,
-  });
+  if (claim.outcome === "blocked") {
+    logSecurityEvent("marketplace_payment_charge_blocked_for_manual_review", { paymentId: result.payment_id });
+    return fail(
+      "PAYMENT_ALREADY_ACTIVE",
+      "O envio da cobrança Pix desta tentativa tem resultado incerto e está em verificação manual. Nenhuma nova cobrança será criada automaticamente."
+    );
+  }
 
-  const qrResult = await getMarketplacePixQrCode(chargeResult.data.providerPaymentId);
+  let providerPaymentId: string;
+  if (claim.outcome === "linked" && claim.provider_payment_id) {
+    providerPaymentId = claim.provider_payment_id;
+  } else if (claim.outcome === "claimed") {
+    // Daqui em diante, qualquer falha (erro do provider, timeout, falha ao
+    // persistir o id) deixa a reserva gravada SEM id: a próxima chamada cai em
+    // `blocked`. Não há liberação automática -- é a escolha conservadora.
+    const chargeResult = await createOrReconcileMarketplacePixCharge({
+      internalPaymentId: result.payment_id,
+      customerId: customerResult.data.customerId,
+      amountCents: result.amount_cents,
+    });
+    if (!chargeResult.ok) {
+      console.error("createOrReconcileMarketplacePixCharge:", chargeResult.error);
+      return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível criar a cobrança Pix. A tentativa ficará em verificação manual.");
+    }
+
+    // Sem o vínculo local a cobrança não é rastreável -- nunca devolve o QR dela.
+    const { error: linkError } = await admin.rpc("mark_marketplace_payment_provider_created", {
+      p_payment_id: result.payment_id,
+      p_provider_payment_id: chargeResult.data.providerPaymentId,
+    });
+    if (linkError) {
+      logSecurityEvent("marketplace_payment_provider_link_failed", {
+        paymentId: result.payment_id,
+        errorCode: linkError.message.slice(0, 64),
+      });
+      return fail("INTERNAL_ERROR", "Não foi possível registrar a cobrança Pix. A tentativa ficará em verificação manual.");
+    }
+    providerPaymentId = chargeResult.data.providerPaymentId;
+  } else {
+    return fail("INTERNAL_ERROR", "Não foi possível preparar a cobrança Pix. Tente novamente.");
+  }
+
+  const qrResult = await getMarketplacePixQrCode(providerPaymentId);
   if (!qrResult.ok) {
     console.error("getMarketplacePixQrCode:", qrResult.error);
     return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível obter o QR Code Pix. Tente novamente.");

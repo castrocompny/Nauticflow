@@ -37,10 +37,21 @@ export async function attemptMarketplacePaymentCleanup(
   if (!payment.providerPaymentId) {
     // nunca chegou a criar cobrança no provider -- cancela só
     // internamente, direto, sem nenhuma chamada de rede.
-    const { error } = await admin.rpc("cancel_marketplace_pending_payment", { p_payment_id: payment.id });
+    const { data, error } = await admin.rpc("cancel_marketplace_pending_payment", { p_payment_id: payment.id });
     if (error) {
       if (error.message.includes("HOLD_STILL_VALID")) return "not_applicable";
       logSecurityEvent("payment_cleanup_failed", { paymentId: payment.id });
+      return "failed";
+    }
+    // 0082: o banco recusa liberar um pagamento com envio ao provider incerto
+    // (reservado, sem provider_payment_id) -- fica para reconciliação manual.
+    const row = (Array.isArray(data) ? data[0] : data) as { was_cancelled?: boolean } | null | undefined;
+    if (row?.was_cancelled === false) {
+      logSecurityEvent("payment_cleanup_deferred", { paymentId: payment.id, providerStatus: "charge_creation_uncertain" });
+      return "deferred";
+    }
+    if (row?.was_cancelled !== true) {
+      logSecurityEvent("payment_cleanup_failed", { paymentId: payment.id, reason: "missing_cancel_result" });
       return "failed";
     }
     return "cancelled";
@@ -60,13 +71,19 @@ export async function attemptMarketplacePaymentCleanup(
     return "deferred";
   }
 
-  const { error } = await admin.rpc("cancel_marketplace_pending_payment", { p_payment_id: payment.id });
+  const { data, error } = await admin.rpc("cancel_marketplace_pending_payment", { p_payment_id: payment.id });
   if (error) {
     if (error.message.includes("HOLD_STILL_VALID")) return "not_applicable";
-    // cobrança já foi removida no provider, mas o banco não deixou marcar
-    // (ex: PAYMENT_RECEIVED venceu a corrida entre o DELETE e este ponto)
-    // -- nunca um erro real, o estado correto (paid) já está lá.
-    logSecurityEvent("payment_cleanup_deferred", { paymentId: payment.id, providerStatus: "deleted_but_already_settled" });
+    // cobrança já foi removida no provider, mas o estado local não foi confirmado
+    // -- mantém a situação pendente para reconciliação, sem afirmar cancelamento.
+    logSecurityEvent("payment_cleanup_deferred", { paymentId: payment.id, providerStatus: "deleted_local_state_unconfirmed" });
+    return "deferred";
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as { was_cancelled?: boolean } | null | undefined;
+  if (row?.was_cancelled !== true) {
+    // A RPC pode ter observado mudança concorrente de estado e retornar false
+    // sem erro. Nunca reporta failed ao chamador sem confirmação explícita.
+    logSecurityEvent("payment_cleanup_deferred", { paymentId: payment.id, providerStatus: "deleted_local_state_changed_or_unknown" });
     return "deferred";
   }
   return "cancelled";

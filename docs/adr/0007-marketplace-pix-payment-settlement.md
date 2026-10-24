@@ -42,21 +42,18 @@ tentativa futura já com CPF certo. Erro `CUSTOMER_DOCUMENT_REQUIRED` (422)
 -- o ToursFlow precisa coletar o documento do cliente antes de chamar este
 endpoint. Nenhum CPF é inventado, nem o do operador nem o da empresa.
 
-## Deduplicação de customer e de cobrança -- reconciliação por externalReference
+## POST para customer/cobrança -- idempotência não provada por busca vazia
 
-Timeout depois de `POST /customers` ou `POST /payments` (conexão caiu
-antes da resposta chegar) **nunca** deve gerar um segundo `POST`. As duas
-funções (`findOrCreateMarketplaceAsaasCustomer`,
-`createOrReconcileMarketplacePixCharge`) seguem a mesma estratégia: (1)
-reutiliza se já persistido localmente; (2) senão, consulta o Asaas por
-`externalReference` (`GET /customers?externalReference=X` /
-`GET /payments?externalReference=X`) -- cobre o caso de uma tentativa
-anterior ter criado o recurso no Asaas mas caído antes de persistirmos o
-id; (3) só então cria. Se a consulta encontrar **mais de um** resultado
-(situação ambígua -- não deveria acontecer se este fluxo sempre for usado,
-mas nunca se adivinha qual é "o certo"), falha fechado
-(`AMBIGUOUS_CUSTOMER_MATCH`/`AMBIGUOUS_PAYMENT_MATCH`), precisa de revisão
-manual.
+Timeout após `POST /customers` ou `POST /payments` pode deixar o resultado
+incerto. Consultar por `externalReference` pode localizar um recurso, mas
+uma busca vazia **não prova** que o POST não foi aceito e não demonstra
+unicidade/idempotência do provider. Para cobrança PIX, a migration `0082`
+reserva duravelmente o pagamento antes do POST; enquanto não houver
+`provider_payment_id`, retries ficam bloqueados para reconciliação humana e
+não enviam outro POST. A criação de customer (`POST /customers`) ainda não
+tem proteção equivalente e permanece uma pendência explícita. Se a busca
+retornar mais de um resultado, o fluxo falha fechado; nunca escolhe um
+recurso por heurística.
 
 ## `POST /v3/payments` -- contrato oficial
 
@@ -102,10 +99,14 @@ partir de um novo ponto de entrada (`settle_marketplace_payment_received`).
 mudança de comportamento aqui, só a validação de CPF/CNPJ adicionada antes
 do insert (seção acima).
 
-## Idempotência do provider -- reconciliação, nunca criação duplicada
+## Idempotência do provider -- resultados incertos
 
-Coberto na seção "Deduplicação" acima -- o mesmo padrão vale tanto pro
-customer quanto pra cobrança em si.
+A consulta por `externalReference` ajuda a localizar recursos, mas não prova
+que uma busca vazia significa ausência nem garante deduplicação. Para
+`POST /payments`, o claim durável da migration `0082` impede novo POST até a
+reconciliação manual quando não há id local persistido. Para
+`POST /customers`, essa proteção ainda não existe; retries após resultado
+incerto continuam pendentes de uma solução segura.
 
 ## `provider_payment_id` -- nunca aceito do browser/ToursFlow
 
@@ -428,3 +429,53 @@ Achado em revisão antes de `0061` ir pra produção: o ramo de `provider_refund
 ## Atualização (2026-09-08) -- 0061/0062 aplicadas em produção
 
 Ambas aplicadas manualmente via Supabase Dashboard → SQL Editor (conectividade do CLI indisponível). RPCs, `SECURITY DEFINER` e ACL `service_role`-only confirmados ao vivo; versão final de `mark_marketplace_refund_processing` é a corrigida (0062), não a com o bug de rollback. Reembolso real controlado está pronto no banco -- falta só `MARKETPLACE_PAYMENTS_ENABLED` (ainda OFF) e um pagamento real existir. Detalhes completos em `DOCUMENTACAO.md` seção 99.
+
+## Atualização (2026-10-23) -- `PAYMENT_RECEIVED` em payment `failed` (migration `0081`, reconstrução validada localmente)
+
+**Origem e proveniência.** A 0081 original e as migrations originais 0082–0088 não foram recuperadas como arquivos. As migrations `0081` e `0082` atuais foram reconstruídas para este checkout, a partir do código existente, decisões registradas e do WIP parcial; não são cópias literais do trabalho perdido. As duas foram aplicadas somente no PostgreSQL efêmero criado para esta tarefa, com bootstrap/fixtures artificiais; não foram aplicadas no banco do projeto, Supabase remoto, staging ou produção. A validação SQL local atual está detalhada abaixo e não representa a chain Supabase completa.
+
+**Problema (confirmado por leitura do código de `main`).** A rota gravava a marca de dedupe em `processed_webhook_events` *antes* do efeito e respondia 200 mesmo se `settle_marketplace_payment_received` falhasse. Um Pix recebido para payment `failed` (hold vencido/cobrança cancelada) levantava `PAYMENT_NOT_PENDING`, a marca ficava gravada e o Asaas nunca reenviava.
+
+**Decisão.**
+- `PAYMENT_RECEIVED` verificado no Asaas chama `process_marketplace_payment_received_event` e **não grava marca de dedupe**: o efeito já é idempotente (`paid` => replay), então não existe "marca sem efeito". Marcas legadas em `processed_webhook_events` deixam de ser consultadas para este evento.
+- payment `failed`: grava uma linha por cobrança distinta em `marketplace_payment_exceptions` (chave `(payment_id, kind, provider_payment_id)`); replays idênticos são reconhecidos, dados conflitantes do mesmo provider ID falham com erro retryable, e nenhuma ocorrência altera payment, reserva, ledger, saldo ou refund.
+- `refunded`/`partially_refunded` recebendo reentrega: replay sem efeito.
+- A rota só responde 200 se o retorno da RPC for coerente (evento, `payment_id`, `outcome` e status); erro ou retorno incoerente => 500 (retryable).
+- Fila `/admin/excecoes-pagamento`: **somente leitura**, super_admin + aal2 (página e RLS), sem ação de "resolver" (qualquer resolução teria de decidir o destino do dinheiro) e sem paginação por cursor (limite fixo de 100).
+- `mark_marketplace_payment_provider_created` (0059) falhava sempre por coluna ambígua (OUT `id`/`provider_payment_id`); a 0081 só qualifica as colunas. O `POST .../payment` passou a **não devolver o QR** se o vínculo falhar (depende dessa correção; sem a 0081 aplicada o endpoint falharia com a flag ligada).
+
+**Bloqueio adicional identificado na revisão e mitigação reconstruída.** `createOrReconcileMarketplacePixCharge` ainda consulta `/payments?externalReference=...` e pode enviar POST quando a busca retorna zero; a API e o suporte não garantem unicidade/idempotência por `externalReference`. Por isso a `0082` grava uma reserva local antes do primeiro POST e bloqueia todos os retries sem ID persistido, sem tratar busca vazia como prova de ausência. Essa mitigação foi validada em testes locais; a reconciliação manual ainda não existe, então resultados incertos permanecem bloqueados e exigem procedimento operacional fora do sistema. O risco equivalente de `POST /customers` não foi resolvido.
+
+> **Atualizado na seção seguinte (2026-10-23, reserva durável antes do POST):** o bloqueio acima foi tratado no nível do **nosso** código (migration `0082`), sem depender de nenhuma garantia do Asaas. Leia aquela seção para o que está e o que não está coberto.
+
+**Não coberto / bloqueado.** A chain completa de migrations Supabase e as permissões das novas leituras `service_role` não foram validadas contra uma instalação Supabase completa; os testes usaram um DB efêmero com bootstrap/auth compat e fixtures. `mark_marketplace_withdrawal_processing` (0056) ainda tem defeito de colunas ambíguas e `finalize_marketplace_withdrawal` segue sem auditoria; saques não recebem `cancel_unsent`, reenvio ou ajuste de ledger. Refunds continuam congelados. Nada desta validação autoriza Asaas, produção/staging, atividade financeira ou deploy.
+
+## Atualização (2026-10-23, 2) -- reserva durável antes do `POST /payments` (migration `0082`, validada apenas em DB efêmero)
+
+**Separação do que é o quê.**
+- *Reconstruído* (seção anterior): `0081`, fila de exceções, `process_marketplace_payment_received_event`, correção de colunas ambíguas de `mark_marketplace_payment_provider_created`.
+- *Implementado no worktree isolado*: a proteção abaixo (`0082`, rota, cleanup, testes). `0081` e `0082` foram aplicadas apenas no DB efêmero criado para esta tarefa; não foram integradas à branch `main` nem aplicadas ao banco do projeto ou a serviço remoto.
+
+**O que NÃO se sabe.** Nenhuma garantia de unicidade ou idempotência de `POST /payments` por `externalReference` foi verificada aqui. O contato de suporte trazido pelo usuário tratou de `/transfers` e **não** é evidência sobre `/payments`. Por isso a proteção não depende do comportamento do Asaas.
+
+**Decisão.**
+- `payments.provider_charge_claimed_at` é gravado **antes** do POST pela RPC `claim_marketplace_pix_charge_creation` (decisão e gravação sob `FOR UPDATE`, mesma transação, `service_role`-only). Resultados: `claimed` (única permissão de POST, concedida a um só chamador), `linked` (já há `provider_payment_id`: reutiliza e busca o QR, **sem POST**), `blocked` (reservado e sem id).
+- A rota chama o claim imediatamente antes de `createOrReconcileMarketplacePixCharge` (depois do customer, para que uma falha no customer, que ainda não envia cobrança, não bloqueie a tentativa). `blocked` responde `409 PAYMENT_ALREADY_ACTIVE` com mensagem de verificação manual e **nunca** faz POST. Código de erro existente reaproveitado de propósito: não há mudança no contrato consumido pelo ToursFlow.
+- `cancel_marketplace_pending_payment` (0060) passou a **não cancelar** (`was_cancelled=false`, slot de `payments_one_active_per_reservation` mantido) um pagamento reservado sem `provider_payment_id`; o cleanup lazy devolve `deferred`. Sem isso a expiração do hold liberaria o slot e uma nova tentativa (novo payment id => novo `externalReference`) poderia coexistir com uma cobrança que talvez exista no Asaas.
+
+**Comportamento manual quando o resultado é incerto.** Estado incerto = `provider_charge_claimed_at` preenchido e `provider_payment_id` nulo. Ocorre em: crash entre a reserva e o POST; POST aceito mas resposta perdida/timeout; erro do provider (inclusive 4xx definitivo, que não distinguimos); falha ao gravar o id. Em todos, retries ficam `blocked` e **nada** é liberado automaticamente. Um humano deve consultar o Asaas (por `externalReference` = id interno do payment) e: (a) se a cobrança existe, vincular o id; (b) se comprovadamente não existe, decidir fora do sistema como liberar. **Não existe ainda** ferramenta/RPC/UI para essa resolução; hoje exigiria SQL manual por quem tem acesso, e é uma pendência. O webhook `PAYMENT_RECEIVED` continua sendo a única autoridade de liquidação e, ao chegar para um pagamento reservado sem id, grava o id pela RPC existente. Nada aqui marca pagamento como recebido.
+
+**Verificação realizada.** Vitest: 8 arquivos/109 testes passaram; lint: 0 erros e 4 avisos `<img>` existentes; `tsc --noEmit --incremental false`: passou. PgTAP/pg_prove no DB efêmero: 4 arquivos/126 testes passaram (inclui 22 casos de exceção e 21 de claim). Dois processos PostgreSQL concorrentes confirmaram a persistência de cobranças distintas e replay idempotente; teste concorrente separado confirmou que cleanup não cancela nem libera slot após claim concorrente. Um ensaio adicional em transação configurou uma fixture `pending` legada sem ID, executou o backfill da 0082 e observou `claimed_at` preenchido + claim `blocked`; a transação foi revertida. Esse ensaio de backfill não está como teste versionado. Os testes HTTP do claim usam fake em memória e não provam atomicidade SQL.
+
+**Não verificado / pendente.** (1) A chain completa de migrations não foi executada numa stack Supabase oficial nem comparada a um schema real do projeto; este DB usou bootstrap e compatibilidade `auth.*` artificiais. (2) As permissões das novas consultas `service_role` não foram validadas contra uma instalação Supabase completa. (3) Ainda não existe ferramenta/RPC/UI de reconciliação manual para estado bloqueado. (4) O backfill de legado foi exercitado em transação local, mas não há teste versionado de migração pré-0082; antes de aplicar em banco com dados, revisar o inventário dos pagamentos `pending` sem `provider_payment_id`, pois serão bloqueados. (5) Se uma cobrança adicional do mesmo payment chegar após o payment local sair de `failed` e já possuir outro `provider_payment_id`, a RPC atual lança `PROVIDER_PAYMENT_ID_MISMATCH`; esse caso não cria exceção durável nesta migration e requer desenho/teste separado. (6) O risco de resultado incerto em `POST /customers` segue sem proteção equivalente. Nenhum resultado local prova prontidão para produção.
+
+
+## Atualização (2026-10-23, 3) -- revisão do snapshot WIP `cde4f8d` (integrado apenas ao `main` local após verificação; sem push ou rollout)
+
+**Classificação.** *Recuperado do Git (`cde4f8d`)*: apenas os trechos listados abaixo como portados. *Reconstruído a partir de evidência*: `0081`, `0082`, fila `/admin/excecoes-pagamento` e rota de `PAYMENT_RECEIVED` com `process_marketplace_payment_received_event` (seções anteriores). *Escrito agora*: testes novos em `route.test.ts` do webhook e em `withdrawal-actions.test.ts`.
+
+**Portado do WIP e correção local após revisão.** `dispatchNotSent` e tratamento de erro das leituras do saque e da chave Pix crua (`marketplace_withdrawal_dispatch_not_sent`, sem reenvio); `externalReference` de transferência só vale se for UUID; evento local de saque/payment sem os campos necessários ou com referência divergente não recebe 200 silencioso. Para payment local, a rota agora também compara o `provider_payment_id` com o payment encontrado pela referência e recusa conflito entre dois payments locais antes de verificar/liquidar; teste RED→GREEN cobre esse caso e o erro da consulta. `unprocessableMarketplaceEvent` retorna 422 + log best-effort, mas não há quarentena durável e não se presume retry do provedor para 4xx; isso segue bloqueio de rollout. `PAYMENT_RECEIVED` cuja consulta ao Asaas falha definitivamente também é apenas logada e recebe 200, sem registro durável; validar esse descarte e a política de retries antes de habilitar. Evento desconhecido permanece no caminho anterior. O cleanup de pagamento pendente só é reportado como `cancelled` quando a RPC local confirma `was_cancelled=true`; após remoção no provider com estado local falso/ausente, retorna `deferred` e não afirma mudança de status.
+
+**Não aplicado, por dependência ausente.** Transferência, `PAYMENT_CONFIRMED`, `PAYMENT_DELETED` e refunds atômicos (`process_marketplace_transfer_webhook_event`, `process_marketplace_payment_webhook_event`, 0085/0086); leitura estreita do saque (`get_marketplace_withdrawal_dispatch_context`, 0088) e a guarda de status `pending` que dependia dela; `resolvePaymentException` (`resolve_marketplace_payment_exception`, sem migration aqui; a fila segue somente leitura); `settle_marketplace_payment_received_once` (substituída pela RPC da `0081` reconstruída). O trecho do WIP em `payment/route.ts` já está representado, mas o comentário "o retry reconcilia pelo `externalReference`" **não** vale mais: a `0082` bloqueia o retry sem id e nenhuma busca por `externalReference` é considerada prova de ausência de cobrança. Transferências continuam bloqueadas: o handler existente ainda chama `mark_marketplace_withdrawal_processing`/`finalize_marketplace_withdrawal` (0056), cujas funções não fazem correlação atômica do `provider_transfer_id` com o saque; a nova consulta HTTP recusa conflito já conhecido, mas não fecha a corrida entre entregas. Não habilitar nem aplicar esse fluxo sem constraint/RPC atômica e teste concorrente. Migrations 0083–0088 e seus testes não foram recuperados nem recriados.
+
+**Verificado nesta worktree.** `npm test -- --reporter=dot`: 8 arquivos/109 testes passaram; `npm run lint`: 0 erros e 4 avisos `<img>`; `tsc --noEmit --incremental false`: passou. `pg_prove -v /tmp/database/*.test.sql`: 4 arquivos/126 testes passaram no DB efêmero com bootstrap/fixtures. Testes concorrentes em duas sessões passaram para exceções `PAYMENT_RECEIVED` e para claim versus cleanup. **Ainda não verificado:** chain Supabase completa, permissões no schema real e ambiente remoto; migrations 0083–0088 perdidas não foram reconstruídas, e as funções de webhook delas continuam ausentes. Nenhuma prontidão para produção/staging é afirmada.

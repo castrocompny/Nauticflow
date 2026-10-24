@@ -89,6 +89,34 @@ function perEventKey(event: string, notificationId: string | undefined, provider
   return notificationId ? notificationId : `${event}:${providerObjectId}`;
 }
 
+// Contrato do retorno de process_marketplace_payment_received_event (0081):
+// evento, pagamento, desfecho e status precisam ser coerentes entre si -- um
+// `error === null` sozinho não prova que o efeito (ou a exceção) foi gravado.
+const RECEIVED_OUTCOME_STATUSES = new Map<string, readonly string[]>([
+  ["settled", ["paid"]],
+  ["settled_replay", ["paid", "refunded", "partially_refunded"]],
+  ["manual_review", ["paid", "pending"]],
+  ["exception_recorded", ["failed"]],
+  ["exception_existing", ["failed"]],
+]);
+
+function parseReceivedOutcome(data: unknown, internalPaymentId: string): string | null {
+  const row = data as { event_type?: unknown; payment_id?: unknown; outcome?: unknown; payment_status?: unknown } | null;
+  if (!row || row.event_type !== "PAYMENT_RECEIVED" || row.payment_id !== internalPaymentId) return null;
+  if (typeof row.outcome !== "string" || typeof row.payment_status !== "string") return null;
+  return RECEIVED_OUTCOME_STATUSES.get(row.outcome)?.includes(row.payment_status) ? row.outcome : null;
+}
+
+// Evento que pertence a um objeto LOCAL (saque/payment do marketplace) mas
+// chega sem campos necessários ou com referência divergente. Nunca responde
+// 200 silencioso: retorna 422 e emite log best-effort. Não há quarentena durável
+// aqui e não se presume que o provedor repita um 4xx; operação remota requer
+// desenho/validação próprios antes de qualquer rollout.
+function unprocessableMarketplaceEvent(event: string, kind: "transfer" | "payment", reason: string) {
+  logSecurityEvent("asaas_webhook_unprocessable_marketplace_event", { event, kind, reason });
+  return NextResponse.json({ error: "unprocessable_marketplace_event" }, { status: 422 });
+}
+
 export async function POST(request: Request) {
   const token = request.headers.get("asaas-access-token");
   const secret = process.env.ASAAS_WEBHOOK_TOKEN;
@@ -132,7 +160,48 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "payment_lookup_failed" }, { status: 500 });
       }
       if (marketplacePayment) {
+        // Se a referência e o ID do provider apontarem para pagamentos locais
+        // diferentes, não liquidar nenhum deles. Isso também detecta vínculo
+        // duplicado/corrompido sem depender do status atual do payment.
+        const providerPaymentId = typeof payment.id === "string" && payment.id.length > 0 ? payment.id : undefined;
+        if (providerPaymentId) {
+          const { data: byCharge, error: chargeLookupError } = await supabase
+            .from("payments")
+            .select("id")
+            .eq("provider_payment_id", providerPaymentId)
+            .limit(2);
+          if (chargeLookupError) {
+            logSecurityEvent("asaas_webhook_payment_lookup_failed", {
+              event, paymentId: providerPaymentId, errorCode: chargeLookupError.message.slice(0, 64),
+            });
+            return NextResponse.json({ error: "payment_lookup_failed" }, { status: 500 });
+          }
+          if (Array.isArray(byCharge) && byCharge.some((row) => row.id !== internalPaymentId)) {
+            return unprocessableMarketplaceEvent(event, "payment", "reference_mismatch");
+          }
+        }
         return handleMarketplacePaymentEvent(supabase, event, payment, notificationId);
+      }
+    }
+
+    // externalReference não aponta para um payment nosso -- mas a COBRANÇA
+    // pode ser de um payment local (externalReference ausente/divergente).
+    // Nesse caso o evento afeta um payment nosso e nunca é descartado com 200
+    // nem cai no fluxo SaaS. Cobrança desconhecida segue o caminho de antes.
+    const providerPaymentId = typeof payment.id === "string" && payment.id.length > 0 ? payment.id : undefined;
+    if (providerPaymentId) {
+      const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      const { data: byCharge, error: chargeLookupError } = await supabase
+        .from("payments")
+        .select("id")
+        .eq("provider_payment_id", providerPaymentId)
+        .limit(1);
+      if (chargeLookupError) {
+        logSecurityEvent("asaas_webhook_payment_lookup_failed", { event, paymentId: providerPaymentId, errorCode: chargeLookupError.message.slice(0, 64) });
+        return NextResponse.json({ error: "payment_lookup_failed" }, { status: 500 });
+      }
+      if (Array.isArray(byCharge) && byCharge.length > 0) {
+        return unprocessableMarketplaceEvent(event, "payment", "reference_mismatch");
       }
     }
   }
@@ -230,9 +299,50 @@ async function handleTransferEvent(
   transfer: Record<string, unknown>,
   notificationId: string | undefined
 ) {
-  const providerTransferId = transfer.id as string | undefined;
-  const withdrawalId = transfer.externalReference as string | undefined;
-  if (!providerTransferId || !withdrawalId) return NextResponse.json({ ok: true });
+  const providerTransferId = typeof transfer.id === "string" && transfer.id.length > 0 ? transfer.id : undefined;
+  const rawReference = typeof transfer.externalReference === "string" && transfer.externalReference.length > 0
+    ? transfer.externalReference
+    : undefined;
+  // marketplace_withdrawals.id é uuid -- qualquer outra coisa nunca é um saque
+  // nosso (e viraria erro de cast no banco, 5xx em loop).
+  const withdrawalId = rawReference && UUID_RE.test(rawReference) ? rawReference : undefined;
+
+  if (!providerTransferId || !withdrawalId) {
+    // Sem os dois campos não há como aplicar o evento. Só é descartável com
+    // 200 se NÃO for de um saque nosso -- pelo externalReference (uuid) ou
+    // pelo id da transferência já gravado num saque.
+    const { data: local, error: lookupError } = withdrawalId
+      ? await supabase.from("marketplace_withdrawals").select("id").eq("id", withdrawalId).limit(1)
+      : providerTransferId
+        ? await supabase.from("marketplace_withdrawals").select("id").eq("provider_transfer_id", providerTransferId).limit(1)
+        : { data: [], error: null };
+    if (lookupError) {
+      logSecurityEvent("asaas_webhook_transfer_lookup_failed", { event, errorCode: lookupError.message.slice(0, 64) });
+      return NextResponse.json({ error: "reference_lookup_failed" }, { status: 500 });
+    }
+    if (Array.isArray(local) && local.length > 0) {
+      return unprocessableMarketplaceEvent(event, "transfer", withdrawalId ? "missing_transfer_id" : "reference_mismatch");
+    }
+    if (rawReference && !withdrawalId) logSecurityEvent("asaas_webhook_invalid_withdrawal_reference", { event });
+    return NextResponse.json({ ok: true });
+  }
+
+  // Também rejeita correlação cruzada quando os dois campos estão presentes:
+  // o RPC legado de finalização recebe ambos, mas não garante que o transfer id
+  // não esteja ligado a outro saque. Esta leitura reduz o risco determinístico;
+  // não fecha a corrida entre duas requisições (isso exige constraint/RPC atômica).
+  const { data: byTransferId, error: transferLookupError } = await supabase
+    .from("marketplace_withdrawals")
+    .select("id")
+    .eq("provider_transfer_id", providerTransferId)
+    .limit(2);
+  if (transferLookupError) {
+    logSecurityEvent("asaas_webhook_transfer_lookup_failed", { event, errorCode: transferLookupError.message.slice(0, 64) });
+    return NextResponse.json({ error: "reference_lookup_failed" }, { status: 500 });
+  }
+  if (Array.isArray(byTransferId) && byTransferId.some((row) => row.id !== withdrawalId)) {
+    return unprocessableMarketplaceEvent(event, "transfer", "reference_mismatch");
+  }
 
   const eventKey = perEventKey(event, notificationId, providerTransferId);
 
@@ -296,17 +406,19 @@ async function handleMarketplacePaymentEvent(
   payment: Record<string, unknown>,
   notificationId: string | undefined
 ) {
-  const providerPaymentId = payment.id as string | undefined;
-  const internalPaymentId = payment.externalReference as string | undefined;
-  if (!providerPaymentId || !internalPaymentId) return NextResponse.json({ ok: true });
+  // externalReference já confirmado como payment local pelo chamador.
+  const internalPaymentId = payment.externalReference as string;
+  const providerPaymentId = typeof payment.id === "string" && payment.id.length > 0 ? payment.id : undefined;
+  // sem a cobrança não há como conferir a identidade nem aplicar o evento --
+  // nunca 200 silencioso para um payment nosso.
+  if (!providerPaymentId) return unprocessableMarketplaceEvent(event, "payment", "missing_payment_id");
 
   const eventKey = perEventKey(event, notificationId, providerPaymentId);
 
   // PAYMENT_RECEIVED é o único evento que move dinheiro (liquida e credita o
-  // ledger) -- confirmado no Asaas ANTES da marca de dedupe, mesmo motivo do
+  // ledger) -- confirmado no Asaas ANTES de qualquer efeito, mesmo motivo do
   // fluxo SaaS. O valor liquidado passa a ser o que a API do Asaas devolve,
   // nunca o `payment.value` do corpo do webhook.
-  let verifiedAmountCents: number | null = null;
   if (event === "PAYMENT_RECEIVED") {
     const verification = await verifyAsaasPaymentSettled({
       providerPaymentId,
@@ -323,7 +435,33 @@ async function handleMarketplacePaymentEvent(
       if (verification.retryable) return NextResponse.json({ error: "verification_unavailable" }, { status: 503 });
       return NextResponse.json({ ok: true });
     }
-    verifiedAmountCents = verification.valueCents;
+
+    // Sem marca de dedupe na rota (a marca antiga era gravada ANTES do efeito e
+    // um erro do settle respondia 200 -- Pix pago e nunca liquidado, sem retry).
+    // A RPC aplica o efeito ou grava a exceção durável de payment 'failed' e é
+    // idempotente por construção; só responde 200 se o retorno for coerente.
+    const { data, error } = await supabase
+      .rpc("process_marketplace_payment_received_event", {
+        p_internal_payment_id: internalPaymentId,
+        p_provider_payment_id: providerPaymentId,
+        p_confirmed_amount_cents: verification.valueCents,
+      })
+      .maybeSingle();
+    const outcome = error ? null : parseReceivedOutcome(data, internalPaymentId);
+    if (!outcome) {
+      logSecurityEvent("marketplace_payment_settlement_error", {
+        paymentId: internalPaymentId,
+        errorCode: error ? error.message.slice(0, 64) : "UNEXPECTED_RESULT",
+      });
+      return NextResponse.json({ error: "settlement_failed" }, { status: 500 });
+    }
+    if (outcome.startsWith("exception_")) {
+      logSecurityEvent("marketplace_payment_received_on_failed_payment", { paymentId: internalPaymentId, outcome });
+    }
+
+    revalidatePath("/financeiro");
+    revalidatePath("/reservas");
+    return NextResponse.json({ ok: true, outcome });
   }
 
   const { error: dedupeError } = await supabase
@@ -346,32 +484,6 @@ async function handleMarketplacePaymentEvent(
       p_payment_id: internalPaymentId,
       p_provider_payment_id: providerPaymentId,
     });
-    return NextResponse.json({ ok: true });
-  }
-
-  if (event === "PAYMENT_RECEIVED" && verifiedAmountCents !== null) {
-    // ÚNICO gatilho financeiro real -- delega pra settle_marketplace_
-    // payment_received (migration 0059), que faz tudo atomicamente
-    // (verifica amount, revalida capacidade, confirma reserva, congela
-    // snapshot, credita ledger -- ou cai pra manual_review sem nunca
-    // overbookar nem perder o dinheiro do cliente). O amount aqui é o
-    // valor confirmado pela API do Asaas (verifyAsaasPaymentSettled acima).
-    const { error: settleError } = await supabase.rpc("settle_marketplace_payment_received", {
-      p_internal_payment_id: internalPaymentId,
-      p_provider_payment_id: providerPaymentId,
-      p_confirmed_amount_cents: verifiedAmountCents,
-    });
-    if (settleError) {
-      // nunca falha silenciosamente -- loga sem PII/payload bruto (só o
-      // código de erro, truncado por segurança).
-      logSecurityEvent("marketplace_payment_settlement_error", {
-        paymentId: internalPaymentId,
-        errorCode: settleError.message.slice(0, 64),
-      });
-    }
-
-    revalidatePath("/financeiro");
-    revalidatePath("/reservas");
     return NextResponse.json({ ok: true });
   }
 

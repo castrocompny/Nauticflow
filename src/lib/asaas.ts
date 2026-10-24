@@ -403,11 +403,12 @@ type AsaasPaymentSearchResult = { data: AsaasPixPayment[]; totalCount: number };
 
 export type MarketplacePixChargeResult = { providerPaymentId: string; status: string };
 
-// Mesma estratégia de reconciliação de findOrCreateMarketplaceAsaasCustomer
-// -- se um POST /payments anterior teve a conexão caída antes de recebermos
-// a resposta, um retry NUNCA cria uma segunda cobrança: procura primeiro
-// por externalReference (= payments.id interno, nunca a chave Pix/CPF/
-// e-mail/telefone/company_id).
+// Reconciliação best-effort: consulta externalReference antes do POST. Um
+// único resultado é reutilizado; múltiplos resultados falham; zero resultados
+// levam a um novo POST. A garantia de unicidade/idempotência de `/payments`
+// por `externalReference` não foi verificada; uma busca vazia ainda aciona POST
+// neste código. Após uma tentativa de resultado ambíguo ou falha ao persistir
+// o ID local, não repetir o POST automaticamente sem reconciliação segura.
 export async function createOrReconcileMarketplacePixCharge(params: {
   internalPaymentId: string;
   customerId: string;
