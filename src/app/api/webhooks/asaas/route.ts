@@ -293,6 +293,8 @@ export async function POST(request: Request) {
 // `body.id` -- distinto de `transfer.id`) quando presente; sem ele, cai pra
 // `${event}:${transfer.id}` (ver perEventKey) -- só o reenvio do MESMO
 // evento colide, nunca CREATED contra DONE da mesma transferência.
+// Com a 0089 (local, ainda não publicada) essa chave é só registro: quem decide
+// se o efeito já foi aplicado é o estado travado do saque.
 async function handleTransferEvent(
   supabase: SupabaseClient,
   event: string,
@@ -327,10 +329,10 @@ async function handleTransferEvent(
     return NextResponse.json({ ok: true });
   }
 
-  // Também rejeita correlação cruzada quando os dois campos estão presentes:
-  // o RPC legado de finalização recebe ambos, mas não garante que o transfer id
-  // não esteja ligado a outro saque. Esta leitura reduz o risco determinístico;
-  // não fecha a corrida entre duas requisições (isso exige constraint/RPC atômica).
+  // Pré-checagem de correlação cruzada (transfer id já ligado a outro saque).
+  // Antes da 0089 era a única defesa e não fechava a corrida entre requisições;
+  // com a 0089 (local, ainda não publicada) a RPC repete a checagem sob lock de
+  // linha + advisory lock por transfer id. Esta leitura só antecipa o 422.
   const { data: byTransferId, error: transferLookupError } = await supabase
     .from("marketplace_withdrawals")
     .select("id")
@@ -345,53 +347,63 @@ async function handleTransferEvent(
   }
 
   const eventKey = perEventKey(event, notificationId, providerTransferId);
-
-  const { error: dedupeError } = await supabase
-    .from("processed_webhook_events")
-    .insert({ provider: "asaas", event_type: event, event_key: eventKey });
-  if (dedupeError) {
-    if (dedupeError.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
-    // erro inesperado ao gravar a marca: nada foi processado -- responde 5xx
-    // pro Asaas reenviar, em vez de 200 que descartaria o evento em silêncio.
-    logSecurityEvent("asaas_webhook_dedupe_failed", { flow: "transfer", event, errorCode: dedupeError.message.slice(0, 64) });
-    return NextResponse.json({ error: "dedupe_failed" }, { status: 500 });
-  }
-
-  // Eventos intermediários (incluindo BLOCKED) -- garante que o saque saia de
-  // 'pending' pra 'processing' o quanto antes soubermos que o provider já
-  // está com a transferência, mas NUNCA toca o ledger nem muda o status pra
-  // um desfecho definitivo. Idempotente por natureza (mark_marketplace_
-  // withdrawal_processing só age se ainda estiver 'pending').
-  if (IN_PROGRESS_TRANSFER_EVENTS.has(event)) {
-    await supabase.rpc("mark_marketplace_withdrawal_processing", {
-      p_withdrawal_id: withdrawalId,
-      p_provider_transfer_id: providerTransferId,
-    });
-    return NextResponse.json({ ok: true });
-  }
-
-  const outcome = TERMINAL_TRANSFER_EVENTS[event];
   const providerFeeCents = typeof transfer.fee === "number" ? Math.round((transfer.fee as number) * 100) : null;
 
-  await supabase.rpc("finalize_marketplace_withdrawal", {
-    p_withdrawal_id: withdrawalId,
-    p_outcome: outcome,
-    p_provider_transfer_id: providerTransferId,
-    p_provider_fee_cents: outcome === "completed" ? providerFeeCents : null,
-    p_failure_code: outcome === "completed" ? null : `PROVIDER_TRANSFER_${outcome.toUpperCase()}`,
-    // nunca o payload bruto do provider na mensagem -- só um texto curto e
-    // seguro pro operador ver (ver failure_reason_safe, migration 0056).
-    p_failure_reason_safe:
-      outcome === "completed"
-        ? null
-        : outcome === "cancelled"
-          ? "A transferência foi cancelada."
-          : "A transferência não pôde ser concluída pelo provedor de pagamento.",
-  });
+  // Migration 0089: o estado travado do saque decide se o efeito já foi aplicado;
+  // a marca em processed_webhook_events é só registro (marcas antigas eram
+  // gravadas aqui ANTES do efeito e não provam nada). Erro em qualquer etapa
+  // desfaz tudo, a rota responde 5xx/422 e o reenvio processa de novo.
+  const { data, error } = await supabase
+    .rpc("process_marketplace_transfer_webhook_event", {
+      p_event_key: eventKey,
+      p_event_type: event,
+      p_withdrawal_id: withdrawalId,
+      p_provider_transfer_id: providerTransferId,
+      p_provider_fee_cents: providerFeeCents,
+    })
+    .maybeSingle();
+  if (error) {
+    if (error.message.includes("PROVIDER_TRANSFER_ID_MISMATCH")) {
+      return unprocessableMarketplaceEvent(event, "transfer", "reference_mismatch");
+    }
+    // Desfecho terminal diferente do gravado, ou event_key já usado por outro
+    // tipo/fluxo: sem política nem fila durável definidas -- nunca 200.
+    if (error.message.includes("TERMINAL_OUTCOME_CONFLICT")) {
+      return unprocessableMarketplaceEvent(event, "transfer", "terminal_outcome_conflict");
+    }
+    if (error.message.includes("EVENT_KEY_CONFLICT")) {
+      return unprocessableMarketplaceEvent(event, "transfer", "event_key_conflict");
+    }
+    // saque já terminal sem transfer id gravado: nada prova que é esta transferência.
+    if (error.message.includes("TRANSFER_IDENTITY_UNPROVEN")) {
+      return unprocessableMarketplaceEvent(event, "transfer", "transfer_identity_unproven");
+    }
+    // uuid bem formado sem saque local: não há prova de que o evento é alheio.
+    if (error.message.includes("WITHDRAWAL_NOT_FOUND")) {
+      return unprocessableMarketplaceEvent(event, "transfer", "withdrawal_not_found");
+    }
+    logSecurityEvent("marketplace_withdrawal_webhook_error", { event, withdrawalId, errorCode: error.message.slice(0, 64) });
+    return NextResponse.json({ error: "transfer_processing_failed" }, { status: 500 });
+  }
+  const row = data as { outcome?: unknown; withdrawal_status?: unknown } | null;
+  if (!row || !isCoherentTransferResult(event, row.outcome, row.withdrawal_status)) {
+    logSecurityEvent("marketplace_withdrawal_webhook_error", { event, withdrawalId, errorCode: "UNEXPECTED_RESULT" });
+    return NextResponse.json({ error: "transfer_processing_failed" }, { status: 500 });
+  }
 
-  revalidatePath("/financeiro");
+  if (row.outcome === "applied" && TERMINAL_TRANSFER_EVENTS[event]) revalidatePath("/financeiro");
+  return NextResponse.json({ ok: true, ...(row.outcome === "already_applied" ? { duplicate: true } : {}) });
+}
 
-  return NextResponse.json({ ok: true });
+// Contrato do retorno de process_marketplace_transfer_webhook_event (0089):
+// desfecho definitivo só devolve o próprio status; intermediário devolve
+// `applied`+processing (saiu de pending) ou `already_applied` com qualquer
+// estado além de pending -- inclusive terminal (evento atrasado).
+function isCoherentTransferResult(event: string, outcome: unknown, status: unknown): boolean {
+  const terminal = TERMINAL_TRANSFER_EVENTS[event];
+  if (terminal) return (outcome === "applied" || outcome === "already_applied") && status === terminal;
+  if (outcome === "applied") return status === "processing";
+  return outcome === "already_applied" && ["processing", "completed", "failed", "cancelled"].includes(status as string);
 }
 
 // PIX do cliente (marketplace) -- ver docs/adr/0007-marketplace-pix-payment-

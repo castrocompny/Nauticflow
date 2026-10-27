@@ -6,7 +6,8 @@ const PAYMENT_ID = "77777777-7777-4777-8777-777777777777";
 // Mocks só para o fluxo marketplace de PAYMENT_RECEIVED (RECONSTRUÇÃO, ver
 // docs/adr/0007): o Postgres real não roda aqui, então o contrato do retorno da
 // RPC é exercitado com respostas simuladas. O limite transacional em si
-// (efeito + exceção) é coberto só pelo pgTAP, que NÃO foi executado.
+// (efeito + exceção) é coberto só pelo pgTAP, executado apenas em banco local
+// isolado (com supabase/tests/setup/service_role_platform_grants.sql).
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   insert: vi.fn(),
@@ -362,5 +363,142 @@ describe("POST /api/webhooks/asaas (local reference guards)", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+});
+
+// TRANSFER_* (migration 0089): marca de dedupe + efeito numa única RPC/transação
+// (mesmo padrão da 0079) -- a rota não grava marca própria e só responde 200
+// quando a RPC confirma. Rollback da marca, lock e identidade atômica ficam no
+// pgTAP (marketplace_withdrawal_webhook.test.sql), não exercitados aqui.
+describe("POST /api/webhooks/asaas (TRANSFER_* effect)", () => {
+  const WITHDRAWAL_ID = "55555555-5555-4555-8555-555555555555";
+  const send = (event: string, id = "evt_t1") =>
+    POST(webhookRequest({ id, event, transfer: { id: "tr_ok", externalReference: WITHDRAWAL_ID, fee: 0 } }, "correct-webhook-token"));
+  const row = (outcome: string, withdrawal_status: string) => ({ data: { outcome, withdrawal_status }, error: null });
+
+  beforeEach(() => {
+    mocks.insert.mockReset();
+    mocks.insert.mockResolvedValue({ error: null });
+  });
+
+  it("answers 200 for TRANSFER_DONE only after the atomic RPC confirms, without a route-level dedupe mark", async () => {
+    mocks.rpc.mockReturnValue(row("applied", "completed"));
+
+    const response = await send("TRANSFER_DONE");
+
+    expect(response.status).toBe(200);
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalledWith("process_marketplace_transfer_webhook_event", {
+      p_event_key: "evt_t1",
+      p_event_type: "TRANSFER_DONE",
+      p_withdrawal_id: WITHDRAWAL_ID,
+      p_provider_transfer_id: "tr_ok",
+      p_provider_fee_cents: 0,
+    });
+  });
+
+  it("answers 5xx when the RPC errors, and a replay of the same event reaches the RPC again", async () => {
+    mocks.rpc.mockReturnValueOnce({ data: null, error: { message: "column reference \"id\" is ambiguous" } });
+    expect((await send("TRANSFER_DONE")).status).toBe(500);
+
+    mocks.rpc.mockReturnValueOnce(row("applied", "completed"));
+    expect((await send("TRANSFER_DONE")).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  // 0089 decide pelo estado travado do saque, não pela marca: `already_applied`
+  // = o estado já reflete este evento (marca legada não prova nada sozinha).
+  it("answers 200 duplicate when the RPC reports the state already reflects the event", async () => {
+    mocks.rpc.mockReturnValue(row("already_applied", "processing"));
+
+    const response = await send("TRANSFER_CREATED");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, duplicate: true });
+  });
+
+  it.each([
+    ["TERMINAL_OUTCOME_CONFLICT", "terminal_outcome_conflict"],
+    ["EVENT_KEY_CONFLICT", "event_key_conflict"],
+    ["TRANSFER_IDENTITY_UNPROVEN", "transfer_identity_unproven"],
+  ])("answers 422 (never 200) when the RPC raises %s", async (code, reason) => {
+    mocks.rpc.mockReturnValue({ data: null, error: { message: code } });
+
+    expect((await send("TRANSFER_FAILED")).status).toBe(422);
+    expect(mocks.log).toHaveBeenCalledWith("asaas_webhook_unprocessable_marketplace_event", {
+      event: "TRANSFER_FAILED", kind: "transfer", reason,
+    });
+  });
+
+  it("routes in-progress events through the same atomic RPC and answers 5xx on error", async () => {
+    mocks.rpc.mockReturnValue({ data: null, error: { message: "boom" } });
+
+    expect((await send("TRANSFER_PENDING")).status).toBe(500);
+    expect(mocks.rpc).toHaveBeenCalledWith("process_marketplace_transfer_webhook_event", expect.objectContaining({
+      p_event_type: "TRANSFER_PENDING", p_withdrawal_id: WITHDRAWAL_ID, p_provider_transfer_id: "tr_ok",
+    }));
+  });
+
+  it.each([
+    ["no row", { data: null, error: null }],
+    ["unknown outcome", row("ignored", "completed")],
+    ["missing status", { data: { outcome: "applied" }, error: null }],
+    ["marker-only duplicate outcome", row("duplicate", "completed")],
+  ])("answers 5xx when the RPC contract is violated (%s)", async (_name, result) => {
+    mocks.rpc.mockReturnValue(result);
+    expect((await send("TRANSFER_DONE")).status).toBe(500);
+  });
+
+  // Combinações derivadas da 0089: terminal só devolve o próprio desfecho;
+  // intermediário devolve `applied`+processing (vindo de pending) ou
+  // `already_applied` com qualquer estado já além de pending (inclusive terminal).
+  it.each([
+    ["TRANSFER_DONE", "applied", "completed"],
+    ["TRANSFER_DONE", "already_applied", "completed"],
+    ["TRANSFER_FAILED", "applied", "failed"],
+    ["TRANSFER_CANCELLED", "already_applied", "cancelled"],
+    ["TRANSFER_CREATED", "applied", "processing"],
+    ["TRANSFER_PENDING", "already_applied", "processing"],
+    ["TRANSFER_BLOCKED", "already_applied", "completed"],
+    ["TRANSFER_IN_BANK_PROCESSING", "already_applied", "failed"],
+  ])("answers 200 for %s with coherent RPC result (%s, %s)", async (event, outcome, status) => {
+    mocks.rpc.mockReturnValue(row(outcome, status));
+    expect((await send(event)).status).toBe(200);
+  });
+
+  it.each([
+    ["TRANSFER_DONE", "applied", "failed"],
+    ["TRANSFER_DONE", "already_applied", "processing"],
+    ["TRANSFER_FAILED", "applied", "completed"],
+    ["TRANSFER_CANCELLED", "applied", "pending"],
+    ["TRANSFER_CREATED", "applied", "completed"],
+    ["TRANSFER_PENDING", "applied", "pending"],
+    ["TRANSFER_PENDING", "already_applied", "pending"],
+    ["TRANSFER_BLOCKED", "already_applied", "weird"],
+  ])("answers 5xx for %s with incoherent RPC result (%s, %s)", async (event, outcome, status) => {
+    mocks.rpc.mockReturnValue(row(outcome, status));
+    expect((await send(event)).status).toBe(500);
+  });
+
+  it("answers 422 when the RPC detects a different transfer id bound to the withdrawal", async () => {
+    mocks.rpc.mockReturnValue({ data: null, error: { message: "PROVIDER_TRANSFER_ID_MISMATCH" } });
+
+    const response = await send("TRANSFER_DONE");
+
+    expect(response.status).toBe(422);
+    expect(mocks.log).toHaveBeenCalledWith("asaas_webhook_unprocessable_marketplace_event", {
+      event: "TRANSFER_DONE", kind: "transfer", reason: "reference_mismatch",
+    });
+  });
+
+  // Saque com uuid válido que não existe localmente: não há prova de que o
+  // evento seja alheio -- nunca 200 silencioso.
+  it("answers 422 (not a silent 200) when the referenced withdrawal does not exist", async () => {
+    mocks.rpc.mockReturnValue({ data: null, error: { message: "WITHDRAWAL_NOT_FOUND" } });
+
+    expect((await send("TRANSFER_DONE")).status).toBe(422);
+    expect(mocks.log).toHaveBeenCalledWith("asaas_webhook_unprocessable_marketplace_event", {
+      event: "TRANSFER_DONE", kind: "transfer", reason: "withdrawal_not_found",
+    });
   });
 });
