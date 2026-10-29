@@ -210,4 +210,97 @@ echo "OK: ensaio $PID concluído; container parado, volume e diretório preserva
   service_role` = execução real daquele caminho sob o papel.
 - As funções da 0089 rodam no papel da sessão de teste, não sob `service_role`.
 - Corridas entre sessões (DONE x FAILED, mesmo transfer id em dois saques) não
-  são exercitadas aqui.
+  são exercitadas aqui; ver `offline/` abaixo.
+
+## Laboratório offline da 0089 (`offline/`)
+
+Runners para um Postgres **já preparado e já em execução** (chain + bootstrap
+aplicados antes, fora do harness). O harness nunca cria, inicia, reseta, para
+nem reaplica migrations/grants. Só fala com o alvo via `docker exec ... psql`.
+
+- `run-sequential.sh <rótulo>=<arquivo.sql> ...` -- arquivos pgTAP em ordem;
+  para na primeira falha. Ex.: os três de `database/` ligados à 0089 e
+  `offline/sql/aux_0089_service_role.test.sql` (RPC chamada sob
+  `service_role`, com controle negativo de INSERT direto no ledger).
+- `run-concurrency.sh --scenarios a1,a2,b1,b2` -- duas sessões `psql`
+  independentes (vencedor/perdedor, READ COMMITTED, `set local role
+  service_role`, event_keys distintas) + observador owner. Exige ver o perdedor
+  bloqueado pelo vencedor **no recurso esperado** (a: xid do vencedor + tuple em
+  `marketplace_withdrawals`; b: advisory do transfer id) antes do commit, e o
+  erro exato do perdedor (`TERMINAL_OUTCOME_CONFLICT` / `PROVIDER_TRANSFER_ID_MISMATCH`).
+  Fixtures fictícias novas por execução (token aleatório) são **commitadas** no
+  laboratório e preservadas.
+
+Alvo (todas obrigatórias; faltou uma, o runner recusa antes de agir):
+`NF_LAB_CONTEXT`, `NF_LAB_ENDPOINT`, `NF_LAB_CONTAINER`, `NF_LAB_CONTAINER_ID`
+(64 hex), `NF_LAB_VOLUME`, `NF_LAB_CONFIRM` (= repetição do ID, confirmação
+explícita) e `NF_EVIDENCE_ROOT` (absoluto, existente, fora do repositório).
+O runner recusa nome que resolva para outro ID, `network` diferente de `none`,
+porta publicada, volume divergente e container parado.
+
+Critérios de PASS (qualquer falha => `FAIL`; sinal => `INTERRUPTED`; exit != 0):
+- arquivo pgTAP: cliente com exit 0 **e** TAP estrito (`lib/tapcheck.awk`:
+  um plano antes dos testes, numeração exata, stderr vazio, nenhuma linha
+  desconhecida, nenhum `not ok`/`Bail out!`/`# Looks like`; TODO/SKIP contados
+  à parte e reprovam);
+- nenhuma sessão desta execução restante;
+- commit do vencedor, rollback do perdedor e consultas do observador
+  confirmados;
+- cada sessão concorrente: `wait` do processo local = 0, cliente com pid
+  registrado e confirmado encerrado, rc do cliente = 0 (registrados em
+  `sessions/index.txt`);
+- toda evidência obrigatória gravada (diretórios, `obs/`, `provenance/`,
+  hashes, rc dos testes, `run.log`, `RESULT`). Falha de gravação => `FAIL`. Se
+  nem `RESULT` puder ser gravado: exit 3, diagnóstico em stderr e nenhum
+  anúncio de resultado. O anúncio `RESULT: PASS` só sai depois de `RESULT` e
+  `run.log` gravados.
+
+Sessões residuais: a **detecção** usa os nomes desta execução (lista exata e
+também o prefixo `nf0089-<token>-`, para pegar sessões que o runner não chegou a
+registrar). O **encerramento** nunca usa prefixo: só atinge backend com pid +
+`application_name` + `backend_start` registrados pela própria execução.
+Encerrar é tentativa; só uma nova observação sem linhas confirma a limpeza (e a
+execução continua `FAIL`). Se o observador falha, o estado fica registrado como
+desconhecido.
+
+Em erro ou sinal, o `trap` faz rollback confirmado de cada sessão aberta, fecha
+descritores e espera os processos locais (prazo 10s). Se não terminarem, o
+runner envia TERM e depois KILL só aos pids que registrou (cliente, depois o
+processo local) e confere de novo. Isso não alcança descendentes do cliente nem
+o `psql` dentro do container; para o servidor vale o encerramento de backend
+acima.
+
+Cobertura dos testes do harness quanto a sinais: **só SIGTERM** no runner de
+concorrência (cliente simulado). SIGINT, sinais no runner sequencial e árvores
+de descendentes não foram testados.
+
+Cada execução cria `NF_EVIDENCE_ROOT/<seq|conc>-<UTC>-<token>/` (nunca
+sobrescreve): `RESULT`, `run.log`, `provenance/` (versão e hashes do harness,
+HEAD/status, hashes das fontes, migrations **disponíveis** -- não prova de
+aplicação --, `applied-evidence.txt`, definições/owners/ACLs/grants,
+identidade do laboratório), `obs/` (SQL exato, saída e rc de cada observação),
+`tests/` e `sessions/`.
+
+`applied-evidence.txt` compara o corpo (`prosrc`) de cada função da 0089 no
+catálogo com o arquivo da **worktree** (linha `SOURCE`: sha256, HEAD e se a
+migration difere do HEAD). `MATCH` exige exatamente uma função com o nome, no
+schema `public` (com ou sem `public.` no `regprocedure`), com a assinatura
+esperada e o mesmo md5. Owner/ACL ficam em linhas `RECORDED`: são registrados,
+não comparados. A linha `HISTORY` lembra que isso não prova o histórico de
+aplicação nem os demais comandos da migration.
+
+Testes do harness (sem banco; cliente simulado):
+`HARNESS_TEST_WORK=<dir novo> offline/harness-tests/run-harness-tests.sh all`
+(grupos `tap`, `seq`, `conc`, `evid`, `close`, `catalog`). `evid` injeta falha
+de gravação plantando um diretório no caminho de destino dentro do run
+descartável do teste (não enche disco nem muda permissões). `catalog` roda o
+`catalog_capture` real contra a migration da worktree, só com o observador
+substituído. O grupo `legacy` reproduz os defeitos do runner histórico de
+2026-10-28 numa cópia e **deve falhar**. Os grupos `evid`, `close` e `catalog`
+foram vistos falhar antes da correção. Nem todo caminho dos demais grupos tem
+registro RED comportamental: algumas falhas registradas antes ocorreram só
+porque o arquivo ainda não existia.
+
+Limites: inventário igual demonstra igualdade dos campos registrados, não
+ausência de mudança em dados/volumes; fixtures inserem saques direto (sem saldo
+real); nada disto valida produção, grants remotos ou o Asaas.
