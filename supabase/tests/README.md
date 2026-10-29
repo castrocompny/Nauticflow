@@ -29,6 +29,30 @@ banco não tem mais o schema das rodadas anteriores. Na rodada 2 os objetos da
 arquivo. `0000b_*`/`0000c_*` são puladas pelo CLI
 (nome fora do padrão).
 
+## 0090 em laboratório novo (`nf-0090-fresh-20261029-a01`, 2026-10-29)
+
+Pré-requisitos aplicados do zero, em banco novo e isolado (sem rede, sem
+portas): migrations do Auth e do Storage pelas próprias imagens, uma vez;
+`revoke-api-privileges.sql` (ordem inferida); as 82 migrations do checkout;
+`setup/service_role_platform_grants.sql`; a 0090 inteira (rc 0).
+
+- Primeira rodada: FAIL, 59/60 na suíte da 0090. O teste 45 procurava `bad`,
+  `chave@` e `aaaa…` no JSON da linha inteira, e um UUID aleatório terminado
+  em `…a4bade` casou com `%bad%`. Falso positivo do teste, não da migration.
+- Correção (só no teste): o predicado olha apenas `event_key`,
+  `notification_id` e `provider_transfer_id`, comparando com os valores exatos
+  que as fixtures enviam como inválidos/excessivos. Três controles novos
+  (UUID com `bad`, identificadores aceitos com `bad`, um vazamento plantado em
+  cada campo); plano 60 → 63.
+- Rodada oficial seguinte: PASS 63/63 (0090), 18/18, 22/22, 40/40 e 17/17.
+  Corpo da RPC (md5 `aae74be0daa44c7d31c03241e1c47fd6`), catálogo e contagens
+  iguais antes e depois; a 0090 não mudou.
+- O FAIL e o diagnóstico ficam preservados junto do PASS nas evidências do
+  laboratório.
+
+Prova só o banco local: não cobre HTTP/PostgREST, a rota, o Asaas nem
+equivalência com o Supabase remoto.
+
 ## Laboratório preservado -- não tocar
 
 O ensaio de 2026-10-26 usou `D:/Projetos/_recovery/nf-pgtap-0089-20261026`

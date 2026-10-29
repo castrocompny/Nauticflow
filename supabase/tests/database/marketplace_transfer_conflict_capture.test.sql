@@ -6,7 +6,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(60);
+select plan(63);
 
 -- estado prévio do laboratório (ex.: cenários concorrentes commitados) fora desta transação
 delete from public.marketplace_transfer_conflicts;
@@ -241,8 +241,26 @@ select results_eq($$ select provider_transfer_id, provider_transfer_id_class, lo
 select results_eq($$ select provider_transfer_id_class, local_link_state
   from public.marketplace_transfer_conflicts where id = (select conflict_id from r where label = 'n_tr_absent') $$,
   $$ values ('absent'::text, 'none'::text) $$, 'ausente e inválido não se agrupam');
-select is((select count(*)::int from public.marketplace_transfer_conflicts c
-  where to_jsonb(c)::text like '%bad%' or to_jsonb(c)::text like '%chave@%' or to_jsonb(c)::text like '%aaaaaaaaaaaaaaaa%'), 0,
+-- vazamento = algum dos três campos de identificador guarda exatamente um valor
+-- inválido/excessivo enviado acima (busca por palavra na linha inteira casava UUIDs como '...a4bade')
+create function pg_temp.leaked(ek text, ni text, tr text) returns boolean language sql as $$
+  select array[ek, ni, tr] &&
+         array['evt bad/1', 'evt_other bad!', 'pix chave@x.com', repeat('a', 257), '', 'tr cc bad']
+$$;
+create temp table probe as select * from public.marketplace_transfer_conflicts limit 0;
+insert into probe (id, event_key, notification_id, provider_transfer_id) values
+  ('194cf3f4-dac2-4854-8035-928456a4bade', 'evt_ok', null, 'tr_ok'),
+  ('f9000000-0000-4000-8000-0000000000d1', 'evt_bad_ok', 'ntf.bad:1', 'tr-bad'),
+  ('f9000000-0000-4000-8000-0000000000d2', 'evt bad/1', null, null),
+  ('f9000000-0000-4000-8000-0000000000d3', null, 'pix chave@x.com', null),
+  ('f9000000-0000-4000-8000-0000000000d4', null, null, repeat('a', 257));
+select ok(not pg_temp.leaked(p.event_key, p.notification_id, p.provider_transfer_id), 'controle: UUID válido com "bad" não é vazamento')
+  from probe p where id = '194cf3f4-dac2-4854-8035-928456a4bade';
+select ok(not pg_temp.leaked(p.event_key, p.notification_id, p.provider_transfer_id), 'controle: identificadores aceitos contendo "bad" não são vazamento')
+  from probe p where id = 'f9000000-0000-4000-8000-0000000000d1';
+select is((select count(*)::int from probe p where pg_temp.leaked(p.event_key, p.notification_id, p.provider_transfer_id)), 3,
+  'controle: valor inválido/excessivo em cada um dos três campos é detectado');
+select is((select count(*)::int from public.marketplace_transfer_conflicts c where pg_temp.leaked(c.event_key, c.notification_id, c.provider_transfer_id)), 0,
   'nenhum conteúdo inválido/excessivo gravado');
 
 -- ---------------------------------------------------------------------------
