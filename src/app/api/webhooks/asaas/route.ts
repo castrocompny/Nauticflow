@@ -117,6 +117,154 @@ function unprocessableMarketplaceEvent(event: string, kind: "transfer" | "paymen
   return NextResponse.json({ error: "unprocessable_marketplace_event" }, { status: 422 });
 }
 
+// ---------------------------------------------------------------------------
+// Captura durável de conflitos TRANSFER_* (migration 0090, LOCAL, não publicada).
+// Camada ADICIONAL aos 422 de transferência: nunca muda o HTTP, a classificação
+// (inclusive o `includes` abaixo) nem o processamento financeiro. Só captura com
+// evidência estruturada: pré-checagem que recusou sem chamar a 0089, ou erro da
+// 0089 com code P0001 e mensagem EXATA. É uma segunda RPC (transação própria),
+// aguardada antes da resposta e nunca repetida. Recusa, erro, timeout, retorno
+// inválido ou resultado desconhecido mantêm o 422 e podem deixar o conflito SEM
+// registro durável -- o log (Sentry, best-effort) não substitui esse registro.
+//
+// Logs (`reason` = motivo da 0090; nunca payload, ids do provedor, mensagem
+// crua, details/hint):
+//   transfer_conflict_captured            {event, reason, outcome, conflictId, occurrenceCount}
+//   transfer_conflict_capture_rejected    {event, reason, errorCode: CONFLICT_CAPTURE_*}
+//   transfer_conflict_capture_unknown     {event, reason, cause: transport|timeout|exception}
+//   transfer_conflict_capture_failed      {event, reason, errorCode, status} -- erro fora do contrato
+//   transfer_conflict_capture_invalid_result {event, reason}
+//   transfer_conflict_unverified          {event, reason, errorCode} -- 422 só por `includes`
+//   transfer_conflict_identifier_type     {event, reason, field, type} -- sem captura
+// ---------------------------------------------------------------------------
+
+type TransferConflictReason =
+  | "terminal_outcome_conflict" | "event_key_conflict" | "transfer_identity_unproven" | "provider_transfer_id_mismatch"
+  | "missing_transfer_id" | "reference_mismatch" | "withdrawal_not_found";
+
+// Erros da 0089 que hoje dão 422, na MESMA ordem dos `includes` de antes:
+// [código, motivo do log HTTP atual, motivo da 0090].
+const TRANSFER_CONFLICT_CODES: readonly (readonly [string, string, TransferConflictReason])[] = [
+  ["PROVIDER_TRANSFER_ID_MISMATCH", "reference_mismatch", "provider_transfer_id_mismatch"],
+  ["TERMINAL_OUTCOME_CONFLICT", "terminal_outcome_conflict", "terminal_outcome_conflict"],
+  ["EVENT_KEY_CONFLICT", "event_key_conflict", "event_key_conflict"],
+  ["TRANSFER_IDENTITY_UNPROVEN", "transfer_identity_unproven", "transfer_identity_unproven"],
+  ["WITHDRAWAL_NOT_FOUND", "withdrawal_not_found", "withdrawal_not_found"],
+];
+
+// Código externo vira constante segura: SQLSTATE ou PGRST conhecido, senão marcador.
+function safeErrorCode(code: unknown): string {
+  if (code === undefined || code === null || code === "") return "NONE";
+  return typeof code === "string" && /^([0-9A-Z]{5}|PGRST\d{3})$/.test(code) ? code : "UNRECOGNIZED";
+}
+
+const INT_MAX = 2147483647;
+
+const CAPTURE_REJECTIONS = new Set([
+  "CONFLICT_CAPTURE_INVALID_INPUT", "CONFLICT_CAPTURE_POLICY_MISSING", "CONFLICT_CAPTURE_CAPACITY_EXCEEDED",
+]);
+
+// Espera máxima só da captura (nunca da RPC financeira): 3 s. A 0090 faz uma
+// leitura e um insert/update curtos; o limite impede que a captura segure a
+// resposta do webhook. Abort não prova que a transação foi desfeita no banco.
+const CAPTURE_TIMEOUT_MS = 3000;
+
+// Tipo de um identificador que a 0090 não representa (só text/null); null = representável.
+function wrongIdentifierType(value: unknown): string | null {
+  if (value === undefined || value === null || typeof value === "string") return null;
+  return Array.isArray(value) ? "array" : typeof value;
+}
+
+function referenceArgs(value: unknown): { p_reference_class: string; p_referenced_withdrawal_id: string | null } {
+  if (value === undefined || value === null) return { p_reference_class: "absent", p_referenced_withdrawal_id: null };
+  if (typeof value === "string" && UUID_RE.test(value)) return { p_reference_class: "uuid", p_referenced_withdrawal_id: value };
+  return { p_reference_class: "invalid", p_referenced_withdrawal_id: null };
+}
+
+// Mesma conversão usada para a 0089 (Math.round(fee*100)), mas negativo é
+// recusado ANTES do arredondamento (-0.001 nunca vira 0 válido).
+function feeArgs(value: unknown): { p_fee_class: string; p_fee_cents: number | null } {
+  if (value === undefined || value === null) return { p_fee_class: "absent", p_fee_cents: null };
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    const cents = Math.round(value * 100);
+    if (Number.isInteger(cents) && cents <= INT_MAX) return { p_fee_class: "valid", p_fee_cents: cents };
+  }
+  return { p_fee_class: "invalid", p_fee_cents: null };
+}
+
+type CaptureContext = {
+  supabase: SupabaseClient;
+  event: string;
+  transfer: Record<string, unknown>;
+  rawNotificationId: unknown;
+};
+
+async function captureTransferConflict(ctx: CaptureContext, reason: TransferConflictReason, eventKey: string | null) {
+  const { supabase, event, transfer } = ctx;
+  // Número/objeto não vira null nem String(): seria perder ou reparar o dado.
+  for (const [field, value] of [["notification_id", ctx.rawNotificationId], ["transfer_id", transfer.id]] as const) {
+    const type = wrongIdentifierType(value);
+    if (type) {
+      logSecurityEvent("transfer_conflict_identifier_type", { event, reason, field, type });
+      return;
+    }
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CAPTURE_TIMEOUT_MS);
+  try {
+    // `status` é da resposta (0 = sem resposta HTTP), não do `error`.
+    const { data, error, status } = await supabase
+      .rpc("record_marketplace_transfer_conflict", {
+        p_reason: reason,
+        p_event_type: event,
+        p_event_key: eventKey,
+        p_notification_id: (ctx.rawNotificationId as string | undefined) ?? null,
+        p_provider_transfer_id: (transfer.id as string | undefined) ?? null,
+        ...referenceArgs(transfer.externalReference),
+        ...feeArgs(transfer.fee),
+      })
+      .abortSignal(controller.signal)
+      .maybeSingle();
+    if (error) {
+      if (error.code === "P0001" && CAPTURE_REJECTIONS.has(error.message)) {
+        logSecurityEvent("transfer_conflict_capture_rejected", { event, reason, errorCode: error.message });
+      } else if (!status) {
+        logSecurityEvent("transfer_conflict_capture_unknown", { event, reason, cause: controller.signal.aborted ? "timeout" : "transport" });
+      } else {
+        logSecurityEvent("transfer_conflict_capture_failed", { event, reason, errorCode: safeErrorCode(error.code), status });
+      }
+      return;
+    }
+    const row = data as { outcome?: unknown; conflict_id?: unknown; occurrence_count?: unknown } | null;
+    const count = row?.occurrence_count;
+    const confirmed = !!row && typeof row === "object" && !Array.isArray(row)
+      && typeof row.conflict_id === "string" && UUID_RE.test(row.conflict_id)
+      && typeof count === "number" && Number.isInteger(count)
+      && ((row.outcome === "recorded" && count === 1) || (row.outcome === "repeated" && count >= 2 && count <= INT_MAX));
+    if (!confirmed) {
+      logSecurityEvent("transfer_conflict_capture_invalid_result", { event, reason });
+      return;
+    }
+    logSecurityEvent("transfer_conflict_captured", {
+      event, reason, outcome: row.outcome as string, conflictId: row.conflict_id as string, occurrenceCount: count,
+    });
+  } catch {
+    // rejeição inesperada só da captura: resultado desconhecido, HTTP inalterado.
+    logSecurityEvent("transfer_conflict_capture_unknown", { event, reason, cause: controller.signal.aborted ? "timeout" : "exception" });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 422 de transferência com evidência estruturada: captura (best-effort) e
+// devolve exatamente a resposta de antes.
+async function respondTransferConflict(
+  ctx: CaptureContext, httpReason: string, reason: TransferConflictReason, eventKey: string | null
+) {
+  await captureTransferConflict(ctx, reason, eventKey);
+  return unprocessableMarketplaceEvent(ctx.event, "transfer", httpReason);
+}
+
 export async function POST(request: Request) {
   const token = request.headers.get("asaas-access-token");
   const secret = process.env.ASAAS_WEBHOOK_TOKEN;
@@ -135,7 +283,7 @@ export async function POST(request: Request) {
 
   if (event && transfer && (IN_PROGRESS_TRANSFER_EVENTS.has(event) || event in TERMINAL_TRANSFER_EVENTS)) {
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    return handleTransferEvent(supabase, event, transfer, notificationId);
+    return handleTransferEvent(supabase, event, transfer, notificationId, body?.id);
   }
 
   if (event && payment && MARKETPLACE_PAYMENT_EVENTS.has(event)) {
@@ -299,8 +447,11 @@ async function handleTransferEvent(
   supabase: SupabaseClient,
   event: string,
   transfer: Record<string, unknown>,
-  notificationId: string | undefined
+  notificationId: string | undefined,
+  // body.id exatamente como chegou -- só para a captura da 0090.
+  rawNotificationId: unknown
 ) {
+  const capture: CaptureContext = { supabase, event, transfer, rawNotificationId };
   const providerTransferId = typeof transfer.id === "string" && transfer.id.length > 0 ? transfer.id : undefined;
   const rawReference = typeof transfer.externalReference === "string" && transfer.externalReference.length > 0
     ? transfer.externalReference
@@ -323,7 +474,8 @@ async function handleTransferEvent(
       return NextResponse.json({ error: "reference_lookup_failed" }, { status: 500 });
     }
     if (Array.isArray(local) && local.length > 0) {
-      return unprocessableMarketplaceEvent(event, "transfer", withdrawalId ? "missing_transfer_id" : "reference_mismatch");
+      const reason = withdrawalId ? "missing_transfer_id" : "reference_mismatch";
+      return respondTransferConflict(capture, reason, reason, null);
     }
     if (rawReference && !withdrawalId) logSecurityEvent("asaas_webhook_invalid_withdrawal_reference", { event });
     return NextResponse.json({ ok: true });
@@ -343,7 +495,7 @@ async function handleTransferEvent(
     return NextResponse.json({ error: "reference_lookup_failed" }, { status: 500 });
   }
   if (Array.isArray(byTransferId) && byTransferId.some((row) => row.id !== withdrawalId)) {
-    return unprocessableMarketplaceEvent(event, "transfer", "reference_mismatch");
+    return respondTransferConflict(capture, "reference_mismatch", "reference_mismatch", null);
   }
 
   const eventKey = perEventKey(event, notificationId, providerTransferId);
@@ -363,24 +515,19 @@ async function handleTransferEvent(
     })
     .maybeSingle();
   if (error) {
-    if (error.message.includes("PROVIDER_TRANSFER_ID_MISMATCH")) {
-      return unprocessableMarketplaceEvent(event, "transfer", "reference_mismatch");
-    }
-    // Desfecho terminal diferente do gravado, ou event_key já usado por outro
-    // tipo/fluxo: sem política nem fila durável definidas -- nunca 200.
-    if (error.message.includes("TERMINAL_OUTCOME_CONFLICT")) {
-      return unprocessableMarketplaceEvent(event, "transfer", "terminal_outcome_conflict");
-    }
-    if (error.message.includes("EVENT_KEY_CONFLICT")) {
-      return unprocessableMarketplaceEvent(event, "transfer", "event_key_conflict");
-    }
-    // saque já terminal sem transfer id gravado: nada prova que é esta transferência.
-    if (error.message.includes("TRANSFER_IDENTITY_UNPROVEN")) {
-      return unprocessableMarketplaceEvent(event, "transfer", "transfer_identity_unproven");
-    }
-    // uuid bem formado sem saque local: não há prova de que o evento é alheio.
-    if (error.message.includes("WITHDRAWAL_NOT_FOUND")) {
-      return unprocessableMarketplaceEvent(event, "transfer", "withdrawal_not_found");
+    // Classificação HTTP inalterada (por `includes`, na ordem de antes):
+    // PROVIDER_TRANSFER_ID_MISMATCH, desfecho terminal diferente do gravado,
+    // event_key de outro tipo/fluxo, saque terminal sem transfer id gravado e
+    // uuid sem saque local -- todos 422, nunca 200. A captura da 0090 só roda
+    // quando o erro é estruturado (P0001 + mensagem exata).
+    const conflict = TRANSFER_CONFLICT_CODES.find(([code]) => error.message.includes(code));
+    if (conflict) {
+      const [code, httpReason, reason] = conflict;
+      if (error.code === "P0001" && error.message === code) {
+        return respondTransferConflict(capture, httpReason, reason, eventKey);
+      }
+      logSecurityEvent("transfer_conflict_unverified", { event, reason, errorCode: safeErrorCode(error.code) });
+      return unprocessableMarketplaceEvent(event, "transfer", httpReason);
     }
     logSecurityEvent("marketplace_withdrawal_webhook_error", { event, withdrawalId, errorCode: error.message.slice(0, 64) });
     return NextResponse.json({ error: "transfer_processing_failed" }, { status: 500 });
