@@ -190,6 +190,32 @@ group_conc() {
   newcase c-check; conc_run check_mismatch --scenarios b1; expect "conc: verificação final divergente => exit 1" "$?" 1
   expect "conc: verificação final divergente => RESULT FAIL" "$(result_of)" FAIL
 
+  # c1/c2: captura da 0090 (capacidade esgotada / repetição sem nova vaga)
+  newcase c-cap; conc_run "" --scenarios c1,c2; expect "conc: c1,c2 simulados => exit 0" "$?" 0
+  expect "conc: c1,c2 => RESULT PASS" "$(result_of)" PASS
+  expect "conc: c1,c2 => sessões fechadas e processos encerrados" "$(all_closed)" closed
+  grep -qx 'rollback;' "$(ls "$C"/fake/sess-*-c1-L.in)" && ok "conc: c1 perdedor (capacidade) termina em rollback" || bad "conc: c1 perdedor (capacidade) termina em rollback"
+  grep -qx 'commit;' "$(ls "$C"/fake/sess-*-c2-L.in)" && ok "conc: c2 perdedor (repetição) confirma com commit" || bad "conc: c2 perdedor (repetição) confirma com commit"
+
+  newcase c-caplock; conc_run wrong_capture_lock --scenarios c1; expect "conc: c1 espera em outro advisory => exit 1" "$?" 1
+  expect "conc: c1 espera em outro advisory => RESULT FAIL" "$(result_of)" FAIL
+  [ -e "$(ls -d "$C"/fake/committed-* 2>/dev/null | head -1)" ] && bad "conc: c1 lock errado => vencedor não faz commit" || ok "conc: c1 lock errado => vencedor não faz commit"
+
+  # c3: conflito financeiro -> captura na mesma transação abortada recusada -> rollback -> captura em transação nova
+  newcase c-chain; conc_run "" --scenarios c3; expect "conc: c3 simulado => exit 0" "$?" 0
+  expect "conc: c3 => RESULT PASS" "$(result_of)" PASS
+  expect "conc: c3 => sessão fechada e processo encerrado" "$(all_closed)" closed
+  local seqc3; seqc3=$(grep -E "^(select 'FIN:|select 'CAP:|rollback;|commit;)" "$(ls "$C"/fake/sess-*-c3-S.in)" | sed -E "s/^select '(FIN|CAP):.*/\1/" | tr '\n' ' ')
+  expect "conc: c3 => ordem FIN, CAP (abortada), rollback, CAP, commit" "$seqc3" "FIN CAP rollback; CAP commit; "
+
+  newcase c-chain-noabort; conc_run no_abort --scenarios c3; expect "conc: c3 captura aceita na transação abortada => exit 1" "$?" 1
+  expect "conc: c3 captura aceita na transação abortada => RESULT FAIL" "$(result_of)" FAIL
+
+  newcase c-chain-rb; conc_run rollback_fail --scenarios c3; expect "conc: c3 rollback não confirmado => exit 1" "$?" 1
+  expect "conc: c3 rollback não confirmado => RESULT FAIL" "$(result_of)" FAIL
+  grep -qx 'commit;' "$(ls "$C"/fake/sess-*-c3-S.in)" && bad "conc: c3 rollback não confirmado => nenhuma captura confirmada" || ok "conc: c3 rollback não confirmado => nenhuma captura confirmada"
+  expect "conc: c3 rollback não confirmado => sessão fechada" "$(all_closed)" closed
+
   newcase c-int
   SIMENV "$C/ev" "$C/fake" hang bash "$H/run-concurrency.sh" --scenarios a1 > "$C/stdout" 2>&1 &
   local rp=$! i
@@ -204,7 +230,7 @@ group_conc() {
   expect "conc: SIGTERM => sessões fechadas e processos encerrados" "$(all_closed)" closed
 
   local args
-  for args in "" "--scenarios" "--scenarios zz" "--scenarios a1,a1" "--scenarios a1 extra" "--foo" \
+  for args in "" "--scenarios" "--scenarios zz" "--scenarios c4" "--scenarios c1,c1" "--scenarios c3,c3" "--scenarios a1,a1" "--scenarios a1 extra" "--foo" \
               "--scenarios a1," "--scenarios ,a1" "--scenarios a1,,b1" "--scenarios ," "--scenarios a1,b1,"; do
     newcase "c-args-$((npass + nfail))"
     # shellcheck disable=SC2086

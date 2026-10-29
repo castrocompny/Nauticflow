@@ -3,19 +3,23 @@
 # + observador owner em sessão própria. Ver supabase/tests/README.md.
 #   a1: DONE x FAILED, DONE confirmado primeiro   a2: o inverso
 #   b1: mesmo transfer id em dois saques pending, vencedor X   b2: vencedor Y
+#   c1: captura 0090, capacidade 1, grupos distintos (perdedor: capacidade esgotada)
+#   c2: captura 0090, capacidade 1, mesmo grupo (perdedor: repetição, sem nova vaga)
+#   c3: uma sessão: conflito financeiro 0089 -> captura na mesma transação abortada
+#       recusada (25P02) -> rollback confirmado -> captura em transação NOVA com commit
 set -u
-USAGE="uso: run-concurrency.sh --scenarios <lista de a1,a2,b1,b2 sem repetição>"
+USAGE="uso: run-concurrency.sh --scenarios <lista de a1,a2,b1,b2,c1,c2,c3 sem repetição>"
 H=$(cd "$(dirname "$0")" && pwd)
 ARGV_COPY=("$@")
 source "$H/lib/common.sh"
 
 [ $# -eq 2 ] && [ "$1" = --scenarios ] || usage_die "argumentos"
 # lista inteira validada antes da divisão: `read -a` descartaria o campo vazio final (`a1,`)
-[[ "$2" =~ ^(a1|a2|b1|b2)(,(a1|a2|b1|b2))*$ ]] || usage_die "lista de cenários '$2' (vazia, campo vazio ou desconhecido)"
+[[ "$2" =~ ^(a1|a2|b1|b2|c1|c2|c3)(,(a1|a2|b1|b2|c1|c2|c3))*$ ]] || usage_die "lista de cenários '$2' (vazia, campo vazio ou desconhecido)"
 IFS=, read -ra SCS <<< "$2"
 seen=","
 for s in "${SCS[@]}"; do
-  case "$s" in a1|a2|b1|b2) ;; *) usage_die "cenário desconhecido '$s'" ;; esac
+  case "$s" in a1|a2|b1|b2|c1|c2|c3) ;; *) usage_die "cenário desconhecido '$s'" ;; esac
   case "$seen" in *",$s,"*) usage_die "cenário repetido '$s'" ;; esac
   seen="$seen$s,"
 done
@@ -25,7 +29,7 @@ run_dir_create conc
 install_traps
 trap "" PIPE  # escrita em sessão já encerrada não pode matar o runner antes da limpeza
 lab_preflight || exit 1
-provenance_capture "$H/run-concurrency.sh" || exit 1
+provenance_capture "$H/run-concurrency.sh" "$REPO/supabase/migrations/0090_marketplace_transfer_conflict_capture.sql" || exit 1
 
 declare -A SFD SPID SBPID SBSTART
 OPEN=() ALLAPPS=()
@@ -127,12 +131,19 @@ rpc() { # nome key tipo saque transfer fee
   send "$1" '\echo RES SQLSTATE :SQLSTATE LAST_ERROR :LAST_ERROR_SQLSTATE :LAST_ERROR_MESSAGE'
   send "$1" '\echo MARK:called'
 }
+rpc_c() { # nome key transfer (0090: mesmo motivo/evento; taxa e referência ausentes)
+  send "$1" "select 'RPC:'||current_user||'|'||outcome||'|'||occurrence_count from public.record_marketplace_transfer_conflict('terminal_outcome_conflict', 'TRANSFER_DONE', '$2', '$2', '$3', 'absent', null, 'absent', null);"
+  send "$1" '\echo RES SQLSTATE :SQLSTATE LAST_ERROR :LAST_ERROR_SQLSTATE :LAST_ERROR_MESSAGE'
+  send "$1" '\echo MARK:called'
+}
 
-# run_race <sc> <a|b> <W rpc esperado> <erro do perdedor>; usa W_ARGS/L_ARGS
+# run_race <sc> <a|b|c> <W rpc esperado> <erro do perdedor | OK:<rpc esperado>>; usa W_ARGS/L_ARGS
+# c (0090): chaves iguais são permitidas (c2 = mesmo grupo); OK: => perdedor retorna e faz commit
 run_race() {
   local sc=$1 kind=$2 want_w=$3 want_err=$4 W=$1-W L=$1-L
-  local appW="nf0089-$TOK-$sc-W" appL="nf0089-$TOK-$sc-L" n
-  [ "${W_ARGS[0]}" != "${L_ARGS[0]}" ] || { fail "$sc: event_keys iguais"; return 1; }
+  local appW="nf0089-$TOK-$sc-W" appL="nf0089-$TOK-$sc-L" n call=rpc
+  [ "$kind" = c ] && call=rpc_c
+  [ "$kind" = c ] || [ "${W_ARGS[0]}" != "${L_ARGS[0]}" ] || { fail "$sc: event_keys iguais"; return 1; }
   open_sess "$W" "$appW"; open_sess "$L" "$appL"
   preamble "$W"; preamble "$L"
   wait_mark "$W" ready 20 && wait_mark "$L" ready 20 || { fail "$sc: sessões não ficaram prontas"; return 1; }
@@ -147,12 +158,12 @@ run_race() {
   local WP=${SBPID[$W]} LP=${SBPID[$L]}
   log "[$sc] W pid=$WP app=$appW | L pid=$LP app=$appL"
 
-  rpc "$W" "${W_ARGS[@]}"
+  $call "$W" "${W_ARGS[@]}"
   wait_mark "$W" called 30 || { fail "$sc: RPC do vencedor não retornou"; return 1; }
   has_line "$W" "RPC:$want_w" && grep -q '^RES SQLSTATE 00000 ' "$RUN/sessions/$W.out" || { fail "$sc: vencedor inesperado"; return 1; }
   log "[$sc] W rpc ok, transação aberta: RPC:$want_w"
 
-  rpc "$L" "${L_ARGS[@]}"
+  $call "$L" "${L_ARGS[@]}"
   local seen=0 end=$((SECONDS + 15)) r
   while [ $SECONDS -lt $end ]; do
     r=$(obs "blockwait-$sc" <<< "select count(*) from pg_stat_activity where pid = $LP and wait_event_type = 'Lock' and $WP = any(pg_blocking_pids($LP));") ||
@@ -176,6 +187,10 @@ SQL
     local wx; wx=$(echo "$ev" | grep "^ACT|$WP|" | sed 's/.*|xid=//')
     [ "$(echo "$ev" | grep -c '^WAIT|')" = 1 ] && echo "$ev" | grep -q "^WAIT|$LP|transactionid|ShareLock|granted=false|rel=-|xid=$wx|" &&
       echo "$ev" | grep -q '^HELD_L|tuple|.*rel=marketplace_withdrawals' || { fail "$sc: recurso bloqueado não é o xid do vencedor na linha do saque"; return 1; }
+  elif [ "$kind" = c ]; then
+    # advisory de duas chaves (20038, 90) da 0090: objsubid=2, espaço distinto do lock por transfer id
+    [ "$(echo "$ev" | grep -c '^WAIT|')" = 1 ] && echo "$ev" | grep -q "^WAIT|$LP|advisory|ExclusiveLock|granted=false|rel=-|xid=-|classid=20038|objid=90|objsubid=2$" ||
+      { fail "$sc: recurso bloqueado não é o advisory de captura da 0090"; return 1; }
   else
     local k; k=$(obs "advkey-$sc" <<< "with k as (select hashtextextended('marketplace_transfer:' || '${W_ARGS[3]}', 0) h) select ((h >> 32) & 4294967295)||'|objid='||(h & 4294967295) from k;") ||
       { fail "$sc: observador falhou (chave advisory)"; return 1; }
@@ -189,10 +204,17 @@ SQL
   log "[$sc] W commit $(date -u +%T)"
   wait_mark "$L" called 30 || { fail "$sc: perdedor não retornou após o commit"; return 1; }
   log "[$sc] L: $(grep -E '^(RPC:|RES SQLSTATE|ERROR)' "$RUN/sessions/$L.out" | tr '\n' ' ')"
-  has_line "$L" "RES SQLSTATE P0001 LAST_ERROR P0001 $want_err" && ! grep -q '^RPC:' "$RUN/sessions/$L.out" ||
-    { fail "$sc: perdedor não recebeu exatamente P0001 $want_err"; return 1; }
-  send "$L" 'rollback;'; send "$L" '\echo RES rollback SQLSTATE :SQLSTATE'; send "$L" '\echo MARK:rolledback'
-  wait_mark "$L" rolledback 15 && has_line "$L" 'RES rollback SQLSTATE 00000' || { fail "$sc: rollback do perdedor sem confirmação"; return 1; }
+  if [ "${want_err#OK:}" != "$want_err" ]; then
+    has_line "$L" "RPC:${want_err#OK:}" && grep -q '^RES SQLSTATE 00000 ' "$RUN/sessions/$L.out" ||
+      { fail "$sc: perdedor não retornou exatamente RPC:${want_err#OK:}"; return 1; }
+    send "$L" 'commit;'; send "$L" '\echo RES commit SQLSTATE :SQLSTATE'; send "$L" '\echo MARK:lcommitted'
+    wait_mark "$L" lcommitted 15 && has_line "$L" 'RES commit SQLSTATE 00000' || { fail "$sc: commit do perdedor sem confirmação"; return 1; }
+  else
+    has_line "$L" "RES SQLSTATE P0001 LAST_ERROR P0001 $want_err" && ! grep -q '^RPC:' "$RUN/sessions/$L.out" ||
+      { fail "$sc: perdedor não recebeu exatamente P0001 $want_err"; return 1; }
+    send "$L" 'rollback;'; send "$L" '\echo RES rollback SQLSTATE :SQLSTATE'; send "$L" '\echo MARK:rolledback'
+    wait_mark "$L" rolledback 15 && has_line "$L" 'RES rollback SQLSTATE 00000' || { fail "$sc: rollback do perdedor sem confirmação"; return 1; }
+  fi
   close_sess "$W" && close_sess "$L" || return 1
   residual_check "$sc" "$appW" "$appL"
 }
@@ -271,6 +293,112 @@ SQL
   log "RESULT[$SC]: PASS"
 }
 
+# c1/c2: política singleton da 0090 gravada (commit) como fixture local, com
+# window_seconds único por execução/cenário => janela nova, sem herdar vagas.
+scenario_C() { # sc perdedor_esperado
+  SC=$1; local tr="tr_${TOK}_$1" kw="evt_${TOK}_$1_w" kl="evt_${TOK}_$1_l" ws
+  ws=$(( 2000000 + 0x${TOK:0:5} * 3 + ${1#c} ))
+  [ "$1" = c2 ] && kl=$kw
+  log "===== $SC: captura 0090, capacidade 1, window_seconds=$ws, perdedor esperado $2"
+  absent <<SQL || return 1
+select 'ABSENT|'||((select count(*) from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr')
+  + (select count(*) from public.marketplace_transfer_conflict_windows where window_seconds = $ws));
+SQL
+  obs "fixture-$SC" > /dev/null <<SQL || { fail "$SC: fixture falhou"; return 1; }
+insert into public.marketplace_transfer_conflict_policy (id, capacity, window_seconds) values (true, 1, $ws)
+  on conflict (id) do update set capacity = excluded.capacity, window_seconds = excluded.window_seconds, updated_at = now();
+select 'FIX|'||capacity||'|'||window_seconds from public.marketplace_transfer_conflict_policy;
+SQL
+  W_ARGS=("$kw" "$tr"); L_ARGS=("$kl" "$tr")
+  run_race "$SC" c "service_role|recorded|1" "$2" || return 1
+  local cnt=1; [ "$1" = c2 ] && cnt=2
+  checks 5 <<SQL || return 1
+select 'CHECK|rows|'||count(*)||'|1' from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr';
+select 'CHECK|winner_key|'||count(*)||'|1' from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr' and event_key = '$kw';
+select 'CHECK|occurrence|'||sum(occurrence_count)||'|$cnt' from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr';
+select 'CHECK|window_used|'||coalesce(sum(used), 0)||'|1' from public.marketplace_transfer_conflict_windows where window_seconds = $ws;
+select 'CHECK|no_marks|'||count(*)||'|0' from public.processed_webhook_events where event_key in ('$kw', '$kl');
+SQL
+  log "RESULT[$SC]: PASS"
+}
+
+# c3: separação no BANCO (não prova integração HTTP/PostgREST nem reenvio do Asaas).
+# Fixture commitada: saque fictício já completed por TRANSFER_DONE via 0089.
+scenario_C3() {
+  SC=c3; local c="$TOK-0000-4000-8000-0000000000c3" w="$TOK-0000-4000-8000-00000000c301" tr="tr_${TOK}_c3"
+  local kd="evt_${TOK}_c3_done" kf="evt_${TOK}_c3_failed" S=c3-S app="nf0089-$TOK-c3-S" ws
+  ws=$(( 2000000 + 0x${TOK:0:5} * 3 + 3 ))
+  log "===== $SC: conflito financeiro -> rollback -> captura independente (window_seconds=$ws)"
+  absent <<SQL || return 1
+select 'ABSENT|'||((select count(*) from public.companies where id = '$c') + (select count(*) from public.marketplace_withdrawals where id = '$w' or provider_transfer_id = '$tr')
+  + (select count(*) from public.processed_webhook_events where event_key in ('$kd','$kf')) + (select count(*) from public.marketplace_ledger_entries where reference_id = '$w')
+  + (select count(*) from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr') + (select count(*) from public.marketplace_transfer_conflict_windows where window_seconds = $ws));
+SQL
+  local fx; fx=$(obs "fixture-$SC" <<SQL
+begin;
+insert into public.companies (id, name) values ('$c', 'nf0090 harness $TOK $SC (ficticia)');
+insert into public.marketplace_withdrawals (id, company_id, amount_cents, status) values ('$w', '$c', 10000, 'pending');
+select 'FIX|'||id||'|'||status from public.mark_marketplace_withdrawal_processing('$w', '$tr');
+select 'FIX|'||outcome||'|'||withdrawal_status from public.process_marketplace_transfer_webhook_event('$kd', 'TRANSFER_DONE', '$w', '$tr', 150);
+insert into public.marketplace_transfer_conflict_policy (id, capacity, window_seconds) values (true, 1, $ws)
+  on conflict (id) do update set capacity = excluded.capacity, window_seconds = excluded.window_seconds, updated_at = now();
+commit;
+select 'SNAP|'||md5(to_jsonb(w)::text) from public.marketplace_withdrawals w where id = '$w';
+SQL
+) || { fail "$SC: fixture falhou"; return 1; }
+  local snap; snap=$(echo "$fx" | sed -n 's/^SNAP|//p')
+  [ -n "$snap" ] || { fail "$SC: snapshot do saque ausente"; return 1; }
+
+  open_sess "$S" "$app"; preamble "$S"
+  wait_mark "$S" ready 20 || { fail "$SC: sessão não ficou pronta"; return 1; }
+  local s; s=$(sed -n 's/^SESS://p' "$RUN/sessions/$S.out" | head -1)
+  SBPID[$S]=${s%%|*} SBSTART[$S]=${s#*|}
+  [[ "${SBPID[$S]}" =~ ^[0-9]+$ ]] || { fail "$SC: PID do backend ausente"; return 1; }
+  echo "$S backend_pid=${SBPID[$S]} backend_start=${SBSTART[$S]}" >> "$RUN/sessions/index.txt"
+  has_line "$S" "ID:service_role|postgres|read committed|$app|lock_timeout=20s" || { fail "$SC: papel/isolamento/app inesperados"; return 1; }
+
+  # 1) conflito financeiro real da 0089 (FAILED depois de DONE)
+  send "$S" "select 'FIN:'||outcome||'|'||withdrawal_status from public.process_marketplace_transfer_webhook_event('$kf', 'TRANSFER_FAILED', '$w', '$tr', null);"
+  send "$S" '\echo FINRES SQLSTATE :SQLSTATE LAST_ERROR :LAST_ERROR_SQLSTATE :LAST_ERROR_MESSAGE'; send "$S" '\echo MARK:fin'
+  wait_mark "$S" fin 30 && has_line "$S" "FINRES SQLSTATE P0001 LAST_ERROR P0001 TERMINAL_OUTCOME_CONFLICT" && ! grep -q '^FIN:' "$RUN/sessions/$S.out" ||
+    { fail "$SC: conflito financeiro não recebido exatamente"; return 1; }
+  # 2) captura na MESMA transação: tem de ser recusada (transação abortada)
+  local cap="select 'CAP:'||current_user||'|'||outcome||'|'||occurrence_count from public.record_marketplace_transfer_conflict('terminal_outcome_conflict', 'TRANSFER_FAILED', '$kf', '$kf', '$tr', 'uuid', '$w', 'absent', null);"
+  send "$S" "$cap"; send "$S" '\echo CAPA SQLSTATE :SQLSTATE'; send "$S" '\echo MARK:capa'
+  wait_mark "$S" capa 30 && has_line "$S" "CAPA SQLSTATE 25P02" || { fail "$SC: captura na transação abortada não foi recusada com 25P02"; return 1; }
+  # 3) rollback confirmado
+  send "$S" 'rollback;'; send "$S" '\echo RB SQLSTATE :SQLSTATE'; send "$S" '\echo MARK:rb'
+  wait_mark "$S" rb 15 && has_line "$S" 'RB SQLSTATE 00000' || { fail "$SC: rollback do conflito financeiro sem confirmação"; return 1; }
+  checks 4 <<SQL || return 1
+select 'CHECK|rb_withdrawal_unchanged|'||md5(to_jsonb(w)::text)||'|$snap' from public.marketplace_withdrawals w where id = '$w';
+select 'CHECK|rb_ledger|'||count(*)||'|2' from public.marketplace_ledger_entries where reference_id = '$w';
+select 'CHECK|rb_no_failed_mark|'||count(*)||'|0' from public.processed_webhook_events where event_key = '$kf';
+select 'CHECK|rb_no_capture|'||count(*)||'|0' from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr';
+SQL
+  # 4) captura em transação NOVA, independente
+  send "$S" 'begin isolation level read committed;'
+  send "$S" "set local lock_timeout = '20s'; set local statement_timeout = '60s';"
+  send "$S" 'set local role service_role;'
+  send "$S" "$cap"; send "$S" '\echo CAPB SQLSTATE :SQLSTATE'
+  send "$S" 'commit;'; send "$S" '\echo CM SQLSTATE :SQLSTATE'; send "$S" '\echo MARK:done'
+  wait_mark "$S" done 30 && has_line "$S" "CAP:service_role|recorded|1" && has_line "$S" 'CAPB SQLSTATE 00000' && has_line "$S" 'CM SQLSTATE 00000' ||
+    { fail "$SC: captura independente não confirmada"; return 1; }
+  close_sess "$S" || return 1
+  residual_check "$SC" "$app" || return 1
+  checks 9 <<SQL || return 1
+select 'CHECK|withdrawal_unchanged|'||md5(to_jsonb(w)::text)||'|$snap' from public.marketplace_withdrawals w where id = '$w';
+select 'CHECK|withdrawal_status|'||status||'|completed' from public.marketplace_withdrawals where id = '$w';
+select 'CHECK|ledger|'||count(*)||'|2' from public.marketplace_ledger_entries where reference_id = '$w' and entry_type = 'withdrawal_completed';
+select 'CHECK|mark_done|'||count(*)||'|1' from public.processed_webhook_events where event_key = '$kd';
+select 'CHECK|mark_failed|'||count(*)||'|0' from public.processed_webhook_events where event_key = '$kf';
+select 'CHECK|capture_rows|'||count(*)||'|1' from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr' and event_key = '$kf' and occurrence_count = 1;
+select 'CHECK|capture_snapshot|'||local_link_state||':'||array_to_string(local_withdrawal_ids, ',')||':'||array_to_string(local_withdrawal_statuses, ',')||':'||array_to_string(local_link_bases, ',')||'|single:$w:completed:both' from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr';
+select 'CHECK|capture_classes|'||event_key_class||':'||notification_id_class||':'||provider_transfer_id_class||'|accepted:accepted:accepted' from public.marketplace_transfer_conflicts where provider_transfer_id = '$tr';
+select 'CHECK|window_used|'||coalesce(sum(used), 0)||'|1' from public.marketplace_transfer_conflict_windows where window_seconds = $ws;
+SQL
+  log "RESULT[$SC]: PASS"
+}
+
 for sc in "${SCS[@]}"; do
   case "$sc" in
     #               vencedor        perdedor         Wfee Lfee status    entry                buckets                                     net
@@ -278,6 +406,9 @@ for sc in "${SCS[@]}"; do
     a2) scenario_A a2 TRANSFER_FAILED TRANSFER_DONE    null 150  failed    withdrawal_failed    available:10000,withdrawal_pending:-10000   null ;;
     b1) scenario_B b1 x ;;
     b2) scenario_B b2 y ;;
+    c1) scenario_C c1 CONFLICT_CAPTURE_CAPACITY_EXCEEDED ;;
+    c2) scenario_C c2 'OK:service_role|repeated|2' ;;
+    c3) scenario_C3 ;;
   esac || exit 1
 done
 exit 0

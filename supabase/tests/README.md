@@ -19,8 +19,14 @@ quando esses privilégios existem; não prova que um ambiente qualquer os tenha.
 
 ## Lacunas da chain
 
-As migrations 0083–0088 originais foram perdidas e não existem no repositório.
-O ensaio aplica 0001–0082 e 0089. `0000b_*`/`0000c_*` são puladas pelo CLI
+As migrations 0083–0088 não constam neste checkout; a origem dessa lacuna não
+foi determinada.
+O ensaio aplica 0001–0082 e 0089. A 0090 foi aplicada sozinha, depois, só no
+laboratório offline `nf-bootstrap-offline-a01` (2026-10-29); desde então esse
+banco não tem mais o schema das rodadas anteriores. Na rodada 2 os objetos da
+0090 ali existentes foram atualizados por script local registrado (colunas
+`*_class`, checks, chave de agrupamento e função), não pela reaplicação do
+arquivo. `0000b_*`/`0000c_*` são puladas pelo CLI
 (nome fora do padrão).
 
 ## Laboratório preservado -- não tocar
@@ -230,6 +236,23 @@ nem reaplica migrations/grants. Só fala com o alvo via `docker exec ... psql`.
   erro exato do perdedor (`TERMINAL_OUTCOME_CONFLICT` / `PROVIDER_TRANSFER_ID_MISMATCH`).
   Fixtures fictícias novas por execução (token aleatório) são **commitadas** no
   laboratório e preservadas.
+- `--scenarios c1,c2` (0090, captura de conflitos): política singleton gravada
+  com capacidade 1 e `window_seconds` único por execução/cenário (janela nova).
+  O perdedor tem de esperar no advisory de duas chaves `(20038, 90)`
+  (`objsubid=2`), espaço distinto do lock por transfer id da 0089. `c1`: grupos
+  distintos, perdedor `CONFLICT_CAPTURE_CAPACITY_EXCEEDED` e rollback. `c2`:
+  mesmo grupo, perdedor retorna `repeated|2` e faz commit; a janela continua com
+  1 vaga usada. A política, as janelas e os registros ficam commitados no
+  laboratório como fixture local; o pgTAP da 0090
+  (`database/marketplace_transfer_conflict_capture.test.sql`) apaga esse estado
+  só dentro da própria transação, revertida no fim.
+- `--scenarios c3` (0090): uma sessão só. Saque fictício já `completed` por
+  `TRANSFER_DONE` (fixture commitada); `TRANSFER_FAILED` na 0089 tem de dar
+  `TERMINAL_OUTCOME_CONFLICT`; a captura na MESMA transação tem de ser recusada
+  com `25P02`; o rollback tem de ser confirmado e o observador confirma saque,
+  ledger e marcas inalterados e nada capturado; só então a captura roda numa
+  transação nova e faz commit. Prova separação no banco, não integração
+  HTTP/PostgREST nem reenvio do Asaas.
 
 Alvo (todas obrigatórias; faltou uma, o runner recusa antes de agir):
 `NF_LAB_CONTEXT`, `NF_LAB_ENDPOINT`, `NF_LAB_CONTAINER`, `NF_LAB_CONTAINER_ID`
@@ -291,7 +314,12 @@ aplicação nem os demais comandos da migration.
 
 Testes do harness (sem banco; cliente simulado):
 `HARNESS_TEST_WORK=<dir novo> offline/harness-tests/run-harness-tests.sh all`
-(grupos `tap`, `seq`, `conc`, `evid`, `close`, `catalog`). `evid` injeta falha
+(grupos `tap`, `seq`, `conc`, `evid`, `close`, `catalog`; `conc` inclui `c1`/`c2`
+e um caso em que o perdedor espera em outro advisory, que precisa reprovar; e
+`c3` com dois negativos: captura aceita na transação abortada e rollback não
+confirmado, ambos precisam reprovar).
+`catalog_capture` continua comparando só as funções da 0089; a 0090 entra em
+`sources.sha256` e a comparação do corpo dela fica nas evidências da rodada. `evid` injeta falha
 de gravação plantando um diretório no caminho de destino dentro do run
 descartável do teste (não enche disco nem muda permissões). `catalog` roda o
 `catalog_capture` real contra a migration da worktree, só com o observador
