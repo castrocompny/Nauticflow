@@ -49,6 +49,16 @@ portas): migrations do Auth e do Storage pelas próprias imagens, uma vez;
   iguais antes e depois; a 0090 não mudou.
 - O FAIL e o diagnóstico ficam preservados junto do PASS nas evidências do
   laboratório.
+- Evidências da rodada aprovada:
+  `D:/Projetos/_recovery/nf-0090-fresh-20261029-a01/round-t45-20261029T182603Z-afdc72eb/`.
+- Encerramento registrado naquela execução: `pg_ctl stop -m fast -w` como
+  `postgres` (`stop.txt`; o rc 137 do `docker exec` veio do container parar
+  com o exec aberto); o log contém `received fast shutdown request` e
+  `database system is shut down`; estado final do container `exited`, exit 0,
+  sem OOM. Container `nf-0090-fresh-20261029-a01-db` e volume
+  `nf-0090-fresh-20261029-a01-pgdata` preservados (nenhuma remoção;
+  `final-resources.txt` lista os containers, o volume consta montado em
+  `preflight.txt`).
 
 Prova só o banco local: não cobre HTTP/PostgREST, a rota, o Asaas nem
 equivalência com o Supabase remoto.
