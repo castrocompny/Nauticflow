@@ -60,8 +60,77 @@ portas): migrations do Auth e do Storage pelas próprias imagens, uma vez;
   `final-resources.txt` lista os containers, o volume consta montado em
   `preflight.txt`).
 
-Prova só o banco local: não cobre HTTP/PostgREST, a rota, o Asaas nem
-equivalência com o Supabase remoto.
+Aquele laboratório prova só o banco local: não cobre HTTP/PostgREST, a rota, o
+Asaas nem equivalência com o Supabase remoto (a rota com PostgREST real está na
+seção seguinte).
+
+## Prova local real da rota com PostgREST (`nf-0090-pgrst-…-990d319d`, 2026-10-30 UTC)
+
+Resultado registrado: **PASS** (funcional e encerramento). Evidências:
+`D:/Projetos/_recovery/nf-0090-pgrst-20261030T010017Z-990d319d/`
+(`MANIFEST.sha256`, 389 arquivos, sha256
+`73345af7b9d96f0471c85fb8a0e713c9269b4de85cd934aebdc3c7e524ba492e`; exclui
+`creds/`). Executado LOCALMENTE, com dados e credenciais fictícios; nada
+alcançou Asaas, produção, staging ou dinheiro.
+
+O que roda de verdade: `POST()` da rota do commit `184f453` (route.ts sha256
+`41ebef80…`) chamado diretamente com `Request` real → SDK
+`@supabase/supabase-js` → HTTP → PostgREST 16.1 → PostgreSQL 17.6. Substituídos
+só `security-log` (registro local) e `verifyAsaasPaymentSettled`/
+`revalidatePath` (falham se chamados; nenhuma chamada). Um adaptador de `fetch`
+aceita só a origem do PostgREST novo e remove `/rest/v1` (papel do Kong, **não
+testado**). Não é E2E do Next.js: não prova HTTP de entrada, roteamento,
+build nem deploy.
+
+Preparação:
+- 85 arquivos SQL com rc 0: `revoke-api-privileges.sql`, chain de 82
+  migrations conferida contra o HEAD, `setup/service_role_platform_grants.sql`
+  (grants de plataforma só de teste) e a 0090 aplicada uma única vez. Migradores
+  de Auth e Storage uma vez cada. Corpo da RPC da 0090: md5
+  `aae74be0daa44c7d31c03241e1c47fd6`.
+- `pg_hba` só do banco novo: linha `local all authenticator scram-sha-256`
+  (o container do Postgres não tem usuário `postgrest` para o mapa `peer`);
+  original preservado no container. O PostgREST autentica por senha pelo socket.
+- Ajuste registrado: o primeiro `docker create` do banco falhou com acesso
+  negado ao arquivo de credencial do próprio laboratório (restrição de ACL);
+  depois da correção da ACL desses arquivos o create passou (`logs/create.txt`).
+  O detalhe dos comandos de ACL não está nos artefatos do laboratório.
+
+Isolamento (`gate/GATE.txt`, antes de qualquer migration do produto):
+PostgreSQL sem rede; PostgREST e executor em rede nova `internal`, sem portas
+publicadas; sem `docker.sock` nem credenciais reais montadas. Controle positivo:
+HTTP 200 do PostgREST novo dentro da rede interna. Controle negativo: TCP direto
+(não a guarda de `fetch`) da rede interna para um alvo local exclusivo deu
+`ENETUNREACH`, e o mesmo alvo respondeu 200 pela rede dele. Sem rota padrão na
+rede interna. O DNS embutido do Docker não foi exercitado: não é prova
+universal de isolamento.
+
+Entregas (uma chamada `POST` cada, mesmo corpo `TRANSFER_FAILED` para saque
+fictício `completed`):
+- **A, sem política:** 0089 respondeu HTTP 400 `P0001`
+  `TERMINAL_OUTCOME_CONFLICT`; captura `P0001` `CONFLICT_CAPTURE_POLICY_MISSING`;
+  rota 422/corpo preservados, log de recusa, nada capturado.
+- **B, política de laboratório** (capacidade 5, janela de 365 dias): resposta
+  financeira antes do envio da captura; `recorded`, UUID, contagem 1,
+  argumentos exatos; fotografia `single`/`both`/`completed` visível em sessão
+  observadora independente; janela com 1 vaga.
+- **C, repetição:** `repeated`, mesmo UUID, contagem 2; só `occurrence_count`
+  e `last_observed_at` mudaram; fotografia inicial e vaga preservadas.
+- Nas três: saque, ledger e marcas iguais ao baseline; marca da tentativa
+  FAILED ausente; nenhum destino fora da allowlist.
+
+Exercitou só `TERMINAL_OUTCOME_CONFLICT` e a recusa por política ausente; não
+generalizar para os outros códigos. Fora desta prova: timeout/queda reais (o
+abort do cliente não prova cancelamento no banco), pré-checagem real,
+capacidade esgotada, Kong, Next.js. Política e credenciais do laboratório não
+são configuração de produção.
+
+Encerramento registrado: PostgREST e alvo negativo por SIGTERM (exit 0, sem
+OOM); PostgreSQL por `pg_ctl stop -m fast -w` como `postgres`, log com
+`database system is shut down`, container exit 0, sem OOM (o rc 137 do
+`docker exec` é separado do exit do container). Artefatos finais: 12
+containers encerrados, 2 volumes e 2 redes preservados; recursos preexistentes
+inalterados.
 
 ## Laboratório preservado -- não tocar
 
