@@ -132,6 +132,81 @@ OOM); PostgreSQL por `pg_ctl stop -m fast -w` como `postgres`, log com
 containers encerrados, 2 volumes e 2 redes preservados; recursos preexistentes
 inalterados.
 
+## Build Next.js local do commit `0426a46` (`nf-next-build-net-…-fec37981`, 2026-11-01 UTC)
+
+As provas acima (Vitest com mocks e a rota com PostgREST) **não executaram o
+build**; isso continua verdadeiro para elas. O build foi executado depois,
+nesta rodada separada. Resultado registrado: **BUILD PASS LOCAL**. Evidências:
+`D:/Projetos/_recovery/nf-next-build-net-20261101T193119Z-fec37981/`
+(`SHA256SUMS`, 70 arquivos, sha256
+`2abfde554b4ed3949c4487005593435d430c44bb7cbe7bcf6517962a0768d296`). A rodada
+anterior, bloqueada por Engine parado, está em
+`nf-next-build-net-20261101T192537Z-66709870/`.
+
+Fonte e dependências:
+- Commit `0426a46fb288eeb1946e7f23551c7dc0c70efbe6`. 226 arquivos selecionados
+  (`src`, `public`, configs do Next/Tailwind/PostCSS/TS/Sentry e
+  `vitest.config.ts`; sem `.env*`, `.serena`, `supabase/`, `.next` ou
+  tsbuildinfo), 226/226 iguais aos blobs do commit. `package.json` `94e712c2…`
+  e `package-lock.json` `c4533bc64eba890d784d5a3861d0d7874faba59098540ac43164797dddb07717`
+  (blob LF), inalterado após a instalação.
+- Ajuste registrado: o primeiro `git archive` saiu com CRLF por
+  `core.autocrlf=true` do gitconfig do sistema; foi rejeitado (preservado como
+  `REJECTED-crlf-…`) e refeito com `-c core.autocrlf=false` (tar
+  `1d8000cdf7817feb616bab3e5c3e262be06c441de0993b237a254773a4306ab7`, LF)
+  antes do build.
+- Imagem em cache `postgres-meta:v0.97.0`, ID
+  `sha256:e7da2ab376a7ff7b1e0c8dc98176dddab1f3646dded244d74e26c4e50a1d58c2`,
+  `--pull never`. Runtime medido: Node 22.23.2, npm 10.9.8, Linux x64, glibc 2.36.
+- `npm ci --ignore-scripts --no-audit --no-fund`: rc 0, 573 pacotes, lockfile
+  preservado, bindings GNU confirmados (`@next/swc-linux-x64-gnu` 16.3.6,
+  sharp, lightningcss, rolldown).
+
+Build (`npm run build`): Next 16.3.6/Turbopack, rc 0, sem OOM; compilação e
+verificação TypeScript concluídas; `.next` ausente antes da execução e
+artefatos com horário dentro da janela do build. `BUILD_ID`
+`rKqwMfItH6YYn6vFDdYOU`. A rota `/api/webhooks/asaas` consta nos quatro
+manifestos exportados (`app-path-routes-manifest.json`,
+`server/app-paths-manifest.json`,
+`server/app/api/webhooks/asaas/route/app-paths-manifest.json`,
+`routes-manifest.json`) e no arquivo compilado
+`server/app/api/webhooks/asaas/route.js` (sha256
+`528cc02e369a03a1d5b08f45f3ccb7d7ce05edf5f6fd2926d6c73166636a5ef5`); cópias
+em `ev/artifacts/`. No ambiente só havia dois valores Supabase fictícios
+(`*.invalid`), `NEXT_TELEMETRY_DISABLED=1` e o proxy; sem credenciais reais
+nem token Sentry.
+
+Isolamento:
+- executor em rede `internal` nova, sem rota padrão, sem portas publicadas e
+  sem socket Docker;
+- proxy CONNECT próprio, em container separado do build, com política por fase
+  (nome e porta exatos antes de resolver, recusa de IP literal e de endereço
+  resolvido não público, TLS sem interceptação);
+- instalação: somente `registry.npmjs.org:443`; build: somente
+  `fonts.googleapis.com:443` e `fonts.gstatic.com:443`;
+- DNS do executor direcionado a um sink local (NXDOMAIN, sem encaminhamento);
+- controles positivos e negativos registrados em `ev/12-gate-prep.jsonl` e
+  `ev/18-gate-build.jsonl`. O autoteste do classificador do proxy deu FAIL na
+  primeira execução (bug do próprio script do laboratório), foi corrigido e
+  retestado com PASS antes de qualquer uso. Não é prova de isolamento
+  universal: conexão direta a IP literal falha por falta de rota, mas não fica
+  registrada.
+- Exceção de permissão: `NET_BIND_SERVICE` acrescentada só ao auxiliar de DNS
+  novo, para escutar na porta 53.
+
+Ressalvas: 36 diagnósticos `DYNAMIC_SERVER_USAGE` (uso de `cookies`) não
+impediram o build, e a tabela final classifica essas rotas como dinâmicas.
+Durante o build houve duas consultas DNS a `o1.ingest.sentry.io`, respondidas
+com NXDOMAIN, sem conexão. Presença nos manifestos não é teste HTTP: nenhum
+`next start`, requisição de entrada, Kong, deploy ou webhook. Vitest/pgTAP não
+foram rodados nesta rodada, e este PASS não se estende a eles.
+
+Encerramento: serviços por SIGTERM (exit 0) e executores de execução única
+terminados sozinhos. Preservados os 20 containers `nfnb-fec37981-*`, o volume
+`nfnb-fec37981-work` e as 2 redes. O inventário final registrou os sete
+containers preexistentes ativos; isso não atesta imutabilidade dos dados
+nem ausência de atividade nessas stacks.
+
 ## Laboratório preservado -- não tocar
 
 O ensaio de 2026-10-26 usou `D:/Projetos/_recovery/nf-pgtap-0089-20261026`
