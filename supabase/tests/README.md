@@ -207,6 +207,94 @@ terminados sozinhos. Preservados os 20 containers `nfnb-fec37981-*`, o volume
 containers preexistentes ativos; isso não atesta imutabilidade dos dados
 nem ausência de atividade nessas stacks.
 
+## Prova HTTP mínima de entrada e roteamento (`nf-next-http-…-7e830e47`, 2026-11-01 UTC)
+
+Resultado registrado: **PASS**, só para HTTP/roteamento e para os ramos não
+financeiros exercitados. Executado em 2026-11-01 UTC com o worktree em HEAD
+`93b15db`. O artefato executado é o build do `0426a46` (seção anterior),
+reaproveitado sem rebuild; os insumos do build são idênticos entre `0426a46` e
+`93b15db`. `BUILD_ID` `rKqwMfItH6YYn6vFDdYOU`, Next 16.3.6. Evidências:
+`D:/Projetos/_recovery/nf-next-http-20261101T203310Z-7e830e47/` (`SHA256SUMS`,
+55 arquivos conferidos, sha256
+`27b0d5016ab956b01145fc6efc49691a1a2b3ffd427ea4a2056c0c52d204346e`).
+
+Caminho exercitado: cliente HTTP (Node core, sem cookies, sem seguir
+redirects) → `npm run start` (`next start`, produção) → proxy → route module →
+handler. Isso vale só para os casos abaixo.
+
+Artefatos e cópia:
+- 27 checks de artefatos registrados como positivos (`ev/05-gateb.jsonl`),
+  feitos com o volume do build montado só para leitura. O proxy compilado é
+  `.next/server/middleware.js`, registrado como `/_middleware` de runtime
+  `nodejs`. O literal Supabase fictício está nas chamadas compiladas do proxy
+  e da rota, e `ASAAS_WEBHOOK_TOKEN` é lido em runtime.
+- Completude registrada: 644 referências de chunks em 100 stubs, sem arquivos
+  faltantes; a contagem não significa 644 chunks únicos.
+- Ressalva metodológica: o check `proxy:getUser-call-present` só procura a
+  string `getUser`, e o trecho registrado é uma mensagem do SDK, não o ponto
+  de chamada `auth.getUser()`. Não é prova independente da chamada nem de
+  execução do Auth. O comportamento do proxy é demonstrado pelas respostas
+  HTTP. Não houve teste de Auth com sessão.
+- Cópia para o volume novo `nfnh-7e830e47-run`, de onde o servidor executou.
+  Manifesto de conteúdo da árvore `/app` (inclusive `node_modules` e `.next`):
+  40.491 arquivos, 44 links (alvos registrados sem seguir, nenhum fora da
+  raiz) e 4.121 diretórios, sha256
+  `6d9f5e9a88ce58016882389b0a9f82759a0f38d3bcc68d77e01c0e3086cdef02`.
+  Original e cópia são idênticos antes e depois da execução; 226/226 fontes e
+  o lockfile conferem. A comparação cobre só essa árvore `/app`, não o volume
+  inteiro.
+
+Isolamento (14 checks de rede positivos, `ev/12-gates-eval.jsonl`):
+- rede nova `nfnh-7e830e47-int`, `internal`, sem saída, sem proxy, sem portas
+  publicadas e sem socket Docker;
+- cliente e servidor registraram ausência de rota padrão e IPv6 desligado;
+- TEST-NET:443 e gateway:80 foram sondados nos dois (`ENETUNREACH` e
+  `EHOSTUNREACH`); gateway:53 foi sondado só pelo cliente;
+- DNS do cliente e do servidor direcionado a um sink local (NXDOMAIN, sem
+  encaminhamento). Exceção de permissão: `NET_BIND_SERVICE` só no sink, para
+  a porta 53;
+- consultas DNS: 0 no startup, 5 nos gates (todas com prefixo
+  `nf-lab-gate-`), 0 durante a matriz e 0 depois dela.
+- Ausência de DNS, isoladamente, não comprova ausência universal de
+  conexões; considerar também os controles de rede registrados.
+
+Falha de preparação registrada: a primeira subida do servidor saiu com exit 1
+porque o npm recusou `/dev/null` usado ao mesmo tempo como `userconfig` e
+`globalconfig` ("double-loading config"). Isso ocorreu antes do Next iniciar,
+sem nenhuma requisição HTTP e sem consulta DNS. Foi corrigido com dois
+arquivos npmrc vazios e distintos, num container novo.
+
+Matriz (`ev/13-matrix.jsonl`, rc 0): **15 casos obrigatórios aprovados**,
+mais o caso K opcional aprovado.
+- 401 para token ausente ou incorreto (mesmo tamanho e tamanho diferente),
+  inclusive com JSON inválido sem token (autenticação antes do parse);
+- 200 `{"ok":true}` para os ramos não financeiros previstos (`{}` e o
+  marcador de laboratório `NF_LAB_NOT_AN_EVENT`, que não é evento do Asaas);
+- JSON inválido com token correto também retorna 200. É o comportamento atual
+  observado, não uma recomendação de contrato;
+- 405, com corpo vazio e sem `Allow`, para GET, PUT, PATCH, DELETE e HEAD;
+- OPTIONS 204, com `Allow: OPTIONS, POST`;
+- 404 para webhook inexistente;
+- 307 para `/login` em caminho protegido;
+- K opcional: 308 para a barra final.
+
+Nenhum `Cookie` enviado e nenhum `Set-Cookie` recebido. Os seis cabeçalhos de
+segurança estão presentes nas 15 respostas obrigatórias. Observação: o 308
+opcional veio sem esses seis cabeçalhos; fica registrado como observação, não
+como correção feita. O Sentry estava desabilitado, então os logs do handler
+não foram observáveis.
+
+Encerramento: o sink de DNS saiu com exit 0. O servidor saiu com exit 143
+após SIGTERM, sem OOM; isso não é prova de shutdown gracioso. Os dez
+containers novos estão parados, e o volume, a rede e as evidências estão
+preservados. O inventário final registrou os sete containers preexistentes
+ativos, o que não comprova imutabilidade dos dados deles.
+
+Alcance: não prova a integração HTTP completa conflito→captura da 0090, nem
+banco, PostgREST, Auth com sessão, Kong, TLS/CDN/Vercel, reenvio do Asaas,
+eventos financeiros ou produção. Vitest, pgTAP, typecheck, lint e build não
+foram repetidos nesta rodada.
+
 ## Laboratório preservado -- não tocar
 
 O ensaio de 2026-10-26 usou `D:/Projetos/_recovery/nf-pgtap-0089-20261026`
