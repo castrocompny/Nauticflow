@@ -295,6 +295,162 @@ banco, PostgREST, Auth com sessão, Kong, TLS/CDN/Vercel, reenvio do Asaas,
 eventos financeiros ou produção. Vitest, pgTAP, typecheck, lint e build não
 foram repetidos nesta rodada.
 
+## P1 -- integração HTTP real até a captura 0090 (`nf-0090-http-p1-…-42d28f01`, 2026-11-02 UTC)
+
+Resultado: **PASS funcional; encaminhamento IPv4 não comprovado; aceite
+integral da P1 pendente.** Executado em 2026-11-02 UTC, HEAD `d5c2fa0`, com
+dados e credenciais fictícios. Evidências:
+`D:/Projetos/_recovery/nf-0090-http-p1-20261102T002755Z-42d28f01/`
+(`SHA256SUMS`, 457 arquivos, sha256
+`33e8ccbaa02b2857cf2b6267e8ec6ce397a1b50618f29d5e7d10cf17cdde35c2`; exclui
+`private/`).
+
+Build novo do HEAD `d5c2fa0`, distinto do build histórico do `0426a46`:
+`BUILD_ID` `vlzUBB8mKC14eIuiHZs5J`, Next 16.3.6/Turbopack, Node 22.23.2,
+npm 10.9.8.
+
+Caminho exercitado: cliente HTTP sem cookies → `next start` em produção →
+proxy → handler original → SDK Supabase → gateway HTTP próprio `/rest/v1`
+(remove o prefixo) → PostgREST 16.1 → PostgreSQL 17.6 pelo socket Unix →
+conflito da 0089 → captura da 0090 → resposta HTTP. Nesta prova não houve
+fetch shim nem chamada direta ao `POST()`. O gateway próprio **não é Kong** e
+não comprova equivalência de plataforma.
+
+Preparação e build:
+- 228 fontes exportadas, iguais aos blobs do commit.
+- Dependências Linux copiadas de `nfnb-fec37981-work` montado `:ro`, sem
+  `npm ci`: 39.251 arquivos, 42 links e 3.922 diretórios. Os manifestos são
+  iguais depois de uma normalização declarada dos prefixos de caminho e do
+  registro da raiz.
+- Build rc 0, sem OOM. A URL local do gateway está compilada no proxy e na
+  rota; a anon key compilada é fictícia e não é JWT. As credenciais fictícias
+  de serviço são fornecidas em runtime.
+- Gates do build 19/19 (`ev/12-bgates-eval.jsonl`). Artefatos: 17
+  verificações sem falha (`ev/15-gateb.jsonl`).
+- Saída externa autorizada só para as fontes Google, só no build: 15 túneis
+  (2 para googleapis e 13 para gstatic). Duas consultas a
+  `o1.ingest.sentry.io` foram respondidas com NXDOMAIN
+  (`ev/14-build-network-eval.json`).
+- Os auxiliares de egress foram encerrados antes do runtime.
+
+Banco e observação:
+- Banco novo. Auth e Storage foram preparados pelos migradores antes da chain.
+- Com o revoke prévio, 85 arquivos SQL com rc 0: as 82 migrations até a 0089,
+  os grants exclusivos de teste e a 0090, aplicada uma vez
+  (`ev/29-apply-summary.txt`). md5 do corpo da RPC 0090:
+  `aae74be0daa44c7d31c03241e1c47fd6`.
+- O preparador grava a fixture e a política; o observador é separado e faz
+  só leitura. Foram seis sessões `postgres` independentes, todas em
+  transação `READ ONLY` (`read_only=on` registrado em cada retrato), com PIDs
+  distintos (`ev/obs-*.out`). O acesso como `postgres`/owner valeu só para o
+  banco fictício do laboratório, sem alterar nenhuma policy do produto.
+
+Matriz (`ev/42-matrix-eval.jsonl`): quatro casos, 60 verificações sem falha.
+- **C0:** sem token → 401 `{"error":"unauthorized"}`; nenhuma requisição
+  chegou ao gateway.
+- **A, B e C** responderam 422 `{"error":"unprocessable_marketplace_event"}`,
+  com o mesmo corpo de entrada nos três. Nenhum `Cookie` foi enviado e nenhum
+  `Set-Cookie` foi recebido em nenhum dos quatro casos.
+- **A:** 422. Sequência no gateway: GET de correlação 200; 0089 → 400 `P0001`
+  `TERMINAL_OUTCOME_CONFLICT`; 0090 → 400 `P0001`
+  `CONFLICT_CAPTURE_POLICY_MISSING`. Captura, janela e política vazias.
+- **Preparação:** a política de laboratório (5 vagas, 31.536.000 s) foi
+  inserida só pelo preparador. No retrato seguinte, antes de executar B, CF
+  e WIN ainda estavam vazios.
+- **B:** 422. A 0090 respondeu `recorded`, contagem 1, fotografia
+  `single`/`both`/`completed`, uma vaga usada.
+- **C:** 422. A 0090 respondeu `repeated`, mesmo UUID, contagem 2. Só o
+  contador e a última observação mudaram, e a janela continuou com uma vaga.
+- Em todos os casos: saque, ledger e marcas iguais ao baseline e
+  `MFAILED=0`. O log de acesso do PostgREST tem 9 requisições, todas do
+  gateway com o papel `service_role` (`ev/45-pgrst-access-matrix.txt`).
+
+Topologia de runtime:
+- `net-client`: cliente, Next e sink de DNS;
+- `net-app`: Next, gateway e sink de DNS;
+- `net-rest`: gateway e PostgREST;
+- PostgreSQL sem rede, acessado pelo socket;
+- todas as redes internas, sem portas publicadas;
+- dois sinks de DNS separados, os únicos com `NET_BIND_SERVICE`;
+- gates de runtime 36/36 na rodada 2 (`ev/r2/38-gates-eval.jsonl`), que é a
+  referência final, feita depois da correção do IPv6.
+- Os controles negativos foram testados por origem, IP e porta (por exemplo
+  cliente → gateway:8000, Next → PostgREST:3000, TEST-NET:443 e os gateways
+  das bridges). A conclusão é limitada aos pares de origem, IP e porta
+  efetivamente testados.
+- Zero consultas DNS durante a matriz não prova ausência universal de
+  conexões.
+
+**Lacuna material -- encaminhamento IPv4 não comprovado.**
+- O probe (`lab/scripts/probe.js`) coletou rotas e IPv6, mas não leu
+  `ip_forward` nem `conf/*/forwarding`. O avaliador
+  (`lab/scripts/eval-gates-r2.js`) não verificou encaminhamento IPv4. Por
+  isso, os 36/36 não cobrem esse requisito do pedido operacional.
+- Uma conferência posterior (metadados Docker filtrados) registrou que o
+  `HostConfig.Sysctls` dos containers originais do Next e do gateway tinha
+  só o ajuste de IPv6, sem nenhuma configuração explícita de encaminhamento
+  IPv4. Isso é configuração, não medição do valor efetivo durante a
+  execução.
+- Conclusão: o encaminhamento IPv4 histórico **não está comprovado**, e o
+  PASS funcional não equivale ao aceite integral da P1. Não se infere o valor
+  (0 ou 1) pelos padrões do kernel ou da VM, e não se afirma escape ou contato
+  externo por falta dessa medição. Criar containers agora mediria outra
+  execução e não recuperaria a informação que faltou.
+
+Ocorrências de harness (sete, todas corrigidas sem alterar o produto):
+1. caminho Windows no gate B;
+2. pgsodium: chave fictícia montada somente leitura;
+3. extração deslocada do heredoc do schema;
+4. `env -i` no migrador do Storage;
+5. ajuste de IPv6 (rodada 2 dos gates);
+6. campos deduzidos incorretamente no avaliador. A correção usou as mesmas
+   evidências, sem recoletar dados nem reenviar os casos;
+7. credenciais fictícias ecoadas em logs de init salvos: dois logs públicos
+   foram sanitizados, com três substituições por `<redacted:TIPO>`
+   (`ev/47-redaction.txt`).
+
+As tentativas falhas e os artefatos rejeitados foram preservados. Os valores
+fictícios brutos continuam em `private/` e nos logs Docker preservados dos
+containers db2 e db3.
+
+Encerramento (`ev/43-shutdown.txt`):
+- PostgreSQL: parado por `pg_ctl stop -m fast -w`. O container saiu com
+  exit 0 e `OOMKilled=false`, e o log registra "database system is shut
+  down".
+- O `rc 137` foi da sessão `docker exec` que rodou o `pg_ctl`, não do
+  container.
+- Next: exit 143, que não prova shutdown gracioso.
+- Demais serviços finais de runtime (gateway, pgrst2, rdns-client2 e
+  rdns-app2): SIGTERM, exit 0.
+
+Preservação final (`ev/44-final-verify.txt`):
+- Os quatro manifestos `lab/out/build-app.manifest`,
+  `lab/out/build-app-final.manifest`, `lab/out/run-app.manifest` e
+  `lab/out/run-app-final.manifest` são iguais, sha256 comum
+  `95cf34f229a3482fb28dac0d5649f3c777da4c408b90e2834ad1f7c2586b2a17`.
+- Eles correspondem à árvore medida, com 40.491 arquivos, 44 links e 4.121
+  diretórios, e não provam imutabilidade do volume inteiro.
+- A origem `node_modules` também confere com o manifesto registrado.
+
+Inventário final gravado em `ev/48-final-inventory.txt`, no momento da
+execução (não é uma nova inspeção do daemon):
+- 47 containers novos, parados;
+- 8 volumes e 5 redes preservados;
+- os sete containers preexistentes registrados ativos, sem atestar
+  imutabilidade dos dados deles.
+
+Alcance -- continua sem prova:
+- Kong/equivalência de plataforma (P2);
+- Auth com sessão e cookies; TLS, CDN e Vercel;
+- reenvio do Asaas;
+- política de produção e quem a grava; ordem de rollout; revisão de
+  segurança;
+- timeout e queda reais, pré-checagem real, capacidade esgotada e demais
+  códigos. A exigência dessa cobertura adicional depende da avaliação de
+  risco e da revisão de segurança; esta classificação não dispensa os testes
+  que elas exigirem nem autoriza publicar.
+Vitest, pgTAP, typecheck e lint não foram rodados nesta rodada.
+
 ## Laboratório preservado -- não tocar
 
 O ensaio de 2026-10-26 usou `D:/Projetos/_recovery/nf-pgtap-0089-20261026`
