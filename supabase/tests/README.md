@@ -451,6 +451,101 @@ Alcance -- continua sem prova:
   que elas exigirem nem autoriza publicar.
 Vitest, pgTAP, typecheck e lint não foram rodados nesta rodada.
 
+## P2 reduzida -- Kong real com upstream fictício (`nf-p2-kong-real4-…-5dfcd0dc`, 2026-11-04 UTC)
+
+Resultado: **PASS do ensaio reduzido real4 corroborado pelas evidências
+salvas, dentro do escopo e das medições do harness.** Não é a P2 integrada.
+
+Escopo: Kong real (imagem `public.ecr.aws/supabase/kong:2.8.1`, id
+`sha256:1b53405d…f6d`) com o bloco `rest-v1` do template do Supabase CLI
+renderizado com valores fictícios, um upstream fictício e um cliente (Node
+da imagem postgres-meta, id `sha256:e7da2ab3…8c2`, sem executar o servidor
+dela). Sem Next.js, SDK, PostgREST, banco ou Auth nesta rodada. Uma única
+invocação do executor (`harness/run.mjs`, retorno 0, 18:45:40Z→18:45:47Z),
+com no máximo uma criação e uma partida por papel.
+
+Artefatos:
+- pasta `D:/Projetos/_recovery/nf-p2-kong-real4-20261104T184348Z-5dfcd0dc/`,
+  runId `5dfcd0dc`;
+- `MANIFEST-conference.sha256` (81 entradas, exclui `restricted/`) sha256
+  `6b19fb14e64dee277fefb8ad6c37e8062030b638ce2a61f356f855de4e95f89e`;
+- `public/MANIFEST-public.sha256` (manifesto do executor, 5 entradas) sha256
+  `be28e0914d48601276e10e9f38ce5783ef78e6afe9d25f92d1bb10c24a21c7b0`;
+- baseline das fontes: `nf-p2-kong-config-compat-20261104T012108Z-f24febc5`
+  (`MANIFEST-public.sha256` sha256
+  `aa32cab8f55f613aa15e97b3503fa185dc936251de59e539c51272b20378481d`); as 52
+  cópias e as 15 fontes de runtime conferem por hash.
+
+Preparação, distinta da matriz real:
+- regressão offline com guard, Docker falso e relógio virtual
+  (`node --import ./test/guard.mjs --test --test-reporter=tap test/*.test.mjs`):
+  192/192, 0 skips, retorno 0, guard 0 nas 18 linhas;
+- `tools/prepare.mjs` (sha256 `3ad86188…dd50`): `prepare-ok`, retorno 0,
+  autoteste do sanitizador 48 → 0;
+- sonda de fontes: 15 arquivos de runtime idênticos à baseline, 0 acertos,
+  `prepareInRuntimeSet=false`, controle negativo detectado.
+
+Configuração verificada nos containers novos (inspect, `mismatches=[]` nos
+três): healthcheck `NONE`, rootfs somente leitura, `cap-drop ALL`,
+`no-new-privileges`, log `none`, restart `no`, sem portas publicadas;
+upstream em `network none`, Kong e cliente no namespace do upstream novo;
+binds somente leitura com origem na pasta nova; tmpfs do Kong conforme o
+planejado; `KONG_ENV` conferido em memória.
+
+Matriz (cliente, Kong e upstream só no loopback):
+- CTRL0, CTRL1 e CTRL2 PASS; gate de namespace PASS antes e depois da matriz
+  (só `lo`, sem rotas IPv4, listeners só em `127.0.0.1:19090` e `:8000`);
+- T1–T4: 200 com resposta `test_only` do upstream, cada um encaminhado
+  exatamente uma vez. No T1 o critério específico é `no-apikey-forwarded`,
+  além dos checks comuns de encaminhamento; o Authorization vazio após trim
+  foi registrado como observação e não é condição do PASS;
+- T5: 404 do Kong, sem encaminhamento;
+- T6: OPTIONS 200 com CORS, sem encaminhamento;
+- contagens no upstream: CTRL0–CTRL2 e T1–T4 exatamente uma vez cada.
+
+Encerramento salvo (`public/results.json`):
+- cliente: saída natural, exit 0;
+- Kong: SIGQUIT, exit 0, `OOMKilled=false`;
+- upstream: SIGTERM depois dos dependentes, exit 0, `OOMKilled=false`;
+- ledger completo, coletores DONE, sem pendências e sem escalada registrada.
+
+Preservação, nos inventários gravados durante a execução (não é inspeção
+atual): 122 → 125 containers, só os três IDs próprios acrescentados, linhas
+preexistentes preservadas, redes e volumes iguais nos registros comparados.
+
+Ressalvas mantidas:
+- **DNS no desligamento:** o log sanitizado do Kong registra `[crit] … could
+  not reschedule DNS resolver timer: process exiting` depois do SIGQUIT e do
+  início do desligamento, com término posterior exit 0. Ressalva de
+  desligamento sem impacto observado nos casos desta execução. Não se afirma
+  ausência geral de erros nem que a mensagem seja sempre inofensiva.
+- **Encaminhamento IPv4:** os snapshots do namespace (antes e depois)
+  registram `ipv4Forward="1"`; o campo é observação, não predicado do gate.
+  O PASS não significa forwarding desabilitado: o gate aprovou só seus
+  critérios efetivos, entre eles apenas loopback e ausência de rotas IPv4 nos
+  snapshots. Não se infere escape nem contato externo, e esta medição não se
+  transporta para a P1 histórica.
+- **Varreduras, cada uma com seu critério:** autoteste do sanitizador com os
+  valores fictícios (48 → 0); fontes de runtime pela sonda (15 arquivos, 0
+  acertos) e pelo executor (15 alvos, 0); evidências do executor (5 alvos, 0
+  acertos). Numa varredura local posterior de `public/`, `evidence/` e
+  `preflight/` com o critério de evidência, o único acerto foi a palavra
+  estrutural `publishable` em títulos de testes do TAP offline, que não
+  equivale a credencial vazada. Isso não autoriza afirmar zero ocorrências em
+  todos os arquivos sob qualquer critério.
+
+Histórico preservado: tentativas anteriores (real, real2, real3) e a primeira
+tentativa real4 (`nf-p2-kong-real4-20261104T181356Z-116aa53e`, BLOCKED por
+Engine indisponível, sem containers) continuam como evidência; a real3 parou
+em verify-config pela ausência de `Tmpfs` no schema, corrigida na rodada
+config-compat sem execução real.
+
+Alcance -- continua sem prova: P2 integrada; PostgREST, ACLs e papéis reais;
+equivalência cloud ou produção; mounts além do registrado (inspect e checks
+do harness); ressalva IPv4 histórica da P1; ausência universal de bugs;
+reenvio e idempotência do Asaas. Não libera publicação nem operação
+financeira.
+
 ## Laboratório preservado -- não tocar
 
 O ensaio de 2026-10-26 usou `D:/Projetos/_recovery/nf-pgtap-0089-20261026`

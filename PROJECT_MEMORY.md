@@ -25,6 +25,7 @@ Código, migrations, testes, contrato da API e estado real da infraestrutura tê
 - `package.json` confirma Next.js 16.3.x, React 19.1.x, Supabase, TypeScript e Tailwind; README/documentação antiga ainda citam Next 14/React 18 em partes.
 - O repositório tinha alterações locais não commitadas durante esta análise: `DOCUMENTACAO.md`, rota de reservas do marketplace, webhook Asaas e duas migrations novas. Não sobrescrever nem interpretar essas mudanças sem revisão do diff.
 - A API pública tem contrato próprio em `docs/PUBLIC-API-CONTRACT.md`, incluindo campos, paginação, URLs assinadas, erros e timezone UTC.
+- Kong (2026-11-04): só o ensaio reduzido P2 real4 (Kong real + upstream fictício, sem Next, PostgREST ou banco) foi comprovado, com PASS dentro do escopo e das medições do harness. A P2 integrada não foi executada e o aceite integral da P1 continua pendente (encaminhamento IPv4). Detalhes e ressalvas em `supabase/tests/README.md`.
 
 ## Não registrar
 
