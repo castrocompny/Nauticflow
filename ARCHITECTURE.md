@@ -55,6 +55,9 @@ Regras críticas ficam no PostgreSQL: capacidade comercial, vagas concorrentes, 
 - Testes de banco (pgTAP) ficam em `supabase/tests/database/` e rodam só no Supabase local (`supabase test db --local`).
 - Webhooks precisam autenticar o token e manter idempotência.
 - Não expor detalhes internos ou stack traces em respostas públicas.
+- Logs do Sentry via `logSecurityEvent` e os `console.error` dos fluxos de pagamento, assinatura, saque e reembolso real (rota de pagamento marketplace, `billing-actions.ts`, `withdrawal-actions.ts`, `refund-provider-actions.ts`) levam só códigos (`SQLSTATE`, `PGRST*`, `PROVIDER_HTTP_<status>`, constantes fixas e tokens de `RAISE` `P0001` de uma **lista fechada** em `src/lib/safe-log-codes.ts`, conferida nas migrations locais), nunca mensagem de banco ou descrição do Asaas. `P0001` sozinho não torna a mensagem confiável: token fora da lista vira só `P0001`, e `logSecurityEvent` troca `errorCode` desconhecido por `UNRECOGNIZED`. Token SQL novo que deva aparecer em log precisa entrar na lista, com teste. Outros `console.*` do projeto não foram revisados por essa regra.
+- Valores em reais vindos do Asaas ou do formulário de saque viram centavos por `src/lib/provider-amount.ts` (inválido nunca é arredondado).
+- Server Actions de dinheiro checam papel no servidor: checkout/troca de plano só `company_admin`/`super_admin`; reembolso real só `requireSuperAdminAction` (super_admin com aal2).
 - Não aplicar migrations diretamente sem confirmar ambiente e ordem.
 - O ambiente de produção e o Sandbox do Asaas não devem ser confundidos.
 - Mudanças normais devem passar por preview/branch antes de `main`; correções de segurança urgentes são exceção controlada.

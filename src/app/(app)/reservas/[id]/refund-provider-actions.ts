@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getProfile } from "@/lib/profile";
+import { requireSuperAdminAction } from "@/lib/admin-auth";
 import { logSecurityEvent } from "@/lib/security-log";
+import { safeDbErrorCode, safeProviderErrorCode } from "@/lib/safe-log-codes";
 import { initiateMarketplacePaymentRefund } from "@/lib/asaas";
 import { interpretMarkProcessingResult, type MarkProcessingRpcRow } from "@/lib/marketplace-refund-reconciliation";
 
@@ -30,12 +30,13 @@ type RefundProviderContextRow = {
 // reserva -- uma segunda chamada pra mesma reserva nunca cria um segundo
 // pedido, sempre reconcilia o existente.
 export async function initiateRealMarketplaceRefund(reservationId: string): Promise<InitiateRealRefundResult> {
-  const profile = await getProfile();
-  if (!profile || profile.role !== "super_admin") {
-    return { error: "Apenas um administrador do sistema pode acionar um reembolso real." };
-  }
+  // Mesma proteção da área /admin (super_admin + segundo fator aal2 NESTA
+  // sessão): sem isso uma sessão só com senha acionava reembolso real por
+  // chamada direta da action, contornando o MFA exigido pelas páginas /admin.
+  const auth = await requireSuperAdminAction();
+  if (!auth.ok) return { error: auth.message };
 
-  const supabase = createClient();
+  const supabase = auth.supabase;
   const idempotencyKey = `real-refund-${reservationId}`;
   const { data: reqData, error: reqError } = await supabase
     .rpc("create_marketplace_refund_request", {
@@ -49,7 +50,7 @@ export async function initiateRealMarketplaceRefund(reservationId: string): Prom
     if (reqError.message.includes("PAYMENT_NOT_PAID")) return { error: "Esta reserva não tem um pagamento pago para reembolsar." };
     if (reqError.message.includes("RESERVATION_OUTCOME_UNDETERMINED")) return { error: "O resultado da reserva ainda não foi definido." };
     if (reqError.message.includes("BOOKING_NOT_FOUND")) return { error: "Reserva não encontrada." };
-    console.error("initiateRealMarketplaceRefund/create:", reqError);
+    console.error("initiateRealMarketplaceRefund/create:", safeDbErrorCode(reqError));
     return { error: "Não foi possível criar o pedido de reembolso." };
   }
 
@@ -71,7 +72,7 @@ export async function initiateRealMarketplaceRefund(reservationId: string): Prom
     .maybeSingle();
 
   if (ctxError || !ctxData) {
-    console.error("initiateRealMarketplaceRefund/context:", ctxError);
+    console.error("initiateRealMarketplaceRefund/context:", safeDbErrorCode(ctxError));
     return { error: "Não foi possível carregar o contexto do reembolso.", refundId: req.id };
   }
 
@@ -91,8 +92,10 @@ export async function initiateRealMarketplaceRefund(reservationId: string): Prom
   });
 
   if (!result.ok) {
-    logSecurityEvent("marketplace_refund_provider_initiation_failed", { refundId: req.id, errorCode: result.error.slice(0, 64) });
-    return { error: result.error, refundId: req.id };
+    // a descrição do Asaas é texto externo: nem no log nem na resposta
+    const errorCode = safeProviderErrorCode(result);
+    logSecurityEvent("marketplace_refund_provider_initiation_failed", { refundId: req.id, errorCode });
+    return { error: `O provedor recusou o reembolso (código ${errorCode}). O pedido continua pendente; revise antes de tentar de novo.`, refundId: req.id };
   }
 
   const { data: markData, error: markError } = await admin
@@ -102,7 +105,7 @@ export async function initiateRealMarketplaceRefund(reservationId: string): Prom
     })
     .maybeSingle();
 
-  const outcome = interpretMarkProcessingResult(markData as MarkProcessingRpcRow, markError ? { message: markError.message } : null);
+  const outcome = interpretMarkProcessingResult(markData as MarkProcessingRpcRow, markError ? { code: markError.code, message: markError.message } : null);
   if (!outcome.ok) {
     // NUNCA reporta sucesso/processing quando a RPC não confirmou
     // explicitamente -- cobre tanto erro de RPC (provider já pode ter

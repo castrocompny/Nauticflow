@@ -930,3 +930,54 @@ describe("POST /api/webhooks/asaas (TRANSFER_* conflict capture, 0090)", () => {
     });
   });
 });
+
+// Rodada de correções 2026-11-06 -- sentinelas SINTÉTICAS.
+describe("POST /api/webhooks/asaas (safe error codes and refund amounts)", () => {
+  const SENTINEL = "nfsynth.cliente@example.invalid";
+  const rawRequest = (raw: string) =>
+    new Request("https://nauticflow.com.br/api/webhooks/asaas", {
+      method: "POST",
+      headers: { "content-type": "application/json", "asaas-access-token": "correct-webhook-token" },
+      body: raw,
+    });
+
+  it("logs only a code when the payment lookup fails with free text", async () => {
+    mocks.lookup.mockImplementation(() => ({ data: null, error: { code: "PGRST000", message: `connection to ${SENTINEL} refused` } }));
+    const response = await POST(webhookRequest({ event: "PAYMENT_RECEIVED", payment: { id: "pay_1", externalReference: PAYMENT_ID } }, "correct-webhook-token"));
+    expect(response.status).toBe(500);
+    expect(mocks.log).toHaveBeenCalledWith("asaas_webhook_payment_lookup_failed", { event: "PAYMENT_RECEIVED", paymentId: "pay_1", errorCode: "PGRST000" });
+    expect(JSON.stringify(mocks.log.mock.calls)).not.toContain("nfsynth");
+  });
+
+  it("logs only a code when the settlement RPC fails with free text", async () => {
+    mocks.verify.mockResolvedValue({ ok: true, valueCents: 15000 });
+    mocks.rpc.mockImplementation(() => ({ data: null, error: { code: "XX000", message: `unexpected ${SENTINEL}` } }));
+    const response = await POST(webhookRequest({ event: "PAYMENT_RECEIVED", payment: { id: "pay_1", externalReference: PAYMENT_ID } }, "correct-webhook-token"));
+    expect(response.status).toBe(500);
+    expect(mocks.log).toHaveBeenCalledWith("marketplace_payment_settlement_error", { paymentId: PAYMENT_ID, errorCode: "XX000" });
+    expect(JSON.stringify(mocks.log.mock.calls)).not.toContain("nfsynth");
+  });
+
+  // corpo cru: 1e400 vira Infinity no JSON.parse real da rota (request.json())
+  it.each([
+    ["1e400 (Infinity after the real JSON.parse)", "1e400"],
+    ["negative", "-10.5"],
+    ["sub-cent fraction", "10.005"],
+    ["above the Postgres int", "21474836.48"],
+  ])("sends p_reported_amount_cents=null for an invalid refund value: %s", async (_label, rawValue) => {
+    mocks.insert.mockResolvedValue({ error: null });
+    mocks.rpc.mockImplementation(() => ({ data: { action: "applied" }, error: null }));
+    const raw = `{"event":"PAYMENT_REFUNDED","id":"evt_r1","payment":{"id":"pay_1","externalReference":"${PAYMENT_ID}","refunds":[{"id":"ref_1","value":${rawValue}}]}}`;
+    const response = await POST(rawRequest(raw));
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("reconcile_marketplace_refund_webhook_event", expect.objectContaining({ p_reported_amount_cents: null }));
+  });
+
+  it("keeps a valid refund value in cents", async () => {
+    mocks.insert.mockResolvedValue({ error: null });
+    mocks.rpc.mockImplementation(() => ({ data: { action: "applied" }, error: null }));
+    const raw = `{"event":"PAYMENT_REFUNDED","id":"evt_r2","payment":{"id":"pay_1","externalReference":"${PAYMENT_ID}","refunds":[{"id":"ref_1","value":199.9}]}}`;
+    await POST(rawRequest(raw));
+    expect(mocks.rpc).toHaveBeenCalledWith("reconcile_marketplace_refund_webhook_event", expect.objectContaining({ p_reported_amount_cents: 19990 }));
+  });
+});

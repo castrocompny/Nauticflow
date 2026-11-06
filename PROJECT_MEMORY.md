@@ -19,6 +19,8 @@ Código, migrations, testes, contrato da API e estado real da infraestrutura tê
 - Snapshot da política é canônico: a rota apara com `trim()` e conta code points (`Array.from`); o banco exige a mesma forma (mesmo conjunto de whitespace do JS). NUL em qualquer string do corpo é `400`.
 - A assinatura antiga de `create_marketplace_booking` (10 parâmetros) continua liberada para `service_role` durante a transição da 0080; revogar só em migration posterior, depois do deploy da rota nova.
 
+- Texto livre de erro (banco, rede ou Asaas) pode conter dado pessoal: nunca vai para log nem para a resposta; só códigos estruturados ou de lista fechada (`src/lib/safe-log-codes.ts`; formato de token não é confiança). Ação que move dinheiro real a partir do painel admin exige o mesmo gate das páginas `/admin` (aal2), não só o papel. (2026-11-06, local.)
+
 ## Estado técnico observado
 
 - Repositório: `D:\\Projetos\\Projeto Nauticflow\\Nauticflow`.

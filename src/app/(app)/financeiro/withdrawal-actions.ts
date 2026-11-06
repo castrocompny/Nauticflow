@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logSecurityEvent } from "@/lib/security-log";
+import { safeDbErrorCode, safeProviderErrorCode } from "@/lib/safe-log-codes";
+import { providerReaisToCents } from "@/lib/provider-amount";
 import { getProfile } from "@/lib/profile";
 import { createMarketplacePixTransfer, isMarketplaceWithdrawalPayoutEnabled } from "@/lib/asaas";
 import type { PixKeyType } from "@/lib/payout-accounts";
@@ -33,11 +35,12 @@ export async function createWithdrawal(_prev: CreateWithdrawalResult, formData: 
     return { error: "Você não tem permissão para solicitar saques." };
   }
 
-  const amountReais = Number(formData.get("amount_reais"));
-  if (!Number.isFinite(amountReais) || amountReais <= 0) {
+  // centavos exatos dentro do int do Postgres; fração abaixo do centavo é
+  // recusada, nunca arredondada (o operador saca exatamente o que digitou)
+  const amountCents = providerReaisToCents(Number(formData.get("amount_reais")));
+  if (amountCents === null || amountCents <= 0) {
     return { error: "Valor inválido." };
   }
-  const amountCents = Math.round(amountReais * 100);
 
   const idempotencyKey = randomUUID();
   const supabase = createClient();
@@ -51,7 +54,7 @@ export async function createWithdrawal(_prev: CreateWithdrawalResult, formData: 
     if (error.message.includes("MANUAL_REVIEW_PENDING")) return { error: "Existe uma pendência financeira que precisa ser resolvida antes de um novo saque. Fale com o suporte." };
     if (error.message.includes("INSUFFICIENT_AVAILABLE_BALANCE")) return { error: "Saldo disponível insuficiente para este valor." };
     if (error.message.includes("INVALID_WITHDRAWAL_AMOUNT")) return { error: "Valor inválido." };
-    console.error("createWithdrawal:", error);
+    console.error("createWithdrawal:", safeDbErrorCode(error));
     return { error: "Não foi possível solicitar o saque. Tente novamente." };
   }
 
@@ -85,11 +88,11 @@ export async function createWithdrawal(_prev: CreateWithdrawalResult, formData: 
 // o saque continua 'pending' (saldo reservado). Toda saída antes da
 // transferência é registrada (marketplace_withdrawal_dispatch_not_sent) --
 // nada foi enviado ao provedor. Não há reenvio automático.
-function dispatchNotSent(withdrawalId: string, reason: string, errorCode?: string) {
+function dispatchNotSent(withdrawalId: string, reason: string, error?: { code?: unknown; message?: unknown }) {
   logSecurityEvent("marketplace_withdrawal_dispatch_not_sent", {
     withdrawalId,
     reason,
-    ...(errorCode !== undefined ? { errorCode: errorCode.slice(0, 64) } : {}),
+    ...(error !== undefined ? { errorCode: safeDbErrorCode(error) } : {}),
   });
 }
 
@@ -101,7 +104,7 @@ async function dispatchWithdrawalToProvider(withdrawalId: string): Promise<void>
     .select("id, amount_cents, payout_account_id")
     .eq("id", withdrawalId)
     .maybeSingle();
-  if (readError) return dispatchNotSent(withdrawalId, "withdrawal_read_failed", readError.message);
+  if (readError) return dispatchNotSent(withdrawalId, "withdrawal_read_failed", readError);
   if (!w) return dispatchNotSent(withdrawalId, "withdrawal_not_found");
   if (!w.payout_account_id) return dispatchNotSent(withdrawalId, "payout_account_missing");
 
@@ -113,7 +116,7 @@ async function dispatchWithdrawalToProvider(withdrawalId: string): Promise<void>
   const { data: payout, error: payoutError } = await admin.rpc("get_marketplace_payout_account_raw_for_transfer", {
     p_payout_account_id: w.payout_account_id,
   });
-  if (payoutError) return dispatchNotSent(withdrawalId, "payout_key_read_failed", payoutError.message);
+  if (payoutError) return dispatchNotSent(withdrawalId, "payout_key_read_failed", payoutError);
   const payoutRow = (Array.isArray(payout) ? payout[0] : payout) as { pix_key_type: PixKeyType; pix_key_normalized: string } | undefined;
   if (!payoutRow) return dispatchNotSent(withdrawalId, "payout_key_missing");
 
@@ -132,7 +135,7 @@ async function dispatchWithdrawalToProvider(withdrawalId: string): Promise<void>
     logSecurityEvent("marketplace_withdrawal_dispatch_rejected", {
       withdrawalId: w.id,
       providerStatus: transferResult.status ?? null,
-      errorCode: transferResult.error.slice(0, 64),
+      errorCode: safeProviderErrorCode(transferResult),
     });
     return;
   }
@@ -148,7 +151,7 @@ async function dispatchWithdrawalToProvider(withdrawalId: string): Promise<void>
     logSecurityEvent("marketplace_withdrawal_mark_processing_failed", {
       withdrawalId: w.id,
       providerTransferId: transferResult.data.providerTransferId,
-      errorCode: markError.message.slice(0, 64),
+      errorCode: safeDbErrorCode(markError),
     });
   }
 }
@@ -158,7 +161,7 @@ export async function listWithdrawals(): Promise<WithdrawalDTO[] | { error: stri
   const { data, error } = await supabase.rpc("list_marketplace_withdrawals", { p_limit: 20 });
 
   if (error) {
-    console.error("listWithdrawals:", error);
+    console.error("listWithdrawals:", safeDbErrorCode(error));
     return { error: "Não foi possível carregar o histórico de saques." };
   }
 

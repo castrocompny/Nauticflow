@@ -10,6 +10,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // Bloqueia fetch/socket não mockado (rodada de correções 2026-11-06).
+    setupFiles: ["./vitest.setup.ts"],
   },
   resolve: {
     alias: {

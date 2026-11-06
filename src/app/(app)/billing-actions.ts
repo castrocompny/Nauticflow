@@ -7,10 +7,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/profile";
 import { findOrCreateCustomer, createSubscription, getFirstInvoiceUrl, cancelSubscription } from "@/lib/asaas";
 import { fmtDate } from "@/lib/format";
+import { safeDbErrorCode } from "@/lib/safe-log-codes";
 
 export async function startAsaasCheckout(planCode: string, billingCycle: string = "mensal") {
   const profile = await getProfile();
   if (!profile?.company_id) return { error: "Sessão inválida." };
+  // Mesma regra de cancelAsaasSubscription: assinar/trocar o plano cancela a
+  // assinatura atual no Asaas e cria uma nova cobrança -- só o administrador.
+  // Checado aqui (não só na página), antes de qualquer leitura, client admin ou Asaas.
+  if (profile.role !== "company_admin" && profile.role !== "super_admin") {
+    return { error: "Só o administrador da empresa pode assinar ou trocar o plano." };
+  }
 
   // só aceita ciclos válidos; qualquer outra coisa vira mensal
   const cycle = billingCycle === "anual" ? "anual" : "mensal";
@@ -93,7 +100,7 @@ export async function startAsaasCheckout(planCode: string, billingCycle: string 
     p_billing_cycle: cycle,
   });
   if (linkError) {
-    console.error("startAsaasCheckout link_asaas_subscription:", linkError);
+    console.error("startAsaasCheckout link_asaas_subscription:", safeDbErrorCode(linkError));
     return { error: "Cobrança criada, mas houve um erro ao vincular a assinatura. Entre em contato com o suporte." };
   }
 
@@ -137,7 +144,7 @@ export async function cancelAsaasSubscription() {
   const admin = createAdminClient();
   const { error } = await admin.from("subscriptions").update({ status: "cancelada" }).eq("id", sub.id);
   if (error) {
-    console.error("cancelAsaasSubscription:", error);
+    console.error("cancelAsaasSubscription:", safeDbErrorCode(error));
     return { error: "Não foi possível cancelar a assinatura. Tente novamente." };
   }
 

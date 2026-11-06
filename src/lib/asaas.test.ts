@@ -110,6 +110,42 @@ describe("verifyAsaasPaymentSettled (WEBHOOK settlement authority)", () => {
     expect(result).toEqual({ ok: true, status: "RECEIVED", valueCents: 19990 });
   });
 
+  // Rodada de correções 2026-11-06: payment.value vem da API do Asaas e vira
+  // p_confirmed_amount_cents (int no Postgres). O corpo é entregue já como
+  // objeto pelo mock (sem JSON.stringify), então Infinity/NaN chegam intactos;
+  // 1e400 passa pelo JSON.parse real, que o transforma em Infinity.
+  it.each([
+    ["Infinity vindo do JSON real (1e400)", JSON.parse('{"v":1e400}').v],
+    ["-Infinity", -Infinity],
+    ["NaN", NaN],
+    ["negativo", -150.5],
+    ["fração abaixo do centavo (arredondaria para 15000)", 150.004],
+    ["acima do int do Postgres (2147483648 centavos)", 21474836.48],
+    ["número como string", "150.50"],
+  ])("rejects an invalid provider value before rounding: %s", async (_label, value) => {
+    mockFetchOnce(200, { id: "pay_123", status: "RECEIVED", value, externalReference: "internal-1" });
+    const result = await verifyAsaasPaymentSettled({
+      providerPaymentId: "pay_123",
+      expectedExternalReference: "internal-1",
+      acceptedStatuses: ["RECEIVED"],
+    });
+    expect(result).toEqual({ ok: false, retryable: false, reason: typeof value === "number" ? "PAYMENT_VALUE_INVALID" : "PAYMENT_VALUE_MISSING" });
+  });
+
+  it.each([
+    [0, 0],
+    [0.1 + 0.2, 30],
+    [21474836.47, 2147483647],
+  ])("accepts an exact cent value at the boundary (%s -> %s cents)", async (value, cents) => {
+    mockFetchOnce(200, { id: "pay_123", status: "RECEIVED", value, externalReference: "internal-1" });
+    const result = await verifyAsaasPaymentSettled({
+      providerPaymentId: "pay_123",
+      expectedExternalReference: "internal-1",
+      acceptedStatuses: ["RECEIVED"],
+    });
+    expect(result).toEqual({ ok: true, status: "RECEIVED", valueCents: cents });
+  });
+
   it("rejects a soft-deleted payment even if id/status/reference would otherwise match", async () => {
     mockFetchOnce(200, {
       id: "pay_123",

@@ -4,6 +4,8 @@ import { timingSafeEqual } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { logSecurityEvent } from "@/lib/security-log";
 import { verifyAsaasPaymentSettled } from "@/lib/asaas";
+import { safeErrorCode, safeDbErrorCode } from "@/lib/safe-log-codes";
+import { providerReaisToCents } from "@/lib/provider-amount";
 
 // Recebe as notificacoes de pagamento do Asaas (evento PAYMENT_CONFIRMED/PAYMENT_RECEIVED)
 // e renova a assinatura da empresa correspondente automaticamente. TAMBÉM recebe (a
@@ -152,11 +154,8 @@ const TRANSFER_CONFLICT_CODES: readonly (readonly [string, string, TransferConfl
   ["WITHDRAWAL_NOT_FOUND", "withdrawal_not_found", "withdrawal_not_found"],
 ];
 
-// Código externo vira constante segura: SQLSTATE ou PGRST conhecido, senão marcador.
-function safeErrorCode(code: unknown): string {
-  if (code === undefined || code === null || code === "") return "NONE";
-  return typeof code === "string" && /^([0-9A-Z]{5}|PGRST\d{3})$/.test(code) ? code : "UNRECOGNIZED";
-}
+// Código externo vira constante segura (SQLSTATE ou PGRST conhecido, senão
+// marcador): safeErrorCode/safeDbErrorCode em src/lib/safe-log-codes.ts.
 
 const INT_MAX = 2147483647;
 
@@ -304,7 +303,7 @@ export async function POST(request: Request) {
         // sem saber se é marketplace, não pode cair no fluxo SaaS (o pagamento
         // seria tratado como company_id errado e descartado com 200) -- 5xx
         // pro Asaas reenviar; nada foi gravado ainda.
-        logSecurityEvent("asaas_webhook_payment_lookup_failed", { event, paymentId: payment.id, errorCode: lookupError.message.slice(0, 64) });
+        logSecurityEvent("asaas_webhook_payment_lookup_failed", { event, paymentId: payment.id, errorCode: safeDbErrorCode(lookupError) });
         return NextResponse.json({ error: "payment_lookup_failed" }, { status: 500 });
       }
       if (marketplacePayment) {
@@ -320,7 +319,7 @@ export async function POST(request: Request) {
             .limit(2);
           if (chargeLookupError) {
             logSecurityEvent("asaas_webhook_payment_lookup_failed", {
-              event, paymentId: providerPaymentId, errorCode: chargeLookupError.message.slice(0, 64),
+              event, paymentId: providerPaymentId, errorCode: safeDbErrorCode(chargeLookupError),
             });
             return NextResponse.json({ error: "payment_lookup_failed" }, { status: 500 });
           }
@@ -345,7 +344,7 @@ export async function POST(request: Request) {
         .eq("provider_payment_id", providerPaymentId)
         .limit(1);
       if (chargeLookupError) {
-        logSecurityEvent("asaas_webhook_payment_lookup_failed", { event, paymentId: providerPaymentId, errorCode: chargeLookupError.message.slice(0, 64) });
+        logSecurityEvent("asaas_webhook_payment_lookup_failed", { event, paymentId: providerPaymentId, errorCode: safeDbErrorCode(chargeLookupError) });
         return NextResponse.json({ error: "payment_lookup_failed" }, { status: 500 });
       }
       if (Array.isArray(byCharge) && byCharge.length > 0) {
@@ -400,7 +399,7 @@ export async function POST(request: Request) {
     p_event_type: event,
   });
   if (renewalError) {
-    logSecurityEvent("asaas_webhook_renewal_failed", { flow: "saas", event, paymentId, errorCode: renewalError.message.slice(0, 64) });
+    logSecurityEvent("asaas_webhook_renewal_failed", { flow: "saas", event, paymentId, errorCode: safeDbErrorCode(renewalError) });
     return NextResponse.json({ error: "renewal_failed" }, { status: 500 });
   }
   if (renewal === "duplicate") return NextResponse.json({ ok: true, duplicate: true });
@@ -470,7 +469,7 @@ async function handleTransferEvent(
         ? await supabase.from("marketplace_withdrawals").select("id").eq("provider_transfer_id", providerTransferId).limit(1)
         : { data: [], error: null };
     if (lookupError) {
-      logSecurityEvent("asaas_webhook_transfer_lookup_failed", { event, errorCode: lookupError.message.slice(0, 64) });
+      logSecurityEvent("asaas_webhook_transfer_lookup_failed", { event, errorCode: safeDbErrorCode(lookupError) });
       return NextResponse.json({ error: "reference_lookup_failed" }, { status: 500 });
     }
     if (Array.isArray(local) && local.length > 0) {
@@ -491,7 +490,7 @@ async function handleTransferEvent(
     .eq("provider_transfer_id", providerTransferId)
     .limit(2);
   if (transferLookupError) {
-    logSecurityEvent("asaas_webhook_transfer_lookup_failed", { event, errorCode: transferLookupError.message.slice(0, 64) });
+    logSecurityEvent("asaas_webhook_transfer_lookup_failed", { event, errorCode: safeDbErrorCode(transferLookupError) });
     return NextResponse.json({ error: "reference_lookup_failed" }, { status: 500 });
   }
   if (Array.isArray(byTransferId) && byTransferId.some((row) => row.id !== withdrawalId)) {
@@ -529,7 +528,7 @@ async function handleTransferEvent(
       logSecurityEvent("transfer_conflict_unverified", { event, reason, errorCode: safeErrorCode(error.code) });
       return unprocessableMarketplaceEvent(event, "transfer", httpReason);
     }
-    logSecurityEvent("marketplace_withdrawal_webhook_error", { event, withdrawalId, errorCode: error.message.slice(0, 64) });
+    logSecurityEvent("marketplace_withdrawal_webhook_error", { event, withdrawalId, errorCode: safeDbErrorCode(error) });
     return NextResponse.json({ error: "transfer_processing_failed" }, { status: 500 });
   }
   const row = data as { outcome?: unknown; withdrawal_status?: unknown } | null;
@@ -610,7 +609,7 @@ async function handleMarketplacePaymentEvent(
     if (!outcome) {
       logSecurityEvent("marketplace_payment_settlement_error", {
         paymentId: internalPaymentId,
-        errorCode: error ? error.message.slice(0, 64) : "UNEXPECTED_RESULT",
+        errorCode: error ? safeDbErrorCode(error) : "UNEXPECTED_RESULT",
       });
       return NextResponse.json({ error: "settlement_failed" }, { status: 500 });
     }
@@ -630,7 +629,7 @@ async function handleMarketplacePaymentEvent(
     if (dedupeError.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
     // erro inesperado ao gravar a marca: nada foi processado -- responde 5xx
     // pro Asaas reenviar, em vez de 200 que descartaria o evento em silêncio.
-    logSecurityEvent("asaas_webhook_dedupe_failed", { flow: "marketplace", event, errorCode: dedupeError.message.slice(0, 64) });
+    logSecurityEvent("asaas_webhook_dedupe_failed", { flow: "marketplace", event, errorCode: safeDbErrorCode(dedupeError) });
     return NextResponse.json({ error: "dedupe_failed" }, { status: 500 });
   }
 
@@ -683,7 +682,9 @@ async function handleMarketplacePaymentEvent(
     const lastRefund = refunds.length > 0 ? refunds[refunds.length - 1] : undefined;
     const providerRefundId = typeof lastRefund?.id === "string" ? lastRefund.id : null;
     const reportedValue = typeof lastRefund?.value === "number" ? lastRefund.value : (typeof payment.value === "number" ? payment.value : null);
-    const reportedAmountCents = reportedValue !== null ? Math.round(reportedValue * 100) : null;
+    // valor do corpo (não verificado): inválido vira null ("não informado"), o
+    // mesmo caminho de quando o corpo não traz valor -- nunca arredondado.
+    const reportedAmountCents = providerReaisToCents(reportedValue);
 
     const { data, error } = await supabase
       .rpc("reconcile_marketplace_refund_webhook_event", {
@@ -695,7 +696,7 @@ async function handleMarketplacePaymentEvent(
       .maybeSingle();
 
     if (error) {
-      logSecurityEvent("refund_reconciliation_required", { paymentId: internalPaymentId, eventType: event, errorCode: error.message.slice(0, 64) });
+      logSecurityEvent("refund_reconciliation_required", { paymentId: internalPaymentId, eventType: event, errorCode: safeDbErrorCode(error) });
     } else {
       const row = data as { action: string } | null;
       if (row?.action === "manual_review_created" || row?.action === "manual_review_existing") {

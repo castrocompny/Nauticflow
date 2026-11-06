@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { isSafeLogCode } from "@/lib/safe-log-codes";
 
 // Log de eventos de SEGURANÇA (tentativa de acesso negado, rate limit atingido,
 // autenticação servidor-a-servidor rejeitada) -- achado da auditoria de segurança
@@ -22,12 +23,19 @@ import * as Sentry from "@sentry/nextjs";
 // -- é onde ficam userId/companyId e qualquer outro dado de alta cardinalidade, que
 // o Sentry aceita mas não indexa/filtra como tag (achado da reauditoria: filtros de
 // alerta só funcionam contra tags, nunca contra `extra`).
+//
+// `errorCode` só passa se for código conhecido (lista fechada em src/lib/safe-log-codes.ts);
+// o resto vira "UNRECOGNIZED" aqui mesmo, antes de chegar ao Sentry. Os
+// callers devem usar safeDbErrorCode/safeProviderErrorCode -- isto é só a rede.
 export function logSecurityEvent(
   event: string,
   extra?: Record<string, string | number | boolean | null | undefined>,
   scope?: string
 ) {
   try {
+    if (extra && "errorCode" in extra && extra.errorCode !== undefined && !isSafeLogCode(extra.errorCode)) {
+      extra = { ...extra, errorCode: "UNRECOGNIZED" };
+    }
     Sentry.captureMessage(`security.${event}`, {
       level: "warning",
       tags: { event, ...(scope ? { scope } : {}) },

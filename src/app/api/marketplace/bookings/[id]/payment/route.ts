@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createHash } from "crypto";
 import { logSecurityEvent } from "@/lib/security-log";
+import { safeDbErrorCode, safeProviderErrorCode } from "@/lib/safe-log-codes";
 import { findOrCreateMarketplaceAsaasCustomer, createOrReconcileMarketplacePixCharge, getMarketplacePixQrCode } from "@/lib/asaas";
 import { attemptMarketplacePaymentCleanup } from "@/lib/marketplace-payment-cleanup";
 import {
@@ -208,7 +209,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     phone: client.phone,
   });
   if (!customerResult.ok) {
-    console.error("findOrCreateMarketplaceAsaasCustomer:", customerResult.error);
+    console.error("findOrCreateMarketplaceAsaasCustomer:", safeProviderErrorCode(customerResult));
     return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível preparar o pagamento no provedor. Tente novamente.");
   }
 
@@ -232,7 +233,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (claimResult.error || !claim) {
     logSecurityEvent("marketplace_payment_charge_claim_failed", {
       paymentId: result.payment_id,
-      errorCode: claimResult.error?.message.slice(0, 64),
+      errorCode: claimResult.error ? safeDbErrorCode(claimResult.error) : undefined,
     });
     return fail("INTERNAL_ERROR", "Não foi possível preparar a cobrança Pix. Tente novamente.");
   }
@@ -258,7 +259,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       amountCents: result.amount_cents,
     });
     if (!chargeResult.ok) {
-      console.error("createOrReconcileMarketplacePixCharge:", chargeResult.error);
+      console.error("createOrReconcileMarketplacePixCharge:", safeProviderErrorCode(chargeResult));
       return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível criar a cobrança Pix. A tentativa ficará em verificação manual.");
     }
 
@@ -270,7 +271,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (linkError) {
       logSecurityEvent("marketplace_payment_provider_link_failed", {
         paymentId: result.payment_id,
-        errorCode: linkError.message.slice(0, 64),
+        errorCode: safeDbErrorCode(linkError),
       });
       return fail("INTERNAL_ERROR", "Não foi possível registrar a cobrança Pix. A tentativa ficará em verificação manual.");
     }
@@ -281,7 +282,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const qrResult = await getMarketplacePixQrCode(providerPaymentId);
   if (!qrResult.ok) {
-    console.error("getMarketplacePixQrCode:", qrResult.error);
+    console.error("getMarketplacePixQrCode:", safeProviderErrorCode(qrResult));
     return fail("PAYMENT_PROVIDER_ERROR", "Não foi possível obter o QR Code Pix. Tente novamente.");
   }
 

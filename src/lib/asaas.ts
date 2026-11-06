@@ -1,4 +1,5 @@
 // Cliente HTTP mínimo pra API do Asaas. So roda no servidor (a chave nunca chega no navegador).
+import { providerReaisToCents } from "./provider-amount";
 
 const BASE_URL = process.env.ASAAS_API_URL ?? "https://api-sandbox.asaas.com/v3";
 
@@ -154,8 +155,14 @@ export async function verifyAsaasPaymentSettled(params: {
   if (typeof payment.value !== "number") {
     return { ok: false, retryable: false, reason: "PAYMENT_VALUE_MISSING" };
   }
+  // não finito, negativo, fração de centavo ou acima do int do Postgres:
+  // resposta definitiva e inválida -- nunca arredonda para "caber".
+  const valueCents = providerReaisToCents(payment.value);
+  if (valueCents === null) {
+    return { ok: false, retryable: false, reason: "PAYMENT_VALUE_INVALID" };
+  }
 
-  return { ok: true, status: payment.status, valueCents: Math.round(payment.value * 100) };
+  return { ok: true, status: payment.status, valueCents };
 }
 
 // ============================================================================

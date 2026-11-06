@@ -115,7 +115,7 @@ describe("POST /api/marketplace/bookings/[id]/payment (AUTH + FLAGS)", () => {
 describe("POST /api/marketplace/bookings/[id]/payment (vínculo da cobrança)", () => {
   const PAYMENT_ID = "77777777-7777-4777-8777-777777777777";
 
-  function arrangeHappyPath(markResult: { data: unknown; error: { message: string } | null }) {
+  function arrangeHappyPath(markResult: { data: unknown; error: { code?: string; message: string } | null }) {
     process.env.MARKETPLACE_PAYMENTS_ENABLED = "true";
     rpcMock.mockImplementation(async (name: string) => {
       if (name === "check_rate_limit") return { data: true, error: null };
@@ -142,7 +142,8 @@ describe("POST /api/marketplace/bookings/[id]/payment (vínculo da cobrança)", 
   }
 
   it("does not return the QR code when persisting the provider charge id fails", async () => {
-    arrangeHappyPath({ data: null, error: { message: "PROVIDER_PAYMENT_ID_MISMATCH" } });
+    // RAISE da RPC chega como SQLSTATE P0001 (fixture realista desde a rodada de 2026-11-06)
+    arrangeHappyPath({ data: null, error: { code: "P0001", message: "PROVIDER_PAYMENT_ID_MISMATCH" } });
     const { POST } = await import("./route");
 
     const response = await POST(paymentRequest(), { params: Promise.resolve({ id: "b-1" }) });
@@ -166,6 +167,23 @@ describe("POST /api/marketplace/bookings/[id]/payment (vínculo da cobrança)", 
 
     expect(response.status).toBe(201);
     expect(asaasSpies.getMarketplacePixQrCode).toHaveBeenCalledWith("pay_1");
+  });
+
+  // Rodada de correções 2026-11-06 -- sentinelas SINTÉTICAS.
+  it("logs only codes (never free text) for a link error and for a provider QR error", async () => {
+    arrangeHappyPath({ data: null, error: { code: "XX000", message: "falha nfsynth.cliente@example.invalid" } });
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("./route");
+    await POST(paymentRequest(), { params: Promise.resolve({ id: "b-1" }) });
+    expect(securityLog.logSecurityEvent).toHaveBeenCalledWith("marketplace_payment_provider_link_failed", { paymentId: PAYMENT_ID, errorCode: "XX000" });
+
+    arrangeHappyPath({ data: [{ id: PAYMENT_ID, provider_payment_id: "pay_1" }], error: null });
+    asaasSpies.getMarketplacePixQrCode.mockResolvedValue({ ok: false, error: "NFSYNTH_CPF_52998224725", status: 400 });
+    const response = await POST(paymentRequest(), { params: Promise.resolve({ id: "b-1" }) });
+    expect(response.status).toBe(502);
+    expect(consoleSpy).toHaveBeenCalledWith("getMarketplacePixQrCode:", "PROVIDER_HTTP_400");
+    expect(JSON.stringify([securityLog.logSecurityEvent.mock.calls, consoleSpy.mock.calls, await response.text()])).not.toMatch(/nfsynth|NFSYNTH/i);
+    consoleSpy.mockRestore();
   });
 });
 

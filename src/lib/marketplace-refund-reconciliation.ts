@@ -8,8 +8,10 @@
 // 0062, ver comentário na migration). Nunca retorna sucesso a menos que a
 // RPC confirme EXPLICITAMENTE status='processing'.
 
+import { safeDbErrorCode } from "./safe-log-codes";
+
 export type MarkProcessingRpcRow = { id: string; status: string; provider_refund_id: string } | null;
-export type MarkProcessingRpcError = { message: string } | null;
+export type MarkProcessingRpcError = { code?: string; message: string } | null;
 
 export type MarkProcessingOutcome = { ok: true; status: "processing" } | { ok: false; error: string; logCode: string };
 
@@ -20,7 +22,7 @@ export function interpretMarkProcessingResult(data: MarkProcessingRpcRow, error:
     // provider antes de criar, ver src/lib/asaas.ts), só reconcilia.
     return {
       ok: false,
-      logCode: error.message.slice(0, 64),
+      logCode: safeDbErrorCode(error),
       error: "O reembolso pode ter sido aceito pelo provider, mas não foi possível registrar isso no sistema -- uma nova tentativa reconcilia automaticamente, sem duplicar.",
     };
   }
