@@ -549,7 +549,7 @@ financeira.
 ## 0091 -- isolamento do replay de reembolso (`nf-0091-refund-20261109`, 2026-11-09/10 UTC)
 
 Evidências em `D:/Projetos/_recovery/nf-0091-refund-20261109/` (`logs/`,
-`apply/`, `tests/`). Correção só local, sem commit e sem aplicação remota.
+`apply/`, `tests/`). Correção só local (registro original feito antes do commit); estado atual: commitada LOCALMENTE em `daa2bd550f30975d805f0aa469630f986883fba7`, sem push nem aplicação remota.
 
 - Ambiente: três containers novos com imagens já em cache (sem pull):
   `-db` (`postgres:17.6.1.158`, network `none`) e os migradores reais
@@ -580,7 +580,7 @@ Não prova: equivalência integral com produção (bootstrap e grants auxiliares
 são do ensaio; 0083–0088 ausentes), estado da função em produção, Vitest nem
 build. A diferença `BOOKING_NOT_FOUND` × `IDEMPOTENCY_KEY_CONFLICT` pode
 revelar a existência de uma chave, sem devolver dados do pedido; risco
-pendente de decisão, não aceito.
+residual aceito pelo usuário nesta versão (ver `TASKS.md`).
 
 ## Laboratório preservado -- não tocar
 
