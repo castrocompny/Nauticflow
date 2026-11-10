@@ -95,7 +95,8 @@ export async function initiateRealMarketplaceRefund(reservationId: string): Prom
     // a descrição do Asaas é texto externo: nem no log nem na resposta
     const errorCode = safeProviderErrorCode(result);
     logSecurityEvent("marketplace_refund_provider_initiation_failed", { refundId: req.id, errorCode });
-    return { error: `O provedor recusou o reembolso (código ${errorCode}). O pedido continua pendente; revise antes de tentar de novo.`, refundId: req.id };
+    // ok=false não prova recusa (ex.: POST aceito sem id do refund na resposta)
+    return { error: `Não foi possível confirmar o resultado do reembolso com o provedor (código ${errorCode}). Verifique a situação do pagamento e do reembolso antes de qualquer nova tentativa.`, refundId: req.id };
   }
 
   const { data: markData, error: markError } = await admin

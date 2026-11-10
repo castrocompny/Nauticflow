@@ -99,6 +99,25 @@ describe("initiateRealMarketplaceRefund authorization", () => {
     expect(mocks.log).toHaveBeenCalledWith("marketplace_refund_provider_initiation_failed", { refundId: REFUND_ID, errorCode: "PROVIDER_HTTP_400" });
     expect(JSON.stringify(mocks.log.mock.calls)).not.toContain("nfsynth");
   });
+
+  // POST pode ter sido aceito sem devolver o id do refund: não há prova de
+  // recusa, então a mensagem não pode afirmar recusa nem resultado.
+  it("does not claim a provider refusal when the refund outcome is unconfirmed", async () => {
+    mocks.refund.mockResolvedValue({ ok: false, error: "REFUND_ID_MISSING_IN_RESPONSE" });
+    const { initiateRealMarketplaceRefund } = await import("./refund-provider-actions");
+    const res = await initiateRealMarketplaceRefund(RESERVATION_ID);
+    expect(Object.keys(res).sort()).toEqual(["error", "refundId"]);
+    expect(res.refundId).toBe(REFUND_ID);
+    expect(res.error).not.toMatch(/recus/i);
+    expect(res.error).not.toMatch(/continua pendente/i);
+    expect(res.error).toContain("REFUND_ID_MISSING_IN_RESPONSE");
+    expect(res.error).toMatch(/Não foi possível confirmar/);
+    expect(res.error).toMatch(/antes de qualquer nova tentativa/);
+    expect(mocks.refund).toHaveBeenCalledTimes(1);
+    expect(mocks.adminRpc).not.toHaveBeenCalledWith("mark_marketplace_refund_processing", expect.anything());
+    expect(mocks.log).toHaveBeenCalledWith("marketplace_refund_provider_initiation_failed", { refundId: REFUND_ID, errorCode: "REFUND_ID_MISSING_IN_RESPONSE" });
+    expect(mocks.log).not.toHaveBeenCalledWith("marketplace_refund_provider_initiated", expect.anything());
+  });
 });
 
 // Rodada 2026-11-06 (6 logs brutos): erro sintético com sentinelas em
