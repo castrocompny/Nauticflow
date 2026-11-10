@@ -1610,6 +1610,8 @@ Próxima etapa financeira depois do payout account (seção 82): fechar cancelam
 
 **Migration `0055`**: nova, não sobrescreve `0052`/`0053`/`0054` (nenhuma aplicada ainda). Não aplicada nesta etapa.
 
+**Correção posterior (2026-11-09, só local, sem commit)**: o replay de `create_marketplace_refund_request` na `0055` buscava o pedido só pela `idempotency_key` (índice único global) e o devolvia antes de validar empresa/reserva, então o "IDOR fechado por construção" acima não valia para o replay. A migration `0091` (a `0055` não foi editada) passa a exigir mesma empresa e mesma reserva; divergência gera `IDEMPOTENCY_KEY_CONFLICT`. Estado em produção não conferido; pendências em `TASKS.md`, evidências em `supabase/tests/README.md`.
+
 ## 84. Saque Pix do operador -- adapter pronto pra Asaas, modo mock/sandbox controlado (sessão de 2026-08-31)
 
 Próxima etapa financeira depois de cancelamento/no-show/refund (seção 83): fechar o fluxo de SAQUE do operador usando a chave Pix cadastrada (seção 82), com adapter pronto pra Asaas mas em modo mock/sandbox nesta fase. Migration `0056` (local, **não aplicada**). Decisão de arquitetura completa em `docs/adr/0005-marketplace-withdrawal-and-pix-payout.md`. Nenhuma transferência real, nenhum dinheiro real se move.

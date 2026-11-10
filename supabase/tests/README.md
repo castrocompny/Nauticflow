@@ -546,6 +546,42 @@ do harness); ressalva IPv4 histórica da P1; ausência universal de bugs;
 reenvio e idempotência do Asaas. Não libera publicação nem operação
 financeira.
 
+## 0091 -- isolamento do replay de reembolso (`nf-0091-refund-20261109`, 2026-11-09/10 UTC)
+
+Evidências em `D:/Projetos/_recovery/nf-0091-refund-20261109/` (`logs/`,
+`apply/`, `tests/`). Correção só local, sem commit e sem aplicação remota.
+
+- Ambiente: três containers novos com imagens já em cache (sem pull):
+  `-db` (`postgres:17.6.1.158`, network `none`) e os migradores reais
+  `-auth` (`gotrue:v2.195.0`) e `-storage` (`storage-api:v1.69.0`), que
+  compartilham só o namespace de rede do banco. Sem portas, mounts ou volumes;
+  credenciais novas e fictícias.
+- Chain: `revoke-api-privileges`, 82 migrations do checkout (sem
+  `0000b`/`0000c`), `setup/service_role_platform_grants.sql` (só ensaio),
+  0090 e, depois do RED, 0091 -- um arquivo por transação, todos rc 0.
+- Teste `database/marketplace_refund_replay_isolation.test.sql` (17
+  assertions, `authenticated` com claims; empresas diferentes, reserva
+  incompatível, replay legítimo, super_admin, staff e ausência de efeito em
+  pedidos/ledger/saldos). As claims passaram de `select set_config(...)` para
+  `set local request.jwt.claims` só para eliminar saída fora do TAP; nenhuma
+  assertion mudou e não é correção de produto.
+- RED decisivo `red-2` (implementação da 0055): 12/17, falhas esperadas só
+  em 3, 4, 5, 7 e 8 (`caught: no exception`). GREEN `green-1` (após 0091):
+  17/17. RED2 e GREEN usam o mesmo hash do teste atual (`47846ddf…`).
+  Regressões após 0091: `marketplace_payment_received_exceptions` 22/22,
+  `service_role_payments_privilege` 18/18. TAP estrito (`tapcheck.awk`), sem
+  stderr nem sessões residuais.
+- Encerramento: `pg_ctl stop -m fast` como `postgres`; log confirma shutdown
+  limpo; os três containers preservados com exit 0. O 137 registrado foi do
+  `docker exec` auxiliar (encerrado junto com o container), não do servidor.
+  Recursos antigos não foram tocados.
+
+Não prova: equivalência integral com produção (bootstrap e grants auxiliares
+são do ensaio; 0083–0088 ausentes), estado da função em produção, Vitest nem
+build. A diferença `BOOKING_NOT_FOUND` × `IDEMPOTENCY_KEY_CONFLICT` pode
+revelar a existência de uma chave, sem devolver dados do pedido; risco
+pendente de decisão, não aceito.
+
 ## Laboratório preservado -- não tocar
 
 O ensaio de 2026-10-26 usou `D:/Projetos/_recovery/nf-pgtap-0089-20261026`
