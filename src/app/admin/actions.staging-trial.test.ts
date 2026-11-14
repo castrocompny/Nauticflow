@@ -147,4 +147,3 @@ describe("grantStagingTrial", () => {
     expect(mocks.rpcCalls).toHaveLength(1);
   });
 });
-
