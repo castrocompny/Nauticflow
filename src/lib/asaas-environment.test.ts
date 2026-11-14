@@ -69,6 +69,43 @@ describe("Asaas transport environment lock -- SaaS", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["VERCEL_ENV production with empty target", "production", ""],
+    ["VERCEL_ENV production with custom target", "production", "staging"],
+    ["inverse conflict (VERCEL_ENV preview, target production)", "preview", "production"],
+    ["only target production, VERCEL_ENV absent", undefined, "production"],
+    ["empty VERCEL_ENV", "", undefined],
+    ["VERCEL_ENV development", "development", undefined],
+  ])("refuses the Production endpoint before fetch with %s", async (_label, vercelEnv, targetEnv) => {
+    setRuntime(vercelEnv, targetEnv);
+    vi.stubEnv("ASAAS_API_URL", PROD_URL);
+    const fetchFn = mockFetchOk();
+
+    const result = await createSubscription(subscriptionParams);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expectSafeError(result.error);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("calls the Production endpoint when VERCEL_ENV is production and the target is absent", async () => {
+    setRuntime("production", undefined);
+    vi.stubEnv("ASAAS_API_URL", PROD_URL);
+    const fetchFn = mockFetchOk();
+
+    expect((await createSubscription(subscriptionParams)).ok).toBe(true);
+    expect(fetchFn.mock.calls[0][0]).toBe("https://api.asaas.com/v3/subscriptions");
+  });
+
+  it("calls the Production endpoint with a single trailing slash in Production", async () => {
+    setRuntime("production", "production");
+    vi.stubEnv("ASAAS_API_URL", `${PROD_URL}/`);
+    const fetchFn = mockFetchOk();
+
+    expect((await createSubscription(subscriptionParams)).ok).toBe(true);
+    expect(fetchFn.mock.calls[0][0]).toBe("https://api.asaas.com/v3/subscriptions");
+  });
+
   it("keeps calling the Production endpoint when Vercel identifies Production", async () => {
     setRuntime("production", "production");
     vi.stubEnv("ASAAS_API_URL", PROD_URL);
@@ -131,6 +168,17 @@ describe("Asaas transport environment lock -- SaaS", () => {
     ["extra path", "https://api.asaas.com/v3/extra"],
     ["no base path", "https://api.asaas.com"],
     ["malformed", "not a url"],
+    // formas que new URL() normalizaria para o endpoint canônico
+    ["explicit default port :443", "https://api.asaas.com:443/v3"],
+    ["dot-dot path segment", "https://api.asaas.com/x/../v3"],
+    ["dot path segment", "https://api.asaas.com/./v3"],
+    ["backslash separator", "https://api.asaas.com\\v3"],
+    ["empty userinfo", "https://@api.asaas.com/v3"],
+    ["tab inside host", "https://api.asa\tas.com/v3"],
+    ["uppercase scheme/host", "HTTPS://API.ASAAS.COM/v3"],
+    ["double trailing slash", "https://api.asaas.com/v3//"],
+    ["sandbox :443", "https://api-sandbox.asaas.com:443/v3"],
+    ["sandbox dot-dot", "https://api-sandbox.asaas.com/v3/x/.."],
   ])("refuses a custom/look-alike URL (%s) even in Production", async (_label, url) => {
     setRuntime("production", "production");
     vi.stubEnv("ASAAS_API_URL", url);

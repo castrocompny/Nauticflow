@@ -3,37 +3,21 @@ import { providerReaisToCents } from "./provider-amount";
 
 type AsaasResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
-// Trava de ambiente: só os dois endpoints oficiais, validados de forma exata
-// (nunca por substring), e Produção só sai quando a Vercel identifica Produção.
-// Ausente/vazio = Sandbox. Qualquer outra URL é recusada antes do fetch.
+// Trava de ambiente: só os dois endpoints oficiais, comparados como texto
+// exato (sem new URL(), que normalizaria :443, "..", "\" etc.), e Produção só
+// sai quando a Vercel identifica Produção. Ausente/vazio = Sandbox; uma única
+// barra final é aceita. Qualquer outra URL é recusada antes do fetch.
 type AsaasTarget = { env: "sandbox" | "production"; baseUrl: string };
-const ASAAS_HOSTS: Record<string, AsaasTarget["env"]> = {
-  "api-sandbox.asaas.com": "sandbox",
-  "api.asaas.com": "production",
+const ASAAS_ENDPOINTS: Record<string, AsaasTarget["env"]> = {
+  "https://api-sandbox.asaas.com/v3": "sandbox",
+  "https://api.asaas.com/v3": "production",
 };
 const ASAAS_ENV_REFUSED = "Ambiente de pagamento indisponível.";
 
 function resolveAsaasTarget(): AsaasTarget | null {
   const raw = process.env.ASAAS_API_URL?.trim() || "https://api-sandbox.asaas.com/v3";
-  if (raw.includes("?") || raw.includes("#")) return null;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
-  }
-  const env = Object.hasOwn(ASAAS_HOSTS, url.hostname) ? ASAAS_HOSTS[url.hostname] : undefined;
-  if (
-    !env ||
-    url.protocol !== "https:" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.port !== "" ||
-    (url.pathname !== "/v3" && url.pathname !== "/v3/")
-  ) {
-    return null;
-  }
-  return { env, baseUrl: `https://${url.hostname}/v3` };
+  const baseUrl = raw.endsWith("/") ? raw.slice(0, -1) : raw;
+  return Object.hasOwn(ASAAS_ENDPOINTS, baseUrl) ? { env: ASAAS_ENDPOINTS[baseUrl], baseUrl } : null;
 }
 
 // NODE_ENV é "production" em qualquer build (Preview incluso), então não serve.
