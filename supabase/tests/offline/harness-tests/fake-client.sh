@@ -57,6 +57,13 @@ observer)
       echo "ACT|1200|$tag|postgres|active|Lock|advisory|blockers={1100}|xid=-"
       echo "WAIT|1200|advisory|ExclusiveLock|granted=false|rel=-|xid=-|classid=20038|objid=$k|objsubid=2"
       echo "HELD_W|advisory|ExclusiveLock|rel=-|xid=-|classid=20038|objid=90" ;;
+    lockevidence-d*)
+      echo "T|2026-01-01 00:00:00+00"
+      echo "ACT|1100|$tag|postgres|idle in transaction|Client|ClientRead|blockers={}|xid=900"
+      echo "ACT|1200|$tag|postgres|active|Lock|transactionid|blockers={1100}|xid=901"
+      echo "WAIT|1200|transactionid|ShareLock|granted=false|rel=-|xid=900|classid=-|objid=-|objsubid=-"
+      has wrong_trial_lock && rel=subscriptions || rel=companies
+      echo "HELD_L|tuple|AccessExclusiveLock|rel=$rel|classid=-|objid=77" ;;
     fixture-*) echo "FIX|ok"; echo "SNAP|deadbeef" ;;
     absent-*) echo "ABSENT|0" ;;
     checks-*)
@@ -88,7 +95,13 @@ session)
       "select 'ID:'"*) echo "ID:service_role|postgres|read committed|$app|lock_timeout=20s" ;;
       "select 'RPC:'"*)
         if has hang; then hung=1; continue; fi
-        if [[ "$line" == *record_marketplace_transfer_conflict* ]]; then
+        if [[ "$line" == *grant_staging_trial* ]]; then
+          if [ "${app: -1}" = W ]; then echo "RPC:service_role|granted"; SQLSTATE=00000
+          else
+            for _ in $(seq 1 150); do [ -f "$FAKE_DIR/committed-$base" ] || [ -f "$FAKE_DIR/released-$base" ] && break; sleep 0.2; done
+            echo "RPC:service_role|company_asaas_linked"; SQLSTATE=00000
+          fi
+        elif [[ "$line" == *record_marketplace_transfer_conflict* ]]; then
           # captura 0090: perdedor só responde depois do commit/rollback do vencedor
           if [ "${app: -1}" = W ]; then echo "RPC:service_role|recorded|1"; SQLSTATE=00000
           else
@@ -105,6 +118,11 @@ session)
           case "$line" in *TRANSFER_PENDING*) err=PROVIDER_TRANSFER_ID_MISMATCH ;; *) err=TERMINAL_OUTCOME_CONFLICT ;; esac
           echo "ERROR:  P0001: $err"; SQLSTATE=P0001 LAST_SQLSTATE=P0001 LAST_MSG=$err
         fi ;;
+      "select public.link_asaas_subscription("*)
+        if [ "${app: -1}" != W ]; then
+          for _ in $(seq 1 150); do [ -f "$FAKE_DIR/committed-$base" ] || [ -f "$FAKE_DIR/released-$base" ] && break; sleep 0.2; done
+        fi
+        SQLSTATE=00000 ;;
       # c3: conflito financeiro aborta a transação; captura nela => 25P02 (no_abort simula o contrário)
       "select 'FIN:'"*) echo "ERROR:  P0001: TERMINAL_OUTCOME_CONFLICT"
         SQLSTATE=P0001 LAST_SQLSTATE=P0001 LAST_MSG=TERMINAL_OUTCOME_CONFLICT; has no_abort || aborted=1 ;;

@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
-# Corridas da 0089 em duas sessões psql independentes (W = vencedor, L = perdedor)
+# Corridas em 0089/0090/0092 em duas sessões psql independentes (W = vencedor, L = perdedor)
 # + observador owner em sessão própria. Ver supabase/tests/README.md.
 #   a1: DONE x FAILED, DONE confirmado primeiro   a2: o inverso
 #   b1: mesmo transfer id em dois saques pending, vencedor X   b2: vencedor Y
 #   c1: captura 0090, capacidade 1, grupos distintos (perdedor: capacidade esgotada)
 #   c2: captura 0090, capacidade 1, mesmo grupo (perdedor: repetição, sem nova vaga)
-#   c3: uma sessão: conflito financeiro 0089 -> captura na mesma transação abortada
-#       recusada (25P02) -> rollback confirmado -> captura em transação NOVA com commit
+#   c3: conflito financeiro 0089 -> captura abortada (25P02) -> rollback -> captura em transação nova
+#   d1: link Asaas confirma primeiro; trial espera e recusa empresa vinculada
+#   d2: trial confirma primeiro; link Asaas espera e aplica depois
 set -u
-USAGE="uso: run-concurrency.sh --scenarios <lista de a1,a2,b1,b2,c1,c2,c3 sem repetição>"
+USAGE="uso: run-concurrency.sh --scenarios <lista de a1,a2,b1,b2,c1,c2,c3,d1,d2 sem repetição>"
 H=$(cd "$(dirname "$0")" && pwd)
 ARGV_COPY=("$@")
 source "$H/lib/common.sh"
 
 [ $# -eq 2 ] && [ "$1" = --scenarios ] || usage_die "argumentos"
 # lista inteira validada antes da divisão: `read -a` descartaria o campo vazio final (`a1,`)
-[[ "$2" =~ ^(a1|a2|b1|b2|c1|c2|c3)(,(a1|a2|b1|b2|c1|c2|c3))*$ ]] || usage_die "lista de cenários '$2' (vazia, campo vazio ou desconhecido)"
+[[ "$2" =~ ^(a1|a2|b1|b2|c1|c2|c3|d1|d2)(,(a1|a2|b1|b2|c1|c2|c3|d1|d2))*$ ]] || usage_die "lista de cenários '$2' (vazia, campo vazio ou desconhecido)"
 IFS=, read -ra SCS <<< "$2"
 seen=","
 for s in "${SCS[@]}"; do
-  case "$s" in a1|a2|b1|b2|c1|c2|c3) ;; *) usage_die "cenário desconhecido '$s'" ;; esac
+  case "$s" in a1|a2|b1|b2|c1|c2|c3|d1|d2) ;; *) usage_die "cenário desconhecido '$s'" ;; esac
   case "$seen" in *",$s,"*) usage_die "cenário repetido '$s'" ;; esac
   seen="$seen$s,"
 done
@@ -29,7 +30,11 @@ run_dir_create conc
 install_traps
 trap "" PIPE  # escrita em sessão já encerrada não pode matar o runner antes da limpeza
 lab_preflight || exit 1
-provenance_capture "$H/run-concurrency.sh" "$REPO/supabase/migrations/0090_marketplace_transfer_conflict_capture.sql" || exit 1
+provenance_capture "$H/run-concurrency.sh" \
+  "$REPO/supabase/migrations/0030_fecha_bypass_link_asaas_subscription.sql" \
+  "$REPO/supabase/migrations/0090_marketplace_transfer_conflict_capture.sql" \
+  "$REPO/supabase/migrations/0092_staging_trial_atomic_grant.sql" \
+  "$REPO/supabase/tests/database/staging_trial_atomic_grant.test.sql" || exit 1
 
 declare -A SFD SPID SBPID SBSTART
 OPEN=() ALLAPPS=()
@@ -137,13 +142,39 @@ rpc_c() { # nome key transfer (0090: mesmo motivo/evento; taxa e referência aus
   send "$1" '\echo MARK:called'
 }
 
-# run_race <sc> <a|b|c> <W rpc esperado> <erro do perdedor | OK:<rpc esperado>>; usa W_ARGS/L_ARGS
+rpc_trial() { # sessão company_id admin_id reason
+  send "$1" "set local request.jwt.claims to '{\"role\":\"service_role\"}';"
+  send "$1" "select 'RPC:'||current_user||'|'||(public.grant_staging_trial('$2'::uuid, '$3'::uuid, '$4')->>'status');"
+  send "$1" '\echo RES SQLSTATE :SQLSTATE LAST_ERROR :LAST_ERROR_SQLSTATE :LAST_ERROR_MESSAGE'
+  send "$1" '\echo MARK:called'
+}
+link_trial() { # sessão company_id synthetic_customer_id synthetic_subscription_id
+  send "$1" "set local request.jwt.claims to '{\"role\":\"service_role\"}';"
+  send "$1" "select public.link_asaas_subscription('$2'::uuid, '$3', '$4', 'start', 'mensal');"
+  send "$1" '\echo LINK SQLSTATE :SQLSTATE LAST_ERROR :LAST_ERROR_SQLSTATE :LAST_ERROR_MESSAGE'
+  send "$1" '\echo MARK:called'
+}
+call_d() { # sessão args; escolhe qual operação é vencedora/perdedora
+  local session=$1 op=${D_L_OP:-}
+  [[ "$session" == *-W ]] && op=${D_W_OP:-}
+  shift
+  case "$op" in
+    link) link_trial "$session" "$@" ;;
+    trial) rpc_trial "$session" "$@" ;;
+    *) fail "scenario D: operação inválida '$op'"; return 1 ;;
+  esac
+}
+
+# run_race <sc> <a|b|c|d> <W rpc esperado | LINK_OK> <erro do perdedor | OK:<rpc esperado> | LINK_OK>; usa W_ARGS/L_ARGS
 # c (0090): chaves iguais são permitidas (c2 = mesmo grupo); OK: => perdedor retorna e faz commit
 run_race() {
   local sc=$1 kind=$2 want_w=$3 want_err=$4 W=$1-W L=$1-L
   local appW="nf0089-$TOK-$sc-W" appL="nf0089-$TOK-$sc-L" n call=rpc
   [ "$kind" = c ] && call=rpc_c
-  [ "$kind" = c ] || [ "${W_ARGS[0]}" != "${L_ARGS[0]}" ] || { fail "$sc: event_keys iguais"; return 1; }
+  [ "$kind" = d ] && call=call_d
+  if [ "$kind" = a ] || [ "$kind" = b ]; then
+    [ "${W_ARGS[0]}" != "${L_ARGS[0]}" ] || { fail "$sc: event_keys iguais"; return 1; }
+  fi
   open_sess "$W" "$appW"; open_sess "$L" "$appL"
   preamble "$W"; preamble "$L"
   wait_mark "$W" ready 20 && wait_mark "$L" ready 20 || { fail "$sc: sessões não ficaram prontas"; return 1; }
@@ -160,8 +191,12 @@ run_race() {
 
   $call "$W" "${W_ARGS[@]}"
   wait_mark "$W" called 30 || { fail "$sc: RPC do vencedor não retornou"; return 1; }
-  has_line "$W" "RPC:$want_w" && grep -q '^RES SQLSTATE 00000 ' "$RUN/sessions/$W.out" || { fail "$sc: vencedor inesperado"; return 1; }
-  log "[$sc] W rpc ok, transação aberta: RPC:$want_w"
+  if [ "$kind" = d ] && [ "$want_w" = LINK_OK ]; then
+    grep -q '^LINK SQLSTATE 00000 ' "$RUN/sessions/$W.out" || { fail "$sc: link do vencedor inesperado"; return 1; }
+  else
+    has_line "$W" "RPC:$want_w" && grep -q '^RES SQLSTATE 00000 ' "$RUN/sessions/$W.out" || { fail "$sc: vencedor inesperado"; return 1; }
+  fi
+  log "[$sc] W operação ok, transação aberta: $want_w"
 
   $call "$L" "${L_ARGS[@]}"
   local seen=0 end=$((SECONDS + 15)) r
@@ -191,6 +226,12 @@ SQL
     # advisory de duas chaves (20038, 90) da 0090: objsubid=2, espaço distinto do lock por transfer id
     [ "$(echo "$ev" | grep -c '^WAIT|')" = 1 ] && echo "$ev" | grep -q "^WAIT|$LP|advisory|ExclusiveLock|granted=false|rel=-|xid=-|classid=20038|objid=90|objsubid=2$" ||
       { fail "$sc: recurso bloqueado não é o advisory de captura da 0090"; return 1; }
+  elif [ "$kind" = d ]; then
+    local wx; wx=$(echo "$ev" | grep "^ACT|$WP|" | sed 's/.*|xid=//')
+    [ "$(echo "$ev" | grep -c '^WAIT|')" = 1 ] &&
+      echo "$ev" | grep -q "^WAIT|$LP|transactionid|ShareLock|granted=false|rel=-|xid=$wx|" &&
+      echo "$ev" | awk -F'|' '$1=="HELD_L" && $2=="tuple" && $4 ~ /^rel=(public\.)?companies$/ {ok=1} END{exit !ok}' ||
+      { fail "$sc: trial não esperou pelo lock da linha companies detido pelo vencedor"; return 1; }
   else
     local k; k=$(obs "advkey-$sc" <<< "with k as (select hashtextextended('marketplace_transfer:' || '${W_ARGS[3]}', 0) h) select ((h >> 32) & 4294967295)||'|objid='||(h & 4294967295) from k;") ||
       { fail "$sc: observador falhou (chave advisory)"; return 1; }
@@ -203,8 +244,13 @@ SQL
   wait_mark "$W" committed 15 && has_line "$W" 'RES commit SQLSTATE 00000' || { fail "$sc: commit do vencedor falhou"; return 1; }
   log "[$sc] W commit $(date -u +%T)"
   wait_mark "$L" called 30 || { fail "$sc: perdedor não retornou após o commit"; return 1; }
-  log "[$sc] L: $(grep -E '^(RPC:|RES SQLSTATE|ERROR)' "$RUN/sessions/$L.out" | tr '\n' ' ')"
-  if [ "${want_err#OK:}" != "$want_err" ]; then
+  log "[$sc] L: $(grep -E '^(RPC:|LINK SQLSTATE|RES SQLSTATE|ERROR)' "$RUN/sessions/$L.out" | tr '\n' ' ')"
+  if [ "$kind" = d ] && [ "$want_err" = LINK_OK ]; then
+    grep -q '^LINK SQLSTATE 00000 ' "$RUN/sessions/$L.out" ||
+      { fail "$sc: link concorrente não retornou sucesso"; return 1; }
+    send "$L" 'commit;'; send "$L" '\echo RES commit SQLSTATE :SQLSTATE'; send "$L" '\echo MARK:lcommitted'
+    wait_mark "$L" lcommitted 15 && has_line "$L" 'RES commit SQLSTATE 00000' || { fail "$sc: commit do link concorrente sem confirmação"; return 1; }
+  elif [ "${want_err#OK:}" != "$want_err" ]; then
     has_line "$L" "RPC:${want_err#OK:}" && grep -q '^RES SQLSTATE 00000 ' "$RUN/sessions/$L.out" ||
       { fail "$sc: perdedor não retornou exatamente RPC:${want_err#OK:}"; return 1; }
     send "$L" 'commit;'; send "$L" '\echo RES commit SQLSTATE :SQLSTATE'; send "$L" '\echo MARK:lcommitted'
@@ -399,6 +445,63 @@ SQL
   log "RESULT[$SC]: PASS"
 }
 
+scenario_D() { # d1/d2: serialização entre link Asaas e trial Staging
+  SC=$1
+  local seq=${1#d}
+  local c="$TOK-0000-4000-8000-00000000d${seq}01"
+  local admin="$TOK-0000-4000-8000-00000000d${seq}02"
+  local sub="$TOK-0000-4000-8000-00000000d${seq}03"
+  local customer="cus_local_${TOK}_${SC}" asaas_sub="sub_local_${TOK}_${SC}"
+  log "===== $SC: concorrência entre link_asaas_subscription e grant_staging_trial"
+  absent <<SQL || return 1
+select 'ABSENT|'||((select count(*) from public.companies where id = '$c')
+  + (select count(*) from auth.users where id = '$admin')
+  + (select count(*) from public.profiles where id = '$admin')
+  + (select count(*) from public.subscriptions where id = '$sub')
+  + (select count(*) from public.admin_audit_log where target_company_id = '$c'));
+SQL
+  obs "fixture-$SC" > /dev/null <<SQL || { fail "$SC: fixture falhou"; return 1; }
+begin;
+insert into public.companies (id, name, asaas_customer_id)
+  values ('$c', 'Trial concorrente $SC fictício', null);
+insert into auth.users (id, email, aud, role)
+  values ('$admin', 'trial-race-${TOK}-${SC}@local.test', 'authenticated', 'authenticated');
+insert into public.profiles (id, company_id, role, name, email)
+  values ('$admin', '$c', 'super_admin', 'Admin fictício $SC', 'trial-race-${TOK}-${SC}@local.test')
+  on conflict (id) do update set company_id = excluded.company_id, role = excluded.role, name = excluded.name;
+insert into public.subscriptions (id, company_id, status, paid_until, asaas_subscription_id, created_at)
+  values ('$sub', '$c', 'ativa', '2026-01-01T00:00:00Z', null, '2026-01-01T00:00:00Z');
+commit;
+select 'FIX|ready';
+SQL
+  D_W_OP=link D_L_OP=trial
+  W_ARGS=("$c" "$customer" "$asaas_sub")
+  L_ARGS=("$c" "$admin" "Validar trial race")
+  if [ "$SC" = d2 ]; then
+    D_W_OP=trial D_L_OP=link
+    W_ARGS=("$c" "$admin" "Validar trial race")
+    L_ARGS=("$c" "$customer" "$asaas_sub")
+    run_race "$SC" d "service_role|granted" LINK_OK || return 1
+    checks 5 <<SQL || return 1
+select 'CHECK|company_link|'||asaas_customer_id||'|$customer' from public.companies where id = '$c';
+select 'CHECK|subscription_link|'||asaas_subscription_id||'|$asaas_sub' from public.subscriptions where id = '$sub';
+select 'CHECK|trial_window|'||case when paid_until > transaction_timestamp() + interval '167 hours' and paid_until < transaction_timestamp() + interval '169 hours' then 'ok' else 'bad' end||'|ok' from public.subscriptions where id = '$sub';
+select 'CHECK|audit_count|'||count(*)||'|1' from public.admin_audit_log where action = 'conceder_trial_staging' and target_company_id = '$c';
+select 'CHECK|audit_details|'||count(*)||'|1' from public.admin_audit_log where action = 'conceder_trial_staging' and target_company_id = '$c' and details->>'days' = '7' and details->>'reason' = 'Validar trial race' and details->>'provider' = 'none';
+SQL
+  else
+    run_race "$SC" d LINK_OK "OK:service_role|company_asaas_linked" || return 1
+    checks 5 <<SQL || return 1
+select 'CHECK|company_link|'||asaas_customer_id||'|$customer' from public.companies where id = '$c';
+select 'CHECK|subscription_link|'||asaas_subscription_id||'|$asaas_sub' from public.subscriptions where id = '$sub';
+select 'CHECK|paid_until_unchanged|'||case when paid_until = '2026-01-01T00:00:00Z'::timestamptz then 'ok' else 'bad' end||'|ok' from public.subscriptions where id = '$sub';
+select 'CHECK|audit_count|'||count(*)||'|0' from public.admin_audit_log where target_company_id = '$c';
+select 'CHECK|subscription_status|'||status||'|ativa' from public.subscriptions where id = '$sub';
+SQL
+  fi
+  log "RESULT[$SC]: PASS"
+}
+
 for sc in "${SCS[@]}"; do
   case "$sc" in
     #               vencedor        perdedor         Wfee Lfee status    entry                buckets                                     net
@@ -409,6 +512,7 @@ for sc in "${SCS[@]}"; do
     c1) scenario_C c1 CONFLICT_CAPTURE_CAPACITY_EXCEEDED ;;
     c2) scenario_C c2 'OK:service_role|repeated|2' ;;
     c3) scenario_C3 ;;
+    d1|d2) scenario_D "$sc" ;;
   esac || exit 1
 done
 exit 0

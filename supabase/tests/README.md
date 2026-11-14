@@ -1,7 +1,12 @@
 # Testes de banco (pgTAP) -- ensaio local isolado
 
 Os testes de `database/` rodam só num Postgres local descartável. Nada aqui
-valida produção, staging ou um projeto Supabase novo.
+valida produção, staging ou um projeto Supabase novo. O teste
+`database/staging_trial_atomic_grant.test.sql` declara plano de 27 asserções para
+ACL, elegibilidade, auditoria e rollback; ainda não foi executado. Os cenários
+`d1,d2` em `offline/run-concurrency.sh` cobrem ambas as ordens de concorrência
+com `link_asaas_subscription` (0030), mas os testes offline com cliente fake
+validam somente o comportamento do harness, não executam essas RPCs.
 
 ## `setup/` não é migration de produto
 
@@ -771,7 +776,7 @@ echo "OK: ensaio $PID concluído; container parado, volume e diretório preserva
 - Corridas entre sessões (DONE x FAILED, mesmo transfer id em dois saques) não
   são exercitadas aqui; ver `offline/` abaixo.
 
-## Laboratório offline da 0089 (`offline/`)
+## Laboratório offline 0089/0090/0092 (`offline/`)
 
 Runners para um Postgres **já preparado e já em execução** (chain + bootstrap
 aplicados antes, fora do harness). O harness nunca cria, inicia, reseta, para
@@ -781,12 +786,13 @@ nem reaplica migrations/grants. Só fala com o alvo via `docker exec ... psql`.
   para na primeira falha. Ex.: os três de `database/` ligados à 0089 e
   `offline/sql/aux_0089_service_role.test.sql` (RPC chamada sob
   `service_role`, com controle negativo de INSERT direto no ledger).
-- `run-concurrency.sh --scenarios a1,a2,b1,b2` -- duas sessões `psql`
+- `run-concurrency.sh --scenarios a1,a2,b1,b2,c1,c2,c3,d1,d2` -- duas sessões `psql`
   independentes (vencedor/perdedor, READ COMMITTED, `set local role
-  service_role`, event_keys distintas) + observador owner. Exige ver o perdedor
-  bloqueado pelo vencedor **no recurso esperado** (a: xid do vencedor + tuple em
-  `marketplace_withdrawals`; b: advisory do transfer id) antes do commit, e o
-  erro exato do perdedor (`TERMINAL_OUTCOME_CONFLICT` / `PROVIDER_TRANSFER_ID_MISMATCH`).
+  service_role`) + observador owner. Exige ver a concorrente bloqueada pelo
+  vencedor **no recurso esperado** antes do commit: a: xid + tuple em
+  `marketplace_withdrawals`; b: advisory do transfer id; c: advisory de captura
+  `(20038, 90)`; d: espera no xid do vencedor e tuple em `companies`. A/B usam
+  `event_keys` distintas. O resultado/rollback/commit esperado é conferido por cenário.
   Fixtures fictícias novas por execução (token aleatório) são **commitadas** no
   laboratório e preservadas.
 - `--scenarios c1,c2` (0090, captura de conflitos): política singleton gravada
@@ -806,6 +812,13 @@ nem reaplica migrations/grants. Só fala com o alvo via `docker exec ... psql`.
   ledger e marcas inalterados e nada capturado; só então a captura roda numa
   transação nova e faz commit. Prova separação no banco, não integração
   HTTP/PostgREST nem reenvio do Asaas.
+- `--scenarios d1,d2` (0092 × 0030): usa IDs de cliente/assinatura Asaas
+  sintéticos, sem chamar Asaas. `d1`: o vínculo vence; a concessão espera e
+  retorna `company_asaas_linked`, sem alterar `paid_until` ou criar auditoria.
+  `d2`: o trial vence; o vínculo espera e só então grava os IDs; confirma o
+  vencimento de 168 horas e uma auditoria com motivo/duração. As fixtures são
+  commitadas e preservadas somente no laboratório local. A validação do runner
+  com fake não substitui executar estes cenários contra Postgres.
 
 Alvo (todas obrigatórias; faltou uma, o runner recusa antes de agir):
 `NF_LAB_CONTEXT`, `NF_LAB_ENDPOINT`, `NF_LAB_CONTAINER`, `NF_LAB_CONTAINER_ID`
@@ -867,13 +880,15 @@ aplicação nem os demais comandos da migration.
 
 Testes do harness (sem banco; cliente simulado):
 `HARNESS_TEST_WORK=<dir novo> offline/harness-tests/run-harness-tests.sh all`
-(grupos `tap`, `seq`, `conc`, `evid`, `close`, `catalog`; `conc` inclui `c1`/`c2`
+(grupos `tap`, `seq`, `conc`, `trial`, `evid`, `close`, `catalog`; `conc` inclui `c1`/`c2`
 e um caso em que o perdedor espera em outro advisory, que precisa reprovar; e
 `c3` com dois negativos: captura aceita na transação abortada e rollback não
-confirmado, ambos precisam reprovar).
-`catalog_capture` continua comparando só as funções da 0089; a 0090 entra em
-`sources.sha256` e a comparação do corpo dela fica nas evidências da rodada. `evid` injeta falha
-de gravação plantando um diretório no caminho de destino dentro do run
+confirmado, ambos precisam reprovar. `trial` cobre d1/d2, bloqueio ausente,
+lock em relação incorreta e argumentos inválidos, sempre com cliente simulado.)
+`catalog_capture` continua comparando só as funções da 0089; `0030`, `0090`, `0092`
+e o pgTAP do trial entram em `sources.sha256`, que identifica os arquivos-fonte,
+mas não compara suas definições com o catálogo do banco. `evid` injeta falha de
+gravação plantando um diretório no caminho de destino dentro do run
 descartável do teste (não enche disco nem muda permissões). `catalog` roda o
 `catalog_capture` real contra a migration da worktree, só com o observador
 substituído. O grupo `legacy` reproduz os defeitos do runner histórico de

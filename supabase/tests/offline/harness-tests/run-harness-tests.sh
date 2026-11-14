@@ -3,7 +3,7 @@
 # simulado (fake-client.sh / docker falso no PATH do grupo legacy).
 #
 # Uso: HARNESS_TEST_WORK=<diretório absoluto inexistente> \
-#        run-harness-tests.sh <tap|seq|conc|evid|close|catalog|legacy|all>
+#        run-harness-tests.sh <tap|seq|conc|trial|evid|close|catalog|legacy|all>
 #   all    = todos menos legacy (o grupo legacy reproduz defeitos do harness
 #            histórico e deve FALHAR; roda só se pedido explicitamente).
 #   TAPCHECK=<awk> troca o verificador testado no grupo tap.
@@ -14,7 +14,7 @@ FAKE="$H/harness-tests/fake-client.sh"
 TAPCHECK=${TAPCHECK:-$H/lib/tapcheck.awk}
 WORK=${HARNESS_TEST_WORK:?defina HARNESS_TEST_WORK (diretório novo)}
 group=${1:-}
-case "$group" in tap|seq|conc|evid|close|catalog|legacy|all) ;; *) echo "uso: $0 <tap|seq|conc|evid|close|catalog|legacy|all>" >&2; exit 2 ;; esac
+case "$group" in tap|seq|conc|trial|evid|close|catalog|legacy|all) ;; *) echo "uso: $0 <tap|seq|conc|trial|evid|close|catalog|legacy|all>" >&2; exit 2 ;; esac
 mkdir "$WORK" || { echo "HARNESS_TEST_WORK já existe: $WORK" >&2; exit 2; }
 npass=0 nfail=0
 ok()  { npass=$((npass + 1)); echo "  ok   - $1"; }
@@ -217,7 +217,11 @@ group_conc() {
   expect "conc: c3 rollback não confirmado => sessão fechada" "$(all_closed)" closed
 
   newcase c-int
-  SIMENV "$C/ev" "$C/fake" hang bash "$H/run-concurrency.sh" --scenarios a1 > "$C/stdout" 2>&1 &
+  (
+    unset NF_LAB_CONTEXT NF_LAB_ENDPOINT NF_LAB_CONTAINER NF_LAB_CONTAINER_ID NF_LAB_VOLUME NF_LAB_CONFIRM
+    export NF_HARNESS_SIMULATE=1 NF_SIM_CLIENT="$FAKE" NF_EVIDENCE_ROOT="$C/ev" FAKE_DIR="$C/fake" FAKE_MODE=hang FAKE_OBS_FAIL_TAG='*'
+    exec bash "$H/run-concurrency.sh" --scenarios a1
+  ) > "$C/stdout" 2>&1 &
   local rp=$! i
   for i in $(seq 1 100); do grep -qs "^select 'RPC:" "$C"/fake/sess-*-a1-W.in && break; sleep 0.2; done
   kill -TERM "$rp"
@@ -242,6 +246,45 @@ group_conc() {
   newcase "c-args-empty"; conc_run "" --scenarios ""
   expect "conc: lista vazia [--scenarios ''] => exit 2" "$?" 2
   expect "conc: lista vazia => nenhum run criado" "$(find "$C/ev" -mindepth 1 | wc -l | tr -d ' ')" 0
+}
+
+# ---------------------------------------------------------------- trial race
+# Usa o mesmo runner transacional em duas sessões, mas só o cliente fake; não toca banco.
+group_trial() {
+  echo "# grupo trial"
+  newcase d-pass; conc_run "" --scenarios d1,d2
+  expect "trial: d1,d2 simulados => exit 0" "$?" 0
+  expect "trial: d1,d2 simulados => RESULT PASS" "$(result_of)" PASS
+  expect "trial: d1,d2 => sessões fechadas" "$(all_closed)" closed
+  grep -q 'link_asaas_subscription' "$C"/fake/sess-*-d1-W.in &&
+    grep -q 'grant_staging_trial' "$C"/fake/sess-*-d1-L.in &&
+    grep -q 'grant_staging_trial' "$C"/fake/sess-*-d2-W.in &&
+    grep -q 'link_asaas_subscription' "$C"/fake/sess-*-d2-L.in &&
+    ok "trial: d1 link vence / d2 concessão vence; operações opostas verificadas" || bad "trial: chamadas concorrentes esperadas ausentes"
+
+  newcase d-noblock; conc_run no_block --scenarios d1
+  expect "trial: bloqueio de empresa não observado => exit 1" "$?" 1
+  expect "trial: bloqueio de empresa não observado => RESULT FAIL" "$(result_of)" FAIL
+  expect "trial: sem bloqueio => sessões fechadas" "$(all_closed)" closed
+  [ -n "$(find "$C/fake" -maxdepth 1 -type f -name 'committed-*' -print -quit)" ] &&
+    bad "trial: sem bloqueio o vencedor não faz commit" || ok "trial: sem bloqueio o vencedor não faz commit"
+
+  newcase d-wronglock; conc_run wrong_trial_lock --scenarios d1
+  expect "trial: lock em relação diferente de companies => exit 1" "$?" 1
+  expect "trial: lock incorreto => RESULT FAIL" "$(result_of)" FAIL
+  expect "trial: lock incorreto => sessões fechadas" "$(all_closed)" closed
+  [ -n "$(find "$C/fake" -maxdepth 1 -type f -name 'committed-*' -print -quit)" ] &&
+    bad "trial: lock incorreto não pode confirmar o vencedor" || ok "trial: lock incorreto não pode confirmar o vencedor"
+
+  local args
+  for args in "--scenarios d3" "--scenarios d1,d1" "--scenarios d1,"; do
+    newcase "d-args-$((npass + nfail))"
+    # shellcheck disable=SC2086
+    conc_run "" $args; local rc=$?
+    expect "trial: argumentos inválidos [$args] => exit 2" "$rc" 2
+    expect "trial: argumentos inválidos [$args] => nenhuma chamada" "$(ncalls)" 0
+    expect "trial: argumentos inválidos [$args] => nenhum run criado" "$(find "$C/ev" -mindepth 1 | wc -l | tr -d ' ')" 0
+  done
 }
 
 # ---------------------------------------------------------------- evid
@@ -376,9 +419,9 @@ group_legacy() {
 }
 
 case "$group" in
-  tap) group_tap ;; seq) group_seq ;; conc) group_conc ;; legacy) group_legacy ;;
+  tap) group_tap ;; seq) group_seq ;; conc) group_conc ;; trial) group_trial ;; legacy) group_legacy ;;
   evid) group_evid ;; close) group_close ;; catalog) group_catalog ;;
-  all) group_tap; group_seq; group_conc; group_evid; group_close; group_catalog ;;
+  all) group_tap; group_seq; group_conc; group_trial; group_evid; group_close; group_catalog ;;
 esac
 echo "# harness-tests[$group]: $npass ok, $nfail falhas"
 [ "$nfail" -eq 0 ]

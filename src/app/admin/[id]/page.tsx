@@ -13,6 +13,8 @@ import { BillingForm } from "./billing-form";
 import { InvoiceForm } from "./invoice-form";
 import { DeleteButton } from "@/components/delete-button";
 import { deleteInvoice } from "../actions";
+import { canGrantStagingTrial, isStagingTrialGrantEnabled } from "@/lib/staging-trial";
+import { StagingTrialButton } from "./staging-trial-button";
 
 type Sub = {
   id: string;
@@ -34,6 +36,7 @@ const ACTION_LABEL: Record<string, string> = {
   editar_dados_empresa: "Editou dados da empresa",
   registrar_nota_fiscal: "Registrou nota fiscal",
   excluir_nota_fiscal: "Excluiu registro de nota fiscal",
+  conceder_trial_staging: "Concedeu acesso de teste (Staging)",
 };
 
 export default async function AdminCompanyPage(props: { params: Promise<{ id: string }> }) {
@@ -100,6 +103,17 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
   const now = new Date();
   const overdue = paidUntil ? paidUntil < now : false;
   const isTrial = current ? !current.asaas_subscription_id : false;
+  const showStagingTrial = Boolean(
+    isStagingTrialGrantEnabled() &&
+      !company.asaas_customer_id &&
+      current &&
+      canGrantStagingTrial({
+        status: current.status,
+        paidUntil: current.paid_until,
+        asaasSubscriptionId: current.asaas_subscription_id,
+        now,
+      }),
+  );
 
   const vesselsUsed = vesselsRes.count ?? 0;
   const usersUsed = usersRes.count ?? 0;
@@ -156,6 +170,7 @@ export default async function AdminCompanyPage(props: { params: Promise<{ id: st
             <div className="mt-4 space-y-3 border-t border-line pt-4">
               <RenewButton companyId={company.id} plans={plans} defaultCycle={current?.billing_cycle === "anual" ? "anual" : "mensal"} />
               <ChangePlanButton companyId={company.id} plans={plans} currentPlanName={current?.plans?.name ?? "-"} />
+              {showStagingTrial && <StagingTrialButton companyId={company.id} />}
             </div>
           </Card>
         </div>

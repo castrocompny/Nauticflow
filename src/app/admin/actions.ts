@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSuperAdminAction as requireSuperAdmin } from "@/lib/admin-auth";
+import { isStagingTrialGrantEnabled, STAGING_TRIAL_DAYS } from "@/lib/staging-trial";
 
 // registra a acao no log de auditoria -- nunca desfaz a acao principal se o log falhar,
 // so essa entrada especifica que fica sem rastro
@@ -328,4 +329,74 @@ export async function deleteInvoice(formData: FormData) {
   await logAction(supabase, adminId, adminName, "excluir_nota_fiscal", companyId, { invoice_id: id });
   revalidateAffectedCompany(companyId);
   return { error: "" };
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function grantStagingTrial(companyId: string, reason: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { ok: false, message: auth.message };
+  const { adminId } = auth;
+
+  if (!isStagingTrialGrantEnabled()) {
+    return { ok: false, message: "A liberação de teste está desativada neste ambiente." };
+  }
+
+  const targetCompanyId = typeof companyId === "string" ? companyId.trim() : "";
+  if (!UUID_PATTERN.test(targetCompanyId)) {
+    return { ok: false, message: "Empresa inválida." };
+  }
+
+  const auditReason = typeof reason === "string" ? reason.trim() : "";
+  if (auditReason.length < 3 || auditReason.length > 200) {
+    return { ok: false, message: "Informe um motivo curto, de 3 a 200 caracteres." };
+  }
+
+  let result: { data: unknown; error: unknown };
+  try {
+    const admin = createAdminClient();
+    result = await admin.rpc("grant_staging_trial", {
+      p_company_id: targetCompanyId,
+      p_admin_id: adminId,
+      p_reason: auditReason,
+    });
+  } catch {
+    revalidateAffectedCompany(targetCompanyId);
+    return {
+      ok: false,
+      message: "Não foi possível confirmar o resultado. Não tente novamente; peça uma conferência administrativa.",
+    };
+  }
+
+  const data = result.data as { status?: unknown } | null;
+  if (result.error || !data || typeof data.status !== "string") {
+    revalidateAffectedCompany(targetCompanyId);
+    return {
+      ok: false,
+      message: "Não foi possível confirmar o resultado. Não tente novamente; peça uma conferência administrativa.",
+    };
+  }
+
+  switch (data.status) {
+    case "company_not_found":
+      return { ok: false, message: "Empresa não encontrada ou indisponível." };
+    case "company_asaas_linked":
+      return { ok: false, message: "A empresa já tem vínculo com o Asaas; não pode receber este acesso de teste." };
+    case "subscription_not_found":
+      return { ok: false, message: "Assinatura de teste não encontrada ou indisponível." };
+    case "subscription_not_eligible":
+      return {
+        ok: false,
+        message: "Só é possível liberar teste para uma assinatura vencida, ativa e sem vínculo com o Asaas.",
+      };
+    case "granted":
+      revalidateAffectedCompany(targetCompanyId);
+      return { ok: true, message: `Acesso de teste liberado por ${STAGING_TRIAL_DAYS} dias.` };
+    default:
+      revalidateAffectedCompany(targetCompanyId);
+      return {
+        ok: false,
+        message: "Não foi possível confirmar o resultado. Não tente novamente; peça uma conferência administrativa.",
+      };
+  }
 }
