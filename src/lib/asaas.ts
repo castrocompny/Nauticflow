@@ -1,15 +1,58 @@
 // Cliente HTTP mínimo pra API do Asaas. So roda no servidor (a chave nunca chega no navegador).
 import { providerReaisToCents } from "./provider-amount";
 
-const BASE_URL = process.env.ASAAS_API_URL ?? "https://api-sandbox.asaas.com/v3";
-
 type AsaasResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
+// Trava de ambiente: só os dois endpoints oficiais, validados de forma exata
+// (nunca por substring), e Produção só sai quando a Vercel identifica Produção.
+// Ausente/vazio = Sandbox. Qualquer outra URL é recusada antes do fetch.
+type AsaasTarget = { env: "sandbox" | "production"; baseUrl: string };
+const ASAAS_HOSTS: Record<string, AsaasTarget["env"]> = {
+  "api-sandbox.asaas.com": "sandbox",
+  "api.asaas.com": "production",
+};
+const ASAAS_ENV_REFUSED = "Ambiente de pagamento indisponível.";
+
+function resolveAsaasTarget(): AsaasTarget | null {
+  const raw = process.env.ASAAS_API_URL?.trim() || "https://api-sandbox.asaas.com/v3";
+  if (raw.includes("?") || raw.includes("#")) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const env = Object.hasOwn(ASAAS_HOSTS, url.hostname) ? ASAAS_HOSTS[url.hostname] : undefined;
+  if (
+    !env ||
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== "" ||
+    (url.pathname !== "/v3" && url.pathname !== "/v3/")
+  ) {
+    return null;
+  }
+  return { env, baseUrl: `https://${url.hostname}/v3` };
+}
+
+// NODE_ENV é "production" em qualquer build (Preview incluso), então não serve.
+// VERCEL_TARGET_ENV divergente (ambiente customizado) nunca conta como Produção.
+function isProductionRuntime(): boolean {
+  const target = process.env.VERCEL_TARGET_ENV;
+  return process.env.VERCEL_ENV === "production" && (target === undefined || target === "production");
+}
+
 async function asaasFetch<T>(path: string, method: "GET" | "POST" | "DELETE", body?: unknown): Promise<AsaasResult<T>> {
+  const target = resolveAsaasTarget();
+  if (!target || (target.env === "production" && !isProductionRuntime())) {
+    return { ok: false, error: ASAAS_ENV_REFUSED };
+  }
+
   const apiKey = process.env.ASAAS_API_KEY;
   if (!apiKey) return { ok: false, error: "Integração com Asaas ainda não configurada." };
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${target.baseUrl}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -332,15 +375,8 @@ export function getMarketplacePaymentsMode(): MarketplacePaymentsMode | null {
 // mode='production' com uma API_URL de sandbox (ou vice-versa) é uma
 // configuração inconsistente -- recusada, nunca corrigida silenciosamente
 // escolhendo um dos dois.
-function validateModeMatchesBaseUrl(mode: MarketplacePaymentsMode): string | null {
-  const looksLikeSandbox = BASE_URL.includes("sandbox");
-  if (mode === "production" && looksLikeSandbox) {
-    return "MARKETPLACE_PAYMENTS_MODE=production mas ASAAS_API_URL ainda aponta pro sandbox -- configuração inconsistente, recusado.";
-  }
-  if (mode === "sandbox" && !looksLikeSandbox) {
-    return "MARKETPLACE_PAYMENTS_MODE=sandbox mas ASAAS_API_URL não aponta pro sandbox -- configuração inconsistente, recusado.";
-  }
-  return null;
+function validateModeMatchesBaseUrl(mode: "sandbox" | "production"): string | null {
+  return resolveAsaasTarget()?.env === mode ? null : ASAAS_ENV_REFUSED;
 }
 
 function guardMarketplacePixCall(): { mode: MarketplacePaymentsMode } | { error: string } {
