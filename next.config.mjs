@@ -1,4 +1,4 @@
-import { withSentryConfig } from "@sentry/nextjs";
+import { withSentryConfig } from "@sentry/nextjs/config";
 
 // 'unsafe-eval' só entra em desenvolvimento -- o próprio Next.js (Turbopack/webpack) usa
 // eval() em dev pra HMR e stack traces legíveis, mas o build de produção nunca usa eval()
